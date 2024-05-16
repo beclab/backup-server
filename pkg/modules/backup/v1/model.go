@@ -43,11 +43,12 @@ type BackupCreate struct {
 }
 
 type Snapshot struct {
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 
-	CreationTimestamp int64 `json:"creationTimestamp"`
+	CreationTimestamp   int64  `json:"creationTimestamp,omitempty"`
+	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
 
-	Size *int64 `json:"size"`
+	Size *int64 `json:"size,omitempty"`
 
 	Phase *string `json:"phase"`
 
@@ -76,6 +77,24 @@ type SnapshotDetails struct {
 	RepositoryPasswordHash string `json:"repositoryPasswordHash"`
 
 	BackupConfigName string `json:"backupConfigName"`
+}
+
+type ListBackupsDetails struct {
+	Name string `json:"name"`
+
+	Size *int64 `json:"size,omitempty"`
+
+	SnapshotName string `json:"snapshotName"`
+
+	SnapshotFrequency string `json:"snapshotFrequency"`
+
+	CreationTimestamp int64 `json:"creationTimestamp,omitempty"`
+
+	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
+
+	Phase string `json:"phase,omitempty"`
+
+	FailedMessage string `json:"failedMessage,omitempty"`
 }
 
 type ResponseDescribeBackup struct {

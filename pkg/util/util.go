@@ -16,6 +16,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+func ParseToInt64(v string) int64 {
+	i, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return i
+}
+
 // ToJSON returns a json string
 func ToJSON(v any) string {
 	var buf bytes.Buffer
@@ -156,4 +164,25 @@ func ParseLocalToTimestamp(value string) (string, error) {
 	utcTime := fmtTime.Add(-time.Duration(localoffset) * time.Second)
 	var utcTimeStr = strconv.FormatInt(utcTime.UnixMilli(), 10)
 	return utcTimeStr, nil
+}
+
+func ParseToNextUnixTime(frequency, timesOfDay string, dayOfWeek int) int64 {
+	switch frequency {
+	case "@daily":
+		return 86400
+	case "@weekly":
+		return 604800
+	default:
+		return 0
+	}
+}
+
+func GetFirstDayOfWeek(t time.Time) time.Time {
+	weekday := int(t.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	offset := -time.Duration(weekday-1) * 24 * time.Hour
+
+	return t.Add(offset).Truncate(24 * time.Hour)
 }
