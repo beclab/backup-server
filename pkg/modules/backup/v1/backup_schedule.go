@@ -296,7 +296,7 @@ func (o *BackupPlan) Get(ctx context.Context, name string) (*ResponseDescribeBac
 			if phase == nil || middlewarePhase == nil {
 				continue
 			}
-			if *phase == velero.Succeed && util.ListContains([]string{velero.Succeed, velero.Success}, *middlewarePhase) {
+			if *phase == velero.VeleroBackupCompleted && util.ListContains([]string{velero.Succeed, velero.Success}, *middlewarePhase) {
 				if i.Spec.Size != nil {
 					r.Size = i.Spec.Size
 				}
