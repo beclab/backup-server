@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"strings"
+	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
@@ -269,6 +270,49 @@ func (o *BackupPlan) hasInProgressBackup(ctx context.Context) (bool, error) {
 // 	return nil
 // }
 
+func (o *BackupPlan) GetLatest(ctx context.Context, name string) (*ListBackupsDetails, error) {
+	bc, err := o.manager.GetBackupConfig(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = o.manager.FormatSysBackupTimeofDay(bc); err != nil {
+		log.Errorf("convert time to timestamp error: %v", err)
+	}
+
+	rs := ListBackupsDetails{
+		Name:              name,
+		SnapshotFrequency: bc.Spec.BackupPolicy.SnapshotFrequency,
+	}
+
+	l, err := o.manager.ListSysBackups(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var latestSysBackup *sysv1.Backup
+	if l != nil && l.Items != nil && len(l.Items) > 0 {
+		latestSysBackup = &l.Items[0]
+	}
+
+	if latestSysBackup != nil && latestSysBackup.Spec.Size != nil {
+		rs.Size = latestSysBackup.Spec.Size
+	}
+
+	phase, message := o.GetBackupResult(latestSysBackup)
+
+	rs.NextBackupTimestamp = o.GetNextBackupTime(*bc.Spec.BackupPolicy)
+	rs.Phase = phase
+	rs.FailedMessage = message
+
+	if latestSysBackup != nil {
+		rs.SnapshotName = latestSysBackup.Name
+		rs.CreationTimestamp = latestSysBackup.ObjectMeta.CreationTimestamp.Unix()
+	}
+
+	return &rs, nil
+}
+
 func (o *BackupPlan) Get(ctx context.Context, name string) (*ResponseDescribeBackup, error) {
 	bc, err := o.manager.GetBackupConfig(ctx, name)
 	if err != nil {
@@ -296,6 +340,7 @@ func (o *BackupPlan) Get(ctx context.Context, name string) (*ResponseDescribeBac
 			if phase == nil || middlewarePhase == nil {
 				continue
 			}
+
 			if *phase == velero.VeleroBackupCompleted && util.ListContains([]string{velero.Succeed, velero.Success}, *middlewarePhase) {
 				if i.Spec.Size != nil {
 					r.Size = i.Spec.Size
@@ -309,4 +354,37 @@ func (o *BackupPlan) Get(ctx context.Context, name string) (*ResponseDescribeBac
 
 func (o *BackupPlan) Del(ctx context.Context, name string) error {
 	return errors.New("to be implement")
+}
+
+func (o *BackupPlan) GetBackupResult(sysBackup *sysv1.Backup) (string, string) {
+	if sysBackup == nil {
+		return "", ""
+	}
+	resticPhase := util.ListContains([]string{velero.Succeed, velero.Success, velero.VeleroBackupCompleted}, *sysBackup.Spec.ResticPhase)
+	middlewarePhase := util.ListContains([]string{velero.Succeed, velero.Success, velero.VeleroBackupCompleted}, *sysBackup.Spec.MiddleWarePhase)
+
+	if resticPhase && middlewarePhase && *sysBackup.Spec.Phase == velero.VeleroBackupCompleted {
+		return velero.VeleroBackupCompleted, ""
+	} else if !resticPhase {
+		return velero.Failed, *sysBackup.Spec.ResticFailedMessage
+	} else {
+		return velero.Failed, *sysBackup.Spec.FailedMessage
+	}
+}
+
+func (o *BackupPlan) GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
+	var res int64
+	var n = time.Now().Local()
+	var prefix int64 = util.ParseToInt64(bp.TimesOfDay) / 1000
+	var incr = util.ParseToNextUnixTime(bp.SnapshotFrequency, bp.TimesOfDay, bp.DayOfWeek)
+
+	switch bp.SnapshotFrequency {
+	case "@weekly":
+		var midweek = util.GetFirstDayOfWeek(n).AddDate(0, 0, bp.DayOfWeek)
+		res = midweek.Unix() + incr + prefix
+	default:
+		var midnight = time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
+		res = midnight.Unix() + incr + prefix
+	}
+	return &res
 }
