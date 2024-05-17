@@ -105,6 +105,19 @@ type ResponseDescribeBackup struct {
 	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies"`
 
 	Snapshots []Snapshot `json:"snapshots,omitempty"`
+
+	// new list api fields
+	SnapshotName string `json:"latestSnapshotName"`
+
+	SnapshotFrequency string `json:"snapshotFrequency"`
+
+	CreationTimestamp int64 `json:"creationTimestamp,omitempty"`
+
+	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
+
+	Phase string `json:"phase,omitempty"`
+
+	FailedMessage string `json:"failedMessage,omitempty"`
 }
 
 type PostBackupSchedule struct {
