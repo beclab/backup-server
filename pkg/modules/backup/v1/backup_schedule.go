@@ -270,7 +270,7 @@ func (o *BackupPlan) hasInProgressBackup(ctx context.Context) (bool, error) {
 // 	return nil
 // }
 
-func (o *BackupPlan) GetLatest(ctx context.Context, name string) (*ListBackupsDetails, error) {
+func (o *BackupPlan) GetLatest(ctx context.Context, name string) (*ResponseDescribeBackup, error) {
 	bc, err := o.manager.GetBackupConfig(ctx, name)
 	if err != nil {
 		return nil, err
@@ -280,8 +280,9 @@ func (o *BackupPlan) GetLatest(ctx context.Context, name string) (*ListBackupsDe
 		log.Errorf("convert time to timestamp error: %v", err)
 	}
 
-	rs := ListBackupsDetails{
+	rs := ResponseDescribeBackup{
 		Name:              name,
+		BackupPolicies:    bc.Spec.BackupPolicy,
 		SnapshotFrequency: bc.Spec.BackupPolicy.SnapshotFrequency,
 	}
 

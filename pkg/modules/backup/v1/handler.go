@@ -87,10 +87,10 @@ func (h *Handler) list(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	var res []*ListBackupsDetails
+	var res []*ResponseDescribeBackup
 
 	for _, b := range l.Items {
-		var r *ListBackupsDetails
+		var r *ResponseDescribeBackup
 		r, err = NewBackupPlan(owner, h.factory, h.veleroBackupManager).GetLatest(ctx, b.Name)
 		if err != nil {
 			log.Warnf("failed to get backup plan %q: %v", b.Name, err)
