@@ -281,9 +281,8 @@ func (o *BackupPlan) GetLatest(ctx context.Context, name string) (*ResponseDescr
 	}
 
 	rs := ResponseDescribeBackup{
-		Name:              name,
-		BackupPolicies:    bc.Spec.BackupPolicy,
-		SnapshotFrequency: bc.Spec.BackupPolicy.SnapshotFrequency,
+		Name:           name,
+		BackupPolicies: bc.Spec.BackupPolicy,
 	}
 
 	l, err := o.manager.ListSysBackups(ctx, name)

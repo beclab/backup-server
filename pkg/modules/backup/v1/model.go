@@ -109,8 +109,6 @@ type ResponseDescribeBackup struct {
 	// new list api fields
 	SnapshotName string `json:"latestSnapshotName"`
 
-	SnapshotFrequency string `json:"snapshotFrequency"`
-
 	CreationTimestamp int64 `json:"creationTimestamp,omitempty"`
 
 	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
