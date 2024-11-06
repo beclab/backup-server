@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
@@ -203,8 +205,8 @@ func getPasswordFromSettings(bc *sysv1.BackupConfig) (password string, err error
 }
 
 func GetAwsAccountFromCloud(ctx context.Context, client dynamic.Interface, userid, token, bucket, prefix string) (*AWSAccount, error) {
-	// cloudUrl := "https://cloud-dev-api.bttcdn.com/v1/resource/stsToken"
-	cloudUrl := "https://cloud-api.bttcdn.com/v1/resource/stsToken"
+	serverDomain := util.EnvOrDefault(constant.EnvSpaceUrl, constant.DefaultSyncServerURL)
+	serverURL := fmt.Sprintf("%s/v1/resource/stsToken", strings.TrimRight(serverDomain, "/"))
 
 	clusterId, err := getClusterId(ctx, client)
 	if err != nil {
@@ -223,10 +225,10 @@ func GetAwsAccountFromCloud(ctx context.Context, client dynamic.Interface, useri
 			"durationSeconds": fmt.Sprintf("%.0f", duration.Seconds()),
 		}).
 		SetResult(&AWSAccountResponse{}).
-		Post(cloudUrl)
+		Post(serverURL)
 
 	if err != nil {
-		klog.Error("fetch data from cloud error, ", err, ", ", cloudUrl)
+		klog.Error("fetch data from cloud error, ", err, ", ", serverURL)
 		return nil, err
 	}
 
