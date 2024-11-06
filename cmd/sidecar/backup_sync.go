@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	backupv1 "bytetrade.io/web3os/backup-server/pkg/modules/backup/v1"
 	syncbackupv1 "bytetrade.io/web3os/backup-server/pkg/sidecar/syncbackup/v1"
 	"bytetrade.io/web3os/backup-server/pkg/sidecar/syncbackup/v1/db"
@@ -131,7 +132,7 @@ func main() {
 	pflag.UintVarP(&syncInterval, "sync-interval", "i",
 		5, "sync backup interval seconds")
 	pflag.StringVarP(&syncServerURL, "sync-server-url", "",
-		util.EnvOrDefault("BACKUP_SYNC_SERVER_URL", "https://cloud-api.bttcdn.com/v1/resource/backup"), "sync server api token")
+		util.EnvOrDefault(constant.EnvSpaceUrl, constant.DefaultSyncServerURL), "sync server api token")
 	pflag.StringVarP(&syncServerToken, "sync-server-token", "",
 		util.EnvOrDefault("BACKUP_SECRET", ""), "sync server api token")
 	pflag.Parse()

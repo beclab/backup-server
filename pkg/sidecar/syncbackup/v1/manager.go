@@ -3,7 +3,9 @@ package v1
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	backupv1 "bytetrade.io/web3os/backup-server/pkg/modules/backup/v1"
@@ -71,12 +73,13 @@ func (s *SyncManager) push(b *backupv1.SyncBackup) (err error) {
 		return err
 	}
 
+	serverURL := fmt.Sprintf("%s/v1/resource/backup", strings.TrimRight(s.syncServerURL, "/"))
 	client := resty.New().SetTimeout(5 * time.Second).SetDebug(true)
 	resp, err := client.R().
 		SetHeaders(headers).
 		SetFormData(formdata).
 		SetResult(&r).
-		Post(s.syncServerURL)
+		Post(serverURL)
 	if err != nil {
 		klog.Error("push to cloud err, ", err)
 		return err
