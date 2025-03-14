@@ -7,7 +7,7 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type BackupPolicy struct {
+type BackupPolicyX struct {
 	Name string `json:"name"`
 
 	SnapshotFrequency string `json:"snapshotFrequency"`
@@ -46,7 +46,7 @@ type BackupConfigSpec struct {
 
 	StorageLocation string `json:"storageLocation"`
 
-	BackupPolicy *BackupPolicy `json:"backupPolicy,omitempty"`
+	BackupPolicy *BackupPolicyX `json:"backupPolicy,omitempty"`
 
 	RepositoryPassword string `json:"repositoryPassword,omitempty"`
 

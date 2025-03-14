@@ -12,28 +12,22 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type Config struct {
-	Provider string `json:"provider,omitempty"`
-
-	Region string `json:"region"` // ap-southeast-1
-
-	Bucket string `json:"bucket"` // for aws
-
-	S3Url string `json:"s3Url,omitempty"` // for minio
-
-	Prefix string `json:"prefix"`
-
+type LocationConfig struct {
+	CloudName string `json:"cloudName,omitempty"`
+	RegionId  string `json:"regionId,omitempty"`
+	Endpoint  string `json:"endpoint,omitempty"`
 	AccessKey string `json:"accessKey,omitempty"`
-
 	SecretKey string `json:"secretKey,omitempty"`
 }
 
 type BackupCreate struct {
 	Name string `json:"name"`
 
-	Location string `json:"location,omitempty"` // terminus cloud or s3
+	Path string `json:"path"`
 
-	Config *Config `json:"config,omitempty"` // if location is s3
+	Location string `json:"location"` // space or s3
+
+	LocationConfig *LocationConfig `json:"config,omitempty"`
 
 	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
 

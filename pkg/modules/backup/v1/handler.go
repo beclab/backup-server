@@ -8,6 +8,8 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/config"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -21,6 +23,8 @@ type Handler struct {
 	cfg                 *config.Config
 	factory             client.Factory
 	veleroBackupManager velero.Manager
+	backupOperator      *operator.BackupOperator
+	snapshotOperator    *operator.SnapshotOperator
 }
 
 func New(cfg *config.Config, factory client.Factory) *Handler {
@@ -28,6 +32,8 @@ func New(cfg *config.Config, factory client.Factory) *Handler {
 		cfg:                 cfg,
 		factory:             factory,
 		veleroBackupManager: velero.NewManager(factory),
+		backupOperator:      operator.NewBackupOperator(factory),
+		snapshotOperator:    operator.NewSnapshotOperator(factory),
 	}
 }
 
@@ -91,7 +97,7 @@ func (h *Handler) list(req *restful.Request, resp *restful.Response) {
 
 	for _, b := range l.Items {
 		var r *ResponseDescribeBackup
-		r, err = NewBackupPlan(owner, h.factory, h.veleroBackupManager).GetLatest(ctx, b.Name)
+		r, err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).GetLatest(ctx, b.Name)
 		if err != nil {
 			log.Warnf("failed to get backup plan %q: %v", b.Name, err)
 		} else {
@@ -106,7 +112,7 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	ctx, name := req.Request.Context(), req.PathParameter("name")
 	owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
 
-	r, err := NewBackupPlan(owner, h.factory, h.veleroBackupManager).Get(ctx, name)
+	r, err := NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Get(ctx, name)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
 		return
@@ -114,6 +120,7 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	response.Success(resp, r)
 }
 
+// + todo
 func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -126,33 +133,40 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	}
 
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+
 	log.Debugf("received backup create request: %s", util.PrettyJSON(b))
 
-	if b.Location == "" {
+	if b.Location == "" || b.LocationConfig == nil {
 		response.HandleError(resp, errors.New("backup location is required"))
 		return
 	}
+
 	if b.BackupPolicies == nil {
-		response.HandleError(resp, errors.New("backup policy is required, at least one"))
+		response.HandleError(resp, errors.New("backup policy is required"))
 		return
 	}
 
 	// if backup is exists
-	bcs, _ := h.veleroBackupManager.GetBackupConfig(ctx, b.Name)
-	if bcs != nil {
-		response.HandleError(resp, errors.New("the backup plan "+b.Name+" already exists, please modify the plan name"))
+	backup, err := h.backupOperator.GetBackup(ctx, b.Name)
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
+		return
+	}
+
+	if backup != nil {
+		response.HandleError(resp, errors.New("the backup plan "+b.Name+" already exists"))
 		return
 	}
 
 	// check is exist backup in progress
-	// ~ no need
+	// todo
 	// if _, err = h.veleroBackupManager.ExistRunningBackup(ctx); err != nil {
 	// 	response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
 	// 	return
 	// }
 
-	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager).Apply(ctx, &b); err != nil {
+	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Apply(ctx, &b); err != nil {
 		response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
 		return
 	}
@@ -193,7 +207,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 	}
 
 	if bc != nil {
-		if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager).Apply(ctx, &b); err != nil {
+		if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Apply(ctx, &b); err != nil {
 			response.HandleError(resp, errors.WithMessagef(err, format, name))
 			return
 		}
