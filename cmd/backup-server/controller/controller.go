@@ -4,6 +4,7 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/common"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -12,7 +13,6 @@ import (
 	pkgerrors "github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	veleroscheme "github.com/vmware-tanzu/velero/pkg/generated/clientset/versioned/scheme"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -33,7 +33,6 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(sysv1.AddToScheme(scheme))
-	utilruntime.Must(veleroscheme.AddToScheme(scheme))
 
 	opts := zap.Options{
 		Development: true,
@@ -74,8 +73,10 @@ func addFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&velero.DefaultBackupKeyPrefix, "backup-key-prefix",
 		util.EnvOrDefault("VELERO_BACKUP_KEY_PREFIX", velero.DefaultBackupKeyPrefix), "terminus backup key prefix")
 
+	fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.xyz", "cloud API mirror")
 	fs.StringVarP(&logLevel, "log-level", "l", "debug", "log level")
 	fs.Int64Var(&velero.DefaultBackupTTL, "backup-retain-days", velero.DefaultBackupTTL, "backup ttl, retain for days")
+
 }
 
 func Run() error {
@@ -131,30 +132,30 @@ func run(factory client.Factory) error {
 	manager := velero.NewManager(factory)
 
 	enabledControllers := map[string]struct{}{
-		controllers.BackupConfigController: {},
-		controllers.BackupController:       {},
-	}
-
-	if _, ok := enabledControllers[controllers.BackupConfigController]; ok {
-		if err = controllers.NewBackupConfigController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
-			SetupWithManager(mgr); err != nil {
-			return pkgerrors.Errorf("unable to create backupConfig controller: %v", err)
-		}
+		controllers.BackupController:   {},
+		controllers.SnapshotController: {},
 	}
 
 	if _, ok := enabledControllers[controllers.BackupController]; ok {
 		if err = controllers.NewBackupController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
 			SetupWithManager(mgr); err != nil {
+			return pkgerrors.Errorf("unable to create backupConfig controller: %v", err)
+		}
+	}
+
+	if _, ok := enabledControllers[controllers.SnapshotController]; ok {
+		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
+			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backup controller: %v", err)
 		}
 	}
 
-	if _, ok := enabledControllers[controllers.RestoreController]; ok {
-		if err = controllers.NewBackupRestoreController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
-			SetupWithManager(mgr); err != nil {
-			return pkgerrors.Errorf("unable to create backupRestore controller: %v", err)
-		}
-	}
+	// if _, ok := enabledControllers[controllers.RestoreController]; ok {
+	// 	if err = controllers.NewBackupRestoreController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
+	// 		SetupWithManager(mgr); err != nil {
+	// 		return pkgerrors.Errorf("unable to create backupRestore controller: %v", err)
+	// 	}
+	// }
 
 	log.Info("starting manager")
 

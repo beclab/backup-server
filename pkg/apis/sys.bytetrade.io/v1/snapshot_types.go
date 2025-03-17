@@ -28,14 +28,14 @@ type SnapshotSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	BackupUid     string            `json:"backupUid"`
-	BackupType    map[string]string `json:"backupType"`
+	Id            string            `json:"id"`
+	BackupId      string            `json:"backupId"`
 	Location      string            `json:"location"`
-	SnapshotType  *int              `json:"snapshotType"`
+	BackupType    *int              `json:"backupType"`
 	SnapshotId    *string           `json:"snapshotId,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`
-	StartAt       uint64            `json:"startAt"`
-	EndAt         uint64            `json:"endAt,omitempty"`
+	StartAt       int64             `json:"startAt"`
+	EndAt         int64             `json:"endAt,omitempty"`
 	Phase         *string           `json:"phase"`
 	Message       *string           `json:"message,omitempty"`
 	ResticPhase   *string           `json:"resticPhase,omitempty"`
@@ -53,7 +53,8 @@ type SnapshotStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Namespaced, categories={all}
-//+kubebuilder:printcolumn:JSONPath=.spec.owner, name=owner, type=string
+//+kubebuilder:printcolumn:JSONPath=.spec.location, name=location, type=string
+//+kubebuilder:printcolumn:JSONPath=.spec.backupType, name=backupType, type=string
 //+kubebuilder:printcolumn:JSONPath=.spec.phase, name=phase, type=string
 //+kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=creation, type=date
 //+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

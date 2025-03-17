@@ -11,6 +11,9 @@ const (
 
 	DefaultOwnerHeaderKey    = "X-Backup-Owner"
 	DefaultOsSystemNamespace = "os-system"
+
+	FullyBackup       string = "fully"
+	IncrementalBackup string = "incremental"
 )
 
 type BackupLocation string
@@ -31,22 +34,36 @@ func (b BackupSnapshotFrequency) String() string {
 }
 
 const (
-	BackupSnapshotFrequencyHourly  BackupSnapshotFrequency = "hourly"
-	BackupSnapshotFrequencyDaily   BackupSnapshotFrequency = "daily"
-	BackupSnapshotFrequencyWeekly  BackupSnapshotFrequency = "weekly"
-	BackupSnapshotFrequencyMonthly BackupSnapshotFrequency = "monthly"
+	BackupSnapshotFrequencyHourly  BackupSnapshotFrequency = "@hourly"
+	BackupSnapshotFrequencyDaily   BackupSnapshotFrequency = "@daily"
+	BackupSnapshotFrequencyWeekly  BackupSnapshotFrequency = "@weekly"
+	BackupSnapshotFrequencyMonthly BackupSnapshotFrequency = "@monthly"
 )
 
 var (
+	DefaultCloudApiMirror = "https://cloud-dev-api.olares.xyz"
+
 	BackupGVR = schema.GroupVersionResource{
 		Group:    scheme.SchemeGroupVersion.Group,
 		Version:  scheme.SchemeGroupVersion.Version,
-		Resource: "backup",
+		Resource: "backups",
 	}
 
 	SnapshotGVR = schema.GroupVersionResource{
 		Group:    scheme.SchemeGroupVersion.Group,
 		Version:  scheme.SchemeGroupVersion.Version,
 		Resource: "snapshot",
+	}
+
+	TerminusGVR = schema.GroupVersionResource{
+		Group:    "sys.bytetrade.io",
+		Version:  "v1alpha1",
+		Resource: "terminus",
+	}
+
+	UsersGVR = schema.GroupVersionResource{
+		Group:    "iam.kubesphere.io",
+		Version:  "v1alpha2",
+		Resource: "users",
 	}
 )

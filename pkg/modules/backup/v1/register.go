@@ -40,6 +40,8 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans").
 		To(handler.list).
+		Param(ws.QueryParameter("page", "page of plans").Required(false)).
+		Param(ws.QueryParameter("limit", "page size of plans").Required(false)).
 		Doc("list backup plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
@@ -51,11 +53,12 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
+	// + new plan
 	ws.Route(ws.POST("/plans").
 		To(handler.add).
 		Reads(BackupCreate{}).
 		Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
-			DataType("string").Required(true)).
+			DataType("string").Required(false)).
 		Doc("add backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 

@@ -31,59 +31,59 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// BackupConfigInformer provides access to a shared informer and lister for
-// BackupConfigs.
-type BackupConfigInformer interface {
+// SnapshotInformer provides access to a shared informer and lister for
+// Snapshots.
+type SnapshotInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1.BackupConfigLister
+	Lister() v1.SnapshotLister
 }
 
-type backupConfigInformer struct {
+type snapshotInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 	namespace        string
 }
 
-// NewBackupConfigInformer constructs a new informer for BackupConfig type.
+// NewSnapshotInformer constructs a new informer for Snapshot type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewBackupConfigInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredBackupConfigInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewSnapshotInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredSnapshotInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredBackupConfigInformer constructs a new informer for BackupConfig type.
+// NewFilteredSnapshotInformer constructs a new informer for Snapshot type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredBackupConfigInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredSnapshotInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.SysV1().BackupConfigs(namespace).List(context.TODO(), options)
+				return client.SysV1().Snapshots(namespace).List(context.TODO(), options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.SysV1().BackupConfigs(namespace).Watch(context.TODO(), options)
+				return client.SysV1().Snapshots(namespace).Watch(context.TODO(), options)
 			},
 		},
-		&sysbytetradeiov1.BackupConfig{},
+		&sysbytetradeiov1.Snapshot{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *backupConfigInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredBackupConfigInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *snapshotInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredSnapshotInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *backupConfigInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&sysbytetradeiov1.BackupConfig{}, f.defaultInformer)
+func (f *snapshotInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&sysbytetradeiov1.Snapshot{}, f.defaultInformer)
 }
 
-func (f *backupConfigInformer) Lister() v1.BackupConfigLister {
-	return v1.NewBackupConfigLister(f.Informer().GetIndexer())
+func (f *snapshotInformer) Lister() v1.SnapshotLister {
+	return v1.NewSnapshotLister(f.Informer().GetIndexer())
 }

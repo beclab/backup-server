@@ -2,7 +2,6 @@ package v1
 
 import (
 	"context"
-	"strconv"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/config"
@@ -46,25 +45,6 @@ func (h *Handler) ready(req *restful.Request, resp *restful.Response) {
 }
 
 func (h *Handler) init(req *restful.Request, resp *restful.Response) {
-	ctx := req.Request.Context()
-
-	isReady, err := h.veleroBackupManager.CRDsAreReady()
-	if err != nil {
-		response.HandleError(resp, errors.WithMessage(err, "initialize check CRDs ready"))
-		return
-	}
-	if !isReady {
-		response.HandleError(resp, errors.New("CRDs not ready"))
-		return
-	}
-
-	// install core resources
-	err = h.veleroBackupManager.InstallCoreResources(ctx)
-	if err != nil {
-		response.HandleError(resp, errors.WithMessage(err, "initialize core resource"))
-		return
-	}
-
 	response.SuccessNoData(resp)
 }
 
@@ -85,39 +65,47 @@ func (h *Handler) available(req *restful.Request, resp *restful.Response) {
 
 func (h *Handler) list(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	// p := req.QueryParameter("page")
+	// l := req.QueryParameter("limit")
 
-	l, err := h.veleroBackupManager.ListBackupConfigs(ctx)
+	// support page
+	backups, err := h.backupOperator.ListBackups(ctx, owner, 0, 5)
 	if err != nil {
 		response.HandleError(resp, err)
 		return
 	}
 
-	var res []*ResponseDescribeBackup
-
-	for _, b := range l.Items {
-		var r *ResponseDescribeBackup
-		r, err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).GetLatest(ctx, b.Name)
-		if err != nil {
-			log.Warnf("failed to get backup plan %q: %v", b.Name, err)
-		} else {
-			res = append(res, r)
-		}
-	}
-
-	response.Success(resp, response.NewListResult(res))
+	response.Success(resp, response.NewListResult(backups.Items))
 }
 
 func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	ctx, name := req.Request.Context(), req.PathParameter("name")
 	owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
 
-	r, err := NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Get(ctx, name)
+	backup, err := h.backupOperator.GetBackup(ctx, owner, name)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
 		return
 	}
+
+	//
+
+	r := ResponseDescribeBackup{
+		Name:           name,
+		Path:           "", // todo query latest snapshot
+		Size:           backup.Spec.Size,
+		BackupPolicies: backup.Spec.BackupPolicy,
+	}
+
 	response.Success(resp, r)
+
+	// r, err := NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Get(ctx, name)
+	// if err != nil {
+	// 	response.HandleError(resp, errors.WithMessage(err, "describe backup"))
+	// 	return
+	// }
+	// response.Success(resp, r)
 }
 
 // + todo
@@ -133,7 +121,9 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	}
 
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	// ! debug
+	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := "zhaoyu001"
 
 	log.Debugf("received backup create request: %s", util.PrettyJSON(b))
 
@@ -148,7 +138,7 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	}
 
 	// if backup is exists
-	backup, err := h.backupOperator.GetBackup(ctx, b.Name)
+	backup, err := h.backupOperator.GetBackup(ctx, owner, b.Name)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
 		return
@@ -185,7 +175,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	name, owner := req.PathParameter("name"), req.HeaderParameter(velero.BackupOwnerHeaderKey)
+	name, owner := req.PathParameter("name"), req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	ctx := req.Request.Context()
 	b.Name = name
 
@@ -193,212 +183,203 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 
 	format := "failed to update backup plan %q"
 
-	c, err := h.factory.Sysv1Client()
-	if err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, format, name))
+	backup, err := h.backupOperator.GetBackup(ctx, owner, name)
+	if err != nil && !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessage(err, "failed to update backup"))
 		return
 	}
 
-	bc, err := c.SysV1().BackupConfigs(h.veleroBackupManager.Namespace()).
-		Get(ctx, name, metav1.GetOptions{})
-	if err != nil && apierrors.IsNotFound(err) {
+	if backup == nil {
 		response.HandleError(resp, errors.Errorf(format+", not found", name))
 		return
 	}
 
-	if bc != nil {
-		if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Apply(ctx, &b); err != nil {
-			response.HandleError(resp, errors.WithMessagef(err, format, name))
-			return
-		}
-	}
-
-	bc, err = h.veleroBackupManager.GetBackupConfig(ctx, name)
-	if err != nil {
+	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Update(ctx, &b, backup); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, format, name))
 		return
 	}
 
 	r := &ResponseDescribeBackup{
 		Name:           name,
-		BackupPolicies: bc.Spec.BackupPolicy,
+		BackupPolicies: b.BackupPolicies,
 	}
+
 	response.Success(resp, r)
 }
 
 func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
-	ctx := req.Request.Context()
+	// ctx := req.Request.Context()
 
-	limit := 10
+	// limit := 10
 
-	plan := req.PathParameter("plan_name")
-	q := req.QueryParameter("limit")
-	if q != "" {
-		v, err := strconv.Atoi(q)
-		if err != nil {
-			log.Warnf("list snapshot, invalid limit parameter: %q", q)
-		} else {
-			limit = v
-		}
-	}
+	// plan := req.PathParameter("plan_name")
+	// q := req.QueryParameter("limit")
+	// if q != "" {
+	// 	v, err := strconv.Atoi(q)
+	// 	if err != nil {
+	// 		log.Warnf("list snapshot, invalid limit parameter: %q", q)
+	// 	} else {
+	// 		limit = v
+	// 	}
+	// }
 
-	l, err := h.veleroBackupManager.ListSysBackups(ctx, plan)
-	if err != nil {
-		response.HandleError(resp, errors.WithMessage(err, "failed to list backup snapshots"))
-		return
-	}
+	// l, err := h.veleroBackupManager.ListSysBackups(ctx, plan)
+	// if err != nil {
+	// 	response.HandleError(resp, errors.WithMessage(err, "failed to list backup snapshots"))
+	// 	return
+	// }
 
-	if limit > len(l.Items) || limit == -1 {
-		limit = len(l.Items)
-	}
+	// if limit > len(l.Items) || limit == -1 {
+	// 	limit = len(l.Items)
+	// }
 
-	limitedBackups := l.Items[:limit]
+	// limitedBackups := l.Items[:limit]
 
-	var snapshots []Snapshot
+	// var snapshots []Snapshot
 
-	for _, i := range limitedBackups {
-		if i.Spec.Extra == nil {
-			log.Warnf("backup %q not extra", i.Name)
-			continue
-		}
+	// for _, i := range limitedBackups {
+	// 	if i.Spec.Extra == nil {
+	// 		log.Warnf("backup %q not extra", i.Name)
+	// 		continue
+	// 	}
 
-		var bc *sysv1.BackupConfig
+	// 	var bc *sysv1.BackupConfig
 
-		bc, err = h.veleroBackupManager.GetBackupConfig(ctx, plan)
-		if err != nil {
-			log.Warnf("backup %q get backup config: %v", i.Name, err)
-			continue
-		}
+	// 	bc, err = h.veleroBackupManager.GetBackupConfig(ctx, plan)
+	// 	if err != nil {
+	// 		log.Warnf("backup %q get backup config: %v", i.Name, err)
+	// 		continue
+	// 	}
 
-		if bc == nil {
-			continue
-		}
-		if b := parseBackup(ctx, h.veleroBackupManager, bc, &i); b != nil {
-			snapshots = append(snapshots, Snapshot{
-				Name:              b.Name,
-				CreationTimestamp: b.CreationTimestamp,
-				Size:              b.Size,
-				Phase:             b.Phase,
-				FailedMessage:     b.FailedMessage,
-			})
-		}
-	}
-	response.Success(resp, response.NewListResult(snapshots))
+	// 	if bc == nil {
+	// 		continue
+	// 	}
+	// 	if b := parseBackup(ctx, h.veleroBackupManager, bc, &i); b != nil {
+	// 		snapshots = append(snapshots, Snapshot{
+	// 			Name:              b.Name,
+	// 			CreationTimestamp: b.CreationTimestamp,
+	// 			Size:              b.Size,
+	// 			Phase:             b.Phase,
+	// 			FailedMessage:     b.FailedMessage,
+	// 		})
+	// 	}
+	// }
+	// response.Success(resp, response.NewListResult(snapshots))
 }
 
 func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
-	ctx := req.Request.Context()
-	name := req.PathParameter("name")
+	// 	ctx := req.Request.Context()
+	// 	name := req.PathParameter("name")
 
-	b, err := h.veleroBackupManager.GetSysBackup(ctx, name)
-	if err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "describe snapshot %q", name))
-		return
-	}
-	plan := req.PathParameter("plan_name")
+	// 	b, err := h.veleroBackupManager.GetSysBackup(ctx, name)
+	// 	if err != nil {
+	// 		response.HandleError(resp, errors.WithMessagef(err, "describe snapshot %q", name))
+	// 		return
+	// 	}
+	// 	plan := req.PathParameter("plan_name")
 
-	var res *SnapshotDetails
+	// 	var res *SnapshotDetails
 
-	if bcName, ok := b.Labels[velero.LabelBackupConfig]; ok && bcName != "" && bcName == plan {
-		var bc *sysv1.BackupConfig
-		bc, err = h.veleroBackupManager.GetBackupConfig(ctx, bcName)
-		if err != nil {
-			log.Warnf("backup %q get backup config: %v", name, err)
-		} else if bc != nil {
-			bb := parseBackup(ctx, h.veleroBackupManager, bc, b)
-			res = parseBackupSnapshotDetail(bb)
-		}
-	}
+	// 	if bcName, ok := b.Labels[velero.LabelBackupConfig]; ok && bcName != "" && bcName == plan {
+	// 		var bc *sysv1.BackupConfig
+	// 		bc, err = h.veleroBackupManager.GetBackupConfig(ctx, bcName)
+	// 		if err != nil {
+	// 			log.Warnf("backup %q get backup config: %v", name, err)
+	// 		} else if bc != nil {
+	// 			bb := parseBackup(ctx, h.veleroBackupManager, bc, b)
+	// 			res = parseBackupSnapshotDetail(bb)
+	// 		}
+	// 	}
 
-	response.Success(resp, res)
+	// 	response.Success(resp, res)
 }
 
 func (h *Handler) deleteSnapshot(req *restful.Request, resp *restful.Response) {
-	ctx := req.Request.Context()
-	name := req.PathParameter("name")
+	// 	ctx := req.Request.Context()
+	// 	name := req.PathParameter("name")
 
-	b, err := h.veleroBackupManager.GetSysBackup(ctx, name)
-	if err != nil {
-		response.HandleError(resp, err)
-		return
-	}
+	// 	b, err := h.veleroBackupManager.GetSysBackup(ctx, name)
+	// 	if err != nil {
+	// 		response.HandleError(resp, err)
+	// 		return
+	// 	}
 
-	plan := req.PathParameter("plan_name")
+	// 	plan := req.PathParameter("plan_name")
 
-	if bcName, ok := b.Labels[velero.LabelBackupConfig]; ok && bcName != "" && bcName == plan {
-		sc, err := h.factory.Sysv1Client()
-		if err != nil {
-			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
-			return
-		}
+	// 	if bcName, ok := b.Labels[velero.LabelBackupConfig]; ok && bcName != "" && bcName == plan {
+	// 		sc, err := h.factory.Sysv1Client()
+	// 		if err != nil {
+	// 			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
+	// 			return
+	// 		}
 
-		// to delete full backup, must delete all increment backup first
-		refbackups, err := h.getAllIncrementBackups(ctx, b.Namespace, name, string(b.UID))
-		if err != nil {
-			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
-			return
-		}
+	// 		// to delete full backup, must delete all increment backup first
+	// 		refbackups, err := h.getAllIncrementBackups(ctx, b.Namespace, name, string(b.UID))
+	// 		if err != nil {
+	// 			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
+	// 			return
+	// 		}
 
-		if len(refbackups) > 0 {
-			response.HandleError(resp, errors.WithMessagef(errors.New("has more increment backups to be deleted"), "more increment backups refer to %q", name))
-			return
-		}
+	// 		if len(refbackups) > 0 {
+	// 			response.HandleError(resp, errors.WithMessagef(errors.New("has more increment backups to be deleted"), "more increment backups refer to %q", name))
+	// 			return
+	// 		}
 
-		err = sc.SysV1().Backups(b.Namespace).
-			Delete(ctx, name, metav1.DeleteOptions{})
-		if err != nil {
-			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
-			return
-		}
-	}
+	// 		err = sc.SysV1().Backups(b.Namespace).
+	// 			Delete(ctx, name, metav1.DeleteOptions{})
+	// 		if err != nil {
+	// 			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
+	// 			return
+	// 		}
+	// 	}
 
-	response.SuccessNoData(resp)
+	// response.SuccessNoData(resp)
 }
 
 func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response) {
-	ctx, name := req.Request.Context(), req.PathParameter("name")
+	// 	ctx, name := req.Request.Context(), req.PathParameter("name")
 
-	log.Debugf("delete backup %q", name)
+	// 	log.Debugf("delete backup %q", name)
 
-	sc, err := h.factory.Sysv1Client()
-	if err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "new client"))
-		return
-	}
-	ns := h.veleroBackupManager.Namespace()
-	if err = sc.SysV1().BackupConfigs(ns).
-		Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-		log.Warnf("deleting bc %q, %v", name, err)
-	}
+	// 	sc, err := h.factory.Sysv1Client()
+	// 	if err != nil {
+	// 		response.HandleError(resp, errors.WithMessagef(err, "new client"))
+	// 		return
+	// 	}
+	// 	ns := h.veleroBackupManager.Namespace()
+	// 	if err = sc.SysV1().BackupConfigs(ns).
+	// 		Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+	// 		log.Warnf("deleting bc %q, %v", name, err)
+	// 	}
 
-	response.SuccessNoData(resp)
+	// 	response.SuccessNoData(resp)
 }
 
 // listBackups for sync cloud
 func (h *Handler) listBackups(req *restful.Request, resp *restful.Response) {
-	ctx := req.Request.Context()
+	// 	ctx := req.Request.Context()
 
-	list, err := h.veleroBackupManager.ListSysBackups(ctx, "")
-	if err != nil {
-		response.HandleError(resp, err)
-		return
-	}
+	// 	list, err := h.veleroBackupManager.ListSysBackups(ctx, "")
+	// 	if err != nil {
+	// 		response.HandleError(resp, err)
+	// 		return
+	// 	}
 
-	var backups SyncBackupList
+	// 	var backups SyncBackupList
 
-	for _, backup := range list.Items {
-		if bcName, ok := backup.Labels[velero.LabelBackupConfig]; ok && bcName != "" {
-			var bc *sysv1.BackupConfig
-			bc, err = h.veleroBackupManager.GetBackupConfig(ctx, bcName)
-			if err != nil {
-				log.Warnf("backup %q get backup config: %v", backup.Name, err)
-			} else if bc != nil {
-				backups = append(backups, parseBackup(ctx, h.veleroBackupManager, bc, &backup))
-			}
-		}
+	// 	for _, backup := range list.Items {
+	// 		if bcName, ok := backup.Labels[velero.LabelBackupConfig]; ok && bcName != "" {
+	// 			var bc *sysv1.BackupConfig
+	// 			bc, err = h.veleroBackupManager.GetBackupConfig(ctx, bcName)
+	// 			if err != nil {
+	// 				log.Warnf("backup %q get backup config: %v", backup.Name, err)
+	// 			} else if bc != nil {
+	// 				backups = append(backups, parseBackup(ctx, h.veleroBackupManager, bc, &backup))
+	// 			}
+	// 		}
 
-	}
-	response.Success(resp, response.NewListResult(backups))
+	// }
+	// response.Success(resp, response.NewListResult(backups))
 }
 
 func (h *Handler) getAllIncrementBackups(ctx context.Context, namespace, name, uid string) ([]*sysv1.Backup, error) {

@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/converter"
-	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"github.com/pkg/errors"
-	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -139,48 +136,6 @@ func BuildNamespace(namespace string) *corev1.Namespace {
 	return ns
 }
 
-func BuildBackupStorageLocation(ns string, bc *sysv1.BackupConfigSpec) *velerov1api.BackupStorageLocation {
-	provider := bc.Provider
-	// s3ForcePathStyle := strconv.FormatBool(bc.S3ForcePathStyle)
-
-	configMap := make(map[string]string)
-
-	if bc.Provider == Minio {
-		provider = AWS
-		configMap = map[string]string{
-			"region": bc.Region,
-			//"s3ForcePathStyle": s3ForcePathStyle,
-			"s3Url": bc.S3Url,
-		}
-	}
-
-	return &velerov1api.BackupStorageLocation{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      bc.StorageLocation,
-			Namespace: ns,
-			Labels: map[string]string{
-				"component": Velero,
-			},
-		},
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "BackupStorageLocation",
-			APIVersion: velerov1api.SchemeGroupVersion.String(),
-		},
-		Spec: velerov1api.BackupStorageLocationSpec{
-			Provider: provider,
-			StorageType: velerov1api.StorageType{
-				ObjectStorage: &velerov1api.ObjectStorageLocation{
-					Bucket: bc.Bucket,
-					Prefix: bc.Prefix,
-					//CACert: []byte(bc.CaCert),
-				},
-			},
-			Config:  configMap,
-			Default: true,
-		},
-	}
-}
-
 func BuildSecretApplyConfiguration(ns, name string, data []byte) *applycorev1.SecretApplyConfiguration {
 	return applycorev1.Secret(name, ns).
 		WithLabels(Labels()).
@@ -206,10 +161,7 @@ func BuildSecretApplyConfiguration(ns, name string, data []byte) *applycorev1.Se
 // }
 
 func (v *velero) BuildSysBackup(ctx context.Context, config, name, owner, bsl, backupType string, retainDays int64) (*sysv1.Backup, error) {
-	terminusVersion, err := v.GetTerminusVersion(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
+	// var terminusVersion = ""
 
 	return &sysv1.Backup{
 		TypeMeta: metav1.TypeMeta{
@@ -225,9 +177,9 @@ func (v *velero) BuildSysBackup(ctx context.Context, config, name, owner, bsl, b
 			}),
 		},
 		Spec: sysv1.BackupSpec{
-			Owner:           pointer.String(owner),
-			Phase:           pointer.String(Pending),
-			TerminusVersion: terminusVersion,
+			// Owner:           pointer.String(owner),
+			// Phase:           pointer.String(Pending),
+			// TerminusVersion: terminusVersion,
 			Extra: map[string]string{
 				ExtraBackupType:            backupType,
 				ExtraBackupStorageLocation: bsl,
@@ -235,127 +187,4 @@ func (v *velero) BuildSysBackup(ctx context.Context, config, name, owner, bsl, b
 			},
 		},
 	}, nil
-}
-
-// func (v *velero) BuildVeleroBackup(name, owner, backupType string, retainDays int64) *velerov1api.Backup {
-// 	bc, err := v.DefaultBackupConfigSpec()
-// 	if err != nil {
-// 		return nil
-// 	}
-
-// 	return &velerov1api.Backup{
-// 		TypeMeta: metav1.TypeMeta{
-// 			Kind:       "Backup",
-// 			APIVersion: velerov1api.SchemeGroupVersion.String(),
-// 		},
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Name:      name,
-// 			Namespace: v.namespace,
-// 			Labels: podLabels(map[string]string{
-// 				LabelStorageLocation: bc.StorageLocation,
-// 			}),
-// 			Annotations: map[string]string{
-// 				AnnotationBackupRetainDays: strconv.FormatInt(retainDays, 10),
-// 				AnnotationBackupOwner:      owner,
-// 				AnnotationBackupType:       backupType,
-// 			},
-// 		},
-// 		Spec: velerov1api.BackupSpec{
-// 			IncludedNamespaces: []string{"*"},
-// 			ExcludedResources: []string{
-// 				"pods",
-// 				"nodes",
-// 				"events",
-// 				"replicasets",
-// 			},
-// 			IncludeClusterResources: pointer.Bool(true),
-// 			TTL:                     metav1.Duration{Duration: time.Duration(retainDays) * 24 * time.Hour},
-// 			StorageLocation:         bc.StorageLocation,
-// 			ItemOperationTimeout:    metav1.Duration{Duration: time.Hour},
-// 		},
-// 	}
-// }
-
-// func (v *velero) buildBackupSchedule(name, owner, schedule, backupType string, paused bool, retainDays int64) *velerov1api.Schedule {
-// 	vb := v.BuildVeleroBackup(name, owner, backupType, retainDays)
-
-// 	return &velerov1api.Schedule{
-// 		TypeMeta: metav1.TypeMeta{
-// 			Kind:       "Schedule",
-// 			APIVersion: velerov1api.SchemeGroupVersion.String(),
-// 		},
-// 		ObjectMeta: metav1.ObjectMeta{
-// 			Namespace:   v.namespace,
-// 			Name:        name,
-// 			Labels:      vb.Labels,
-// 			Annotations: vb.Annotations,
-// 		},
-// 		Spec: velerov1api.ScheduleSpec{
-// 			Template:                   vb.Spec,
-// 			Schedule:                   schedule,
-// 			UseOwnerReferencesInBackup: pointer.Bool(false),
-// 			Paused:                     paused,
-// 		},
-// 	}
-// }
-
-// func (v *velero) buildIncrementalBackupSchedule(name, owner, schedule string, paused bool, retainDays int64) *velerov1api.Schedule {
-// 	return v.buildBackupSchedule(name, owner, schedule, IncrementalBackup, paused, retainDays)
-// }
-
-func (v *velero) BuildVeleroBackupX(ctx context.Context, name, jobTime, owner, backupType string, retainDays int64) *velerov1api.Backup {
-	bc, err := v.GetBackupConfig(ctx, name)
-	if err != nil {
-		return nil
-	}
-
-	return &velerov1api.Backup{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Backup",
-			APIVersion: velerov1api.SchemeGroupVersion.String(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: v.namespace,
-			Labels: podLabels(map[string]string{
-				LabelStorageLocation: bc.Spec.StorageLocation,
-			}),
-			Annotations: map[string]string{
-				AnnotationBackupRetainDays: strconv.FormatInt(retainDays, 10),
-				AnnotationBackupOwner:      owner,
-				AnnotationBackupType:       backupType,
-				AnnotationBackupJobTime:    jobTime,
-			},
-		},
-		Spec: velerov1api.BackupSpec{
-			IncludedNamespaces: []string{"*"},
-			ExcludedResources: []string{
-				"pods",
-				"nodes",
-				"events",
-				"replicasets",
-			},
-			OrLabelSelectors: []*metav1.LabelSelector{
-				{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "app.kubernetes.io/part-of",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"percona-server-mongodb"},
-						},
-						{
-							Key:      "managed-by",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"redis-cluster-operator", "citus-operator"},
-						},
-					},
-				},
-			},
-			IncludeClusterResources: pointer.Bool(true),
-			SnapshotVolumes:         pointer.Bool(false),
-			TTL:                     metav1.Duration{Duration: time.Duration(retainDays) * 24 * time.Hour},
-			StorageLocation:         bc.Spec.StorageLocation,
-			ItemOperationTimeout:    metav1.Duration{Duration: time.Hour},
-		},
-	}
 }

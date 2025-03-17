@@ -7,7 +7,7 @@ type ListResult struct {
 
 func NewListResult[T any](items []T) ListResult {
 	vs := make([]any, 0)
-	if len(items) > 0 {
+	if items != nil && len(items) > 0 {
 		for _, item := range items {
 			vs = append(vs, item)
 		}

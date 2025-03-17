@@ -98,7 +98,7 @@ func getAccountFromSettings(bc *sysv1.BackupConfigSpec) (userid, token string, e
 		Data:     "settings-account-space",
 	}
 
-	terminusNonce, err := util.GenTerminusNonce()
+	terminusNonce, err := util.GenTerminusNonce("")
 	if err != nil {
 		klog.Error("generate nonce error, ", err)
 		return
@@ -161,7 +161,7 @@ func getPasswordFromSettings(bc *sysv1.BackupConfig) (password string, err error
 		Data:     bc.Name,
 	}
 
-	terminusNonce, err := util.GenTerminusNonce()
+	terminusNonce, err := util.GenTerminusNonce("")
 	if err != nil {
 		klog.Error("generate nonce error, ", err)
 		return

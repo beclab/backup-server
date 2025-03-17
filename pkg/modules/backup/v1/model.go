@@ -2,9 +2,7 @@ package v1
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
-	"strings"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -27,7 +25,7 @@ type BackupCreate struct {
 
 	Location string `json:"location"` // space or s3
 
-	LocationConfig *LocationConfig `json:"config,omitempty"`
+	LocationConfig *LocationConfig `json:"locationConfig,omitempty"`
 
 	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
 
@@ -58,7 +56,7 @@ type SnapshotDetails struct {
 
 	Phase *string `json:"phase"`
 
-	Config *Config `json:"config,omitempty"`
+	// Config *Config `json:"config,omitempty"`
 
 	FailedMessage string `json:"failedMessage"`
 
@@ -94,7 +92,9 @@ type ListBackupsDetails struct {
 type ResponseDescribeBackup struct {
 	Name string `json:"name"`
 
-	Size *int64 `json:"size,omitempty"`
+	Path string `json:"path"`
+
+	Size *uint64 `json:"totalSize,omitempty"`
 
 	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies"`
 
@@ -131,7 +131,7 @@ type SyncBackup struct {
 
 	Size *int64 `json:"size"`
 
-	S3Config *Config `json:"s3Config"`
+	// S3Config *Config `json:"s3Config"`
 
 	Phase *string `json:"phase"`
 
@@ -166,18 +166,18 @@ func parseBackup(ctx context.Context, m velero.Manager, bc *sysv1.BackupConfig, 
 		CreationTimestamp: sb.CreationTimestamp.Unix(),
 		Name:              sb.Name,
 		Namespace:         sb.Namespace,
-		Phase:             sb.Spec.ResticPhase,
-		Owner:             sb.Spec.Owner,
-		TerminusVersion:   sb.Spec.TerminusVersion,
-		Size:              sb.Spec.Size,
-		BackupConfigName:  bc.Name,
-		S3Config: &Config{
-			Provider: bc.Spec.Provider,
-			Region:   bc.Spec.Region,
-			Bucket:   bc.Spec.Bucket,
-			Prefix:   strings.Split(bc.Spec.Prefix, "/")[0],
-			S3Url:    bc.Spec.S3Url,
-		},
+		// Phase:             sb.Spec.ResticPhase,
+		// Owner:             sb.Spec.Owner,
+		// TerminusVersion:   sb.Spec.TerminusVersion,
+		// Size:              sb.Spec.Size,
+		BackupConfigName: bc.Name,
+		// S3Config: &Config{
+		// 	Provider: bc.Spec.Provider,
+		// 	Region:   bc.Spec.Region,
+		// 	Bucket:   bc.Spec.Bucket,
+		// 	Prefix:   strings.Split(bc.Spec.Prefix, "/")[0],
+		// 	S3Url:    bc.Spec.S3Url,
+		// },
 	}
 
 	if sb.Spec.Extra != nil {
@@ -202,33 +202,33 @@ func parseBackup(ctx context.Context, m velero.Manager, bc *sysv1.BackupConfig, 
 		}
 	}
 
-	if sb.Spec.FailedMessage != nil && *sb.Spec.FailedMessage != "" {
-		b.FailedMessage = *sb.Spec.FailedMessage
-		return
-	}
+	// if sb.Spec.FailedMessage != nil && *sb.Spec.FailedMessage != "" {
+	// 	b.FailedMessage = *sb.Spec.FailedMessage
+	// 	return
+	// }
 
-	vb, err := m.GetVeleroBackup(ctx, bc.Name)
-	if err == nil && vb != nil {
-		if vb.Status.Expiration != nil {
-			b.Expiration = pointer.Int64(vb.Status.Expiration.Unix())
-		}
+	// vb, err := m.GetVeleroBackup(ctx, bc.Name)
+	// if err == nil && vb != nil {
+	// 	if vb.Status.Expiration != nil {
+	// 		b.Expiration = pointer.Int64(vb.Status.Expiration.Unix())
+	// 	}
 
-		if vb.Status.CompletionTimestamp != nil {
-			b.CompletionTimestamp = pointer.Int64(vb.Status.CompletionTimestamp.Unix())
-		}
-	}
+	// 	if vb.Status.CompletionTimestamp != nil {
+	// 		b.CompletionTimestamp = pointer.Int64(vb.Status.CompletionTimestamp.Unix())
+	// 	}
+	// }
 
-	var ok bool
+	// var ok bool
 
-	ok, phase, err := m.BackupStatus(ctx, sb.Name)
-	if err != nil {
-		b.FailedMessage = err.Error()
-	}
-	if ok {
-		b.Phase = pointer.String(velero.Succeed)
-	} else if phase != "" {
-		b.Phase = pointer.String(phase)
-	}
+	// ok, phase, err := m.BackupStatus(ctx, sb.Name)
+	// if err != nil {
+	// 	b.FailedMessage = err.Error()
+	// }
+	// if ok {
+	// 	b.Phase = pointer.String(velero.Succeed)
+	// } else if phase != "" {
+	// 	b.Phase = pointer.String(phase)
+	// }
 
 	return
 }
@@ -251,11 +251,11 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 }
 
 func (s *SyncBackup) FormData() (map[string]string, error) {
-	s3config, err := json.Marshal(s.S3Config)
-	if err != nil {
-		klog.Error("parse s3 config error, ", err)
-		return nil, err
-	}
+	// s3config, err := json.Marshal(s.S3Config)
+	// if err != nil {
+	// 	klog.Error("parse s3 config error, ", err)
+	// 	return nil, err
+	// }
 
 	formdata := make(map[string]string)
 	formdata["backupConfigName"] = s.BackupConfigName
@@ -266,7 +266,7 @@ func (s *SyncBackup) FormData() (map[string]string, error) {
 	formdata["phase"] = toString(s.Phase)
 	formdata["uid"] = toString(s.UID)
 	formdata["size"] = toString(s.Size)
-	formdata["s3Config"] = string(s3config)
+	// formdata["s3Config"] = string(s3config)
 	formdata["terminusVersion"] = toString(s.TerminusVersion)
 	formdata["owner"] = toString(s.Owner)
 	formdata["backupType"] = toString(s.BackupType)

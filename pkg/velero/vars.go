@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	velerov1api "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -100,12 +99,6 @@ var (
 	}
 )
 
-var BackupStorageLocationGVR = schema.GroupVersionResource{
-	Group:    velerov1api.SchemeGroupVersion.Group,
-	Version:  velerov1api.SchemeGroupVersion.Version,
-	Resource: "backupstoragelocations",
-}
-
 var BackupConfigGVR = schema.GroupVersionResource{
 	Group:    sysv1.SchemeGroupVersion.Group,
 	Version:  sysv1.SchemeGroupVersion.Version,
@@ -122,10 +115,4 @@ var TerminusGVR = schema.GroupVersionResource{
 	Group:    "sys.bytetrade.io",
 	Version:  "v1alpha1",
 	Resource: "terminus",
-}
-
-var BackupScheduleGVR = schema.GroupVersionResource{
-	Group:    velerov1api.SchemeGroupVersion.Group,
-	Version:  velerov1api.SchemeGroupVersion.Version,
-	Resource: "schedules",
 }

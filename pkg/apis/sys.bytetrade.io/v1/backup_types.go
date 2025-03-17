@@ -24,6 +24,7 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 type BackupPolicy struct {
+	Enabled           bool   `json:"enabled"`
 	SnapshotFrequency string `json:"snapshotFrequency"`
 	TimesOfDay        string `json:"timesOfDay"`
 	DayOfWeek         int    `json:"dayOfWeek"`
@@ -35,10 +36,12 @@ type BackupSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	Id           string            `json:"id"`
 	Name         string            `json:"name"`
 	Owner        string            `json:"owner"`
 	Location     map[string]string `json:"location"`
 	BackupPolicy *BackupPolicy     `json:"backupPolicy,omitempty"`
+	BackupType   map[string]string `json:"backupType"`
 	Size         *uint64           `json:"size,omitempty"`
 	Extra        map[string]string `json:"extra,omitempty"`
 }
@@ -56,8 +59,7 @@ type BackupStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced, shortName={bc}, categories={all}
 // +kubebuilder:printcolumn:JSONPath=.spec.owner, name=owner, type=string
-// +kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=age, type=date
-// +kubebuilder:printcolumn:JSONPath=.status.updateTime, name=updateTime, type=date
+// +kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=creation, type=date
 //+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // Backup is the Schema for the backups API.
