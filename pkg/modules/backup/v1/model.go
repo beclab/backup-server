@@ -2,6 +2,8 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strconv"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -45,6 +47,25 @@ type Snapshot struct {
 	Phase *string `json:"phase"`
 
 	FailedMessage string `json:"failedMessage,omitempty"`
+}
+
+type ResponseBackupList struct {
+	Id                string `json:"id"`
+	Name              string `json:"name"`
+	SnapshotFrequency string `json:"snapshotFrequency"`
+	Location          string `json:"location"`
+	SnapshotName      string `json:"snapshotName"`
+	Status            string `json:"status"`
+	Size              string `json:"size"`
+	Path              string `json:"path"`
+}
+
+type ResponseBackupDetail struct {
+	Id             string              `json:"id"`
+	Name           string              `json:"name"`
+	Path           string              `json:"path"`
+	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
+	Size           string              `json:"size"`
 }
 
 type SnapshotDetails struct {
@@ -233,6 +254,53 @@ func parseBackup(ctx context.Context, m velero.Manager, bc *sysv1.BackupConfig, 
 	return
 }
 
+func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
+	return &ResponseBackupDetail{
+		Id:             backup.Spec.Id,
+		Name:           backup.Name,
+		BackupPolicies: backup.Spec.BackupPolicy,
+		Path:           parseBackupTypePath(backup.Spec.BackupType),
+		Size:           "",
+	}
+}
+
+func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList) []*ResponseBackupList {
+	if data == nil || data.Items == nil || len(data.Items) == 0 {
+		return nil
+	}
+
+	var bs = make(map[string]*sysv1.Snapshot)
+	var res []*ResponseBackupList
+	if snapshots != nil {
+		for _, snapshot := range snapshots.Items {
+			if _, ok := bs[snapshot.Spec.BackupId]; !ok {
+				bs[snapshot.Spec.BackupId] = &snapshot
+				continue
+			}
+		}
+	}
+
+	for _, backup := range data.Items {
+		var r = &ResponseBackupList{
+			Id:                backup.Spec.Id,
+			Name:              backup.Name,
+			SnapshotFrequency: backup.Spec.BackupPolicy.SnapshotFrequency,
+			Location:          parseLocationConfig(backup.Spec.Location),
+			Path:              parseBackupTypePath(backup.Spec.BackupType),
+		}
+
+		if s, ok := bs[backup.Spec.Id]; ok {
+			r.SnapshotName = s.Name
+			r.Size = parseSnapshotSize(s.Spec.Size)
+			r.Status = *s.Spec.Phase
+		}
+
+		res = append(res, r)
+	}
+
+	return res
+}
+
 func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 	return &SnapshotDetails{
 		Name:                   b.Name,
@@ -300,4 +368,41 @@ func toString(v interface{}) string {
 
 	klog.Error("unknown field type")
 	return ""
+}
+
+func parseBackupTypePath(backupType map[string]string) string {
+	if backupType == nil {
+		return ""
+	}
+	var backupTypeValue map[string]string
+	for k, v := range backupType {
+		if k != "file" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(v), &backupTypeValue); err != nil {
+			return ""
+		}
+		return backupTypeValue["path"]
+	}
+	return ""
+}
+
+func parseLocationConfig(locationConfig map[string]string) string {
+	var location string
+	if locationConfig == nil {
+		return location
+	}
+
+	for l, _ := range locationConfig {
+		location = l
+	}
+	return location
+}
+
+func parseSnapshotSize(size *uint64) string {
+	if size == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%d", *size)
 }

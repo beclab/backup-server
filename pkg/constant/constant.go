@@ -14,6 +14,11 @@ const (
 
 	FullyBackup       string = "fully"
 	IncrementalBackup string = "incremental"
+
+	KindSnapshot string = "Snapshot"
+	KindBackup   string = "Backup"
+
+	SnapshotController string = "snapshot-controller"
 )
 
 type BackupLocation string
@@ -41,8 +46,6 @@ const (
 )
 
 var (
-	DefaultCloudApiMirror = "https://cloud-dev-api.olares.xyz"
-
 	BackupGVR = schema.GroupVersionResource{
 		Group:    scheme.SchemeGroupVersion.Group,
 		Version:  scheme.SchemeGroupVersion.Version,
@@ -66,4 +69,17 @@ var (
 		Version:  "v1alpha2",
 		Resource: "users",
 	}
+)
+
+type SnapshotPhase string
+
+func (s SnapshotPhase) String() string {
+	return string(s)
+}
+
+const (
+	SnapshotPhasePending  SnapshotPhase = "Pending"
+	SnapshotPhaseRunning  SnapshotPhase = "Running"
+	SnapshotPhaseFailed   SnapshotPhase = "Failed"
+	SnapshotPhaseComplete SnapshotPhase = "Complete"
 )

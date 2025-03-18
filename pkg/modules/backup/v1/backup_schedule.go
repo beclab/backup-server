@@ -100,7 +100,6 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 	backupType["file"] = o.buildBackupType()
 	bc := &sysv1.BackupSpec{
 		Id:         utils.NewUUID(),
-		Name:       o.c.Name,
 		Owner:      o.owner,
 		BackupType: backupType,
 	}
@@ -138,7 +137,7 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 
 	log.Infof("merged backup spec: %s", util.PrettyJSON(backupSpec))
 
-	backup, err := o.backupOperator.CreateBackup(ctx, backupSpec)
+	backup, err := o.backupOperator.CreateBackup(ctx, o.owner, o.c.Name, backupSpec)
 	if err != nil {
 		return err
 	}

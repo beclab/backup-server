@@ -69,36 +69,41 @@ func (h *Handler) list(req *restful.Request, resp *restful.Response) {
 	// p := req.QueryParameter("page")
 	// l := req.QueryParameter("limit")
 
-	// support page
+	// todo support page
 	backups, err := h.backupOperator.ListBackups(ctx, owner, 0, 5)
 	if err != nil {
+		log.Errorf("get backups error %v", err)
 		response.HandleError(resp, err)
 		return
 	}
 
-	response.Success(resp, response.NewListResult(backups.Items))
+	labelsSelector := h.backupOperator.GetBackupIdForLabels(backups)
+	var allSnapshots = new(sysv1.SnapshotList)
+	for _, ls := range labelsSelector {
+		snapshots, err := h.snapshotOperator.ListSnapshots(ctx, 0, ls, "")
+		if err != nil {
+			log.Errorf("get snapshots error %v", err)
+			continue
+		}
+		allSnapshots.Items = append(allSnapshots.Items, snapshots.Items...)
+	}
+
+	response.Success(resp, parseResponseBackupList(backups, allSnapshots))
 }
 
 func (h *Handler) get(req *restful.Request, resp *restful.Response) {
-	ctx, name := req.Request.Context(), req.PathParameter("name")
-	owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
+	ctx, id := req.Request.Context(), req.PathParameter("id")
+	// owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
+	owner := "zhaoyu001"
+	_ = owner
 
-	backup, err := h.backupOperator.GetBackup(ctx, owner, name)
+	backup, err := h.backupOperator.GetBackupById(ctx, id) // get
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
 		return
 	}
 
-	//
-
-	r := ResponseDescribeBackup{
-		Name:           name,
-		Path:           "", // todo query latest snapshot
-		Size:           backup.Spec.Size,
-		BackupPolicies: backup.Spec.BackupPolicy,
-	}
-
-	response.Success(resp, r)
+	response.Success(resp, parseResponseBackupDetail(backup))
 
 	// r, err := NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Get(ctx, name)
 	// if err != nil {
@@ -138,7 +143,7 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	}
 
 	// if backup is exists
-	backup, err := h.backupOperator.GetBackup(ctx, owner, b.Name)
+	backup, err := h.backupOperator.GetBackup(ctx, owner, b.Name) // new plan
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
 		return

@@ -52,20 +52,41 @@ func (o *BackupOperator) ListBackups(ctx context.Context, owner string, page int
 	}
 
 	if backups == nil || backups.Items == nil || len(backups.Items) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("backups not exists")
 	}
 
 	return backups, nil
 }
 
-func (o *BackupOperator) GetBackup(ctx context.Context, name string, owner string) (*sysv1.Backup, error) {
+func (o *BackupOperator) GetBackupById(ctx context.Context, backupId string) (*sysv1.Backup, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
 	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		// FieldSelector: "metadata.name=" + name + ",spec.owner=" + owner,
+		LabelSelector: "id=" + backupId,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if backups == nil || backups.Items == nil || len(backups.Items) == 0 {
+		return nil, fmt.Errorf("backup not exists")
+	}
+
+	return &backups.Items[0], nil
+}
+
+func (o *BackupOperator) GetBackup(ctx context.Context, owner string, backupName string) (*sysv1.Backup, error) {
+	c, err := o.factory.Sysv1Client()
+	if err != nil {
+		return nil, err
+	}
+
+	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "name=" + backupName + ",owner=" + owner,
 	})
 
 	if err != nil {
@@ -79,35 +100,16 @@ func (o *BackupOperator) GetBackup(ctx context.Context, name string, owner strin
 	return &backups.Items[0], nil
 }
 
-func (o *BackupOperator) GetBackupById(ctx context.Context, id string) (*sysv1.Backup, error) {
-	c, err := o.factory.Sysv1Client()
-	if err != nil {
-		return nil, err
-	}
-
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "id=" + id,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if backups == nil || backups.Items == nil || len(backups.Items) == 0 {
-		return nil, errors.WithStack(fmt.Errorf("backup %s not found", id))
-	}
-
-	return &backups.Items[0], nil
-}
-
-func (o *BackupOperator) CreateBackup(ctx context.Context, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+func (o *BackupOperator) CreateBackup(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
 RETRY:
 	var backup = &sysv1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      backupSpec.Name,
+			Name:      backupName,
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
-				"id": backupSpec.Id,
+				"owner": owner,
+				"name":  backupName,
+				"id":    backupSpec.Id,
 			},
 		},
 		TypeMeta: metav1.TypeMeta{

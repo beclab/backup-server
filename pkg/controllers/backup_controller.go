@@ -119,7 +119,6 @@ func (r *BackupReconciler) reconcileBackupPolicies(name string, backup *sysv1.Ba
 	ctx := context.Background()
 	if backup.Spec.BackupPolicy != nil {
 		cron, _ := util.ParseToCron(backup.Spec.BackupPolicy.SnapshotFrequency, backup.Spec.BackupPolicy.TimesOfDay, backup.Spec.BackupPolicy.DayOfWeek)
-		// _, err := r.bcManager.ApplyBackupSchedule(ctx, bc.Name, bc.Spec.Owner, cron, !bc.Spec.BackupPolicy.Enabled)
 		err := r.snapshotOperator.CreateSnapshotSchedule(ctx, backup, cron, !backup.Spec.BackupPolicy.Enabled)
 		if err != nil {
 			return err

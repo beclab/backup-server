@@ -2,15 +2,16 @@ package controllers
 
 import (
 	"context"
-	"fmt"
+	"reflect"
 	"time"
 
 	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned"
 	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
-	"bytetrade.io/web3os/backup-server/pkg/storage"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +33,6 @@ type SnapshotReconciler struct {
 
 	backupOperator   *operator.BackupOperator
 	snapshotOperator *operator.SnapshotOperator
-	storage          storage.StorageInterface
 
 	sc sysv1.Interface
 }
@@ -44,7 +44,6 @@ func NewSnapshotController(c client.Client, factory k8sclient.Factory, bcm veler
 		scheme:           schema,
 		backupOperator:   operator.NewBackupOperator(factory),
 		snapshotOperator: operator.NewSnapshotOperator(factory),
-		storage:          storage.NewStorage(factory),
 	}
 
 	sc, err := factory.Sysv1Client()
@@ -135,31 +134,49 @@ func (r *SnapshotReconciler) handleDeleteBackup(name string, sb *sysapiv1.Backup
 	log.Debugf("successfully to delete backup %q", name)
 }
 
+func (r *SnapshotReconciler) setSnapshotPhase(backupName string, snapshot *v1.Snapshot, phase constant.SnapshotPhase) error {
+	return r.snapshotOperator.SetSnapshotPhase(backupName, snapshot, phase)
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&sysapiv1.Snapshot{}, builder.WithPredicates(predicate.Funcs{
 			GenericFunc: func(genericEvent event.GenericEvent) bool { return false },
-			CreateFunc: func(e event.CreateEvent) bool {
+			CreateFunc: func(e event.CreateEvent) bool { // Pending,Running Failed Complete
 				log.Info("hit snapshot create event")
-				s, ok := r.isSysSnapshot(e.Object)
+				snapshot, ok := r.isSysSnapshot(e.Object)
 				if !ok {
 					log.Debugf("not a sys snapshot")
 					return false
 				}
 
-				backup, err := r.getBackup(s.Spec.BackupId)
+				backup, err := r.getBackup(snapshot.Spec.BackupId)
 				if err != nil {
 					log.Errorf("get backup error %v", err)
 					return false
 				}
 
-				log.Infof("create backup %s snapshot %s", backup.Spec.Name, r.snapshotOperator.ParseSnapshotName(s.Spec.StartAt))
+				// If the computer restarts and causes the snapshot to remain incomplete, its status will be changed from "Running" to "Failed."
+				// This prevents a large number of "Running" tasks from triggering backup actions after the computer restarts.
 
-				// ! todo execute backup
-				fmt.Println("---run backup---")
-				if err := r.snapshotOperator.RunBackup(backup, s); err != nil {
-					log.Errorf("backup snapshot error %v", err)
+				var snapshotPhase = constant.SnapshotPhaseFailed
+				var phase = *snapshot.Spec.Phase
+
+				switch phase {
+				case constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String():
+					return false
+				case constant.SnapshotPhaseRunning.String():
+					// todo
+					// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
+					// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
+					snapshotPhase = constant.SnapshotPhaseFailed // todo fix snapshot data
+				case constant.SnapshotPhasePending.String():
+					snapshotPhase = constant.SnapshotPhaseRunning
+				}
+
+				if err := r.snapshotOperator.SetSnapshotPhase(backup.Name, snapshot, snapshotPhase); err != nil {
+					log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Spec.Id, err)
 				}
 
 				return false
@@ -167,12 +184,33 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 				log.Info("hit snapshot update event")
 
-				// oldObj, newObj := updateEvent.ObjectOld, updateEvent.ObjectNew
-				// a, ok1 := r.isSysBackup(oldObj)
-				// b, ok2 := r.isSysBackup(newObj)
-				// if !(ok1 && ok2) || reflect.DeepEqual(a.Spec, b.Spec) {
-				// 	return false
-				// }
+				// todo need update backup.spec.Size
+
+				oldObj, newObj := updateEvent.ObjectOld, updateEvent.ObjectNew
+				a, ok1 := r.isSysSnapshot(oldObj)
+				b, ok2 := r.isSysSnapshot(newObj)
+
+				if !(ok1 && ok2) || reflect.DeepEqual(a.Spec, b.Spec) {
+					return false
+				}
+
+				backup, err := r.getBackup(b.Spec.BackupId)
+				if err != nil {
+					log.Errorf("get backup error %v", err)
+					return false
+				}
+
+				if util.ListContains([]string{constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String()}, *b.Spec.Phase) {
+					log.Infof("backup: %s, snapshot: %s, phase: %s", backup.Name, b.Spec.Id, *b.Spec.Phase)
+					return false
+				}
+
+				log.Infof("run backup: %s, snapshot: %s", backup.Name, r.snapshotOperator.ParseSnapshotName(b.Spec.StartAt))
+
+				if err := r.snapshotOperator.Backup(backup, b); err != nil {
+					log.Errorf("backup %s snapshot error %v", backup.Name, err)
+				}
+
 				// resticPhase := b.Spec.ResticPhase
 				// if resticPhase != nil {
 				// 	// restic backup running

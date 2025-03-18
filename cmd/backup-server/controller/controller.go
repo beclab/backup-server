@@ -4,7 +4,6 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/common"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -73,7 +72,7 @@ func addFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&velero.DefaultBackupKeyPrefix, "backup-key-prefix",
 		util.EnvOrDefault("VELERO_BACKUP_KEY_PREFIX", velero.DefaultBackupKeyPrefix), "terminus backup key prefix")
 
-	fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.xyz", "cloud API mirror")
+	// fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.xyz", "cloud API mirror")
 	fs.StringVarP(&logLevel, "log-level", "l", "debug", "log level")
 	fs.Int64Var(&velero.DefaultBackupTTL, "backup-retain-days", velero.DefaultBackupTTL, "backup ttl, retain for days")
 

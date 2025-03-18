@@ -45,9 +45,9 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("list backup plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
-	ws.Route(ws.GET("/plans/{name}").
+	ws.Route(ws.GET("/plans/{id}").
 		To(handler.get).
-		Param(ws.PathParameter("name", "backup plan name").DataType("string").Required(true)).
+		Param(ws.PathParameter("id", "backup id").DataType("string").Required(true)).
 		Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
 			DataType("string").Required(true)).
 		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).

@@ -21,8 +21,8 @@ spec:
         - jsonPath: .spec.location
           name: location
           type: string
-        - jsonPath: .spec.backupType
-          name: backupType
+        - jsonPath: .spec.snapshotType
+          name: snapshotType
           type: string
         - jsonPath: .spec.phase
           name: phase
@@ -54,8 +54,6 @@ spec:
               properties:
                 backupId:
                   type: string
-                backupType:
-                  type: integer
                 endAt:
                   format: int64
                   type: integer
@@ -80,15 +78,17 @@ spec:
                   type: integer
                 snapshotId:
                   type: string
+                snapshotType:
+                  type: integer
                 startAt:
                   format: int64
                   type: integer
               required:
                 - backupId
-                - backupType
                 - id
                 - location
                 - phase
+                - snapshotType
                 - startAt
               type: object
             status:

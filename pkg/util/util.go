@@ -186,3 +186,9 @@ func GetFirstDayOfWeek(t time.Time) time.Time {
 
 	return t.Add(offset).Truncate(24 * time.Hour)
 }
+
+func IsTimestampExpired(targetTimestamp int64) bool {
+	adjustedTimestamp := targetTimestamp - (15 * 1000)
+	currentTimestamp := time.Now().UnixMilli()
+	return adjustedTimestamp < currentTimestamp
+}

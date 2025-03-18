@@ -83,7 +83,12 @@ func Int64(i int64) *int64 {
 	return &i
 }
 
+func UInt64(i uint64) *uint64 {
+	return &i
+}
+
 var Int64Ptr = Int64 // for back-compat
+var UInt64Ptr = UInt64
 
 // Int64Deref dereferences the int64 ptr and returns it if not nil, or else
 // returns def.

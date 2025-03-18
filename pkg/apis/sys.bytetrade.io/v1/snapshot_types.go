@@ -31,7 +31,7 @@ type SnapshotSpec struct {
 	Id            string            `json:"id"`
 	BackupId      string            `json:"backupId"`
 	Location      string            `json:"location"`
-	BackupType    *int              `json:"backupType"`
+	SnapshotType  *int              `json:"snapshotType"`
 	SnapshotId    *string           `json:"snapshotId,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`
 	StartAt       int64             `json:"startAt"`
@@ -54,7 +54,7 @@ type SnapshotStatus struct {
 // +kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Namespaced, categories={all}
 //+kubebuilder:printcolumn:JSONPath=.spec.location, name=location, type=string
-//+kubebuilder:printcolumn:JSONPath=.spec.backupType, name=backupType, type=string
+//+kubebuilder:printcolumn:JSONPath=.spec.snapshotType, name=snapshotType, type=string
 //+kubebuilder:printcolumn:JSONPath=.spec.phase, name=phase, type=string
 //+kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=creation, type=date
 //+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

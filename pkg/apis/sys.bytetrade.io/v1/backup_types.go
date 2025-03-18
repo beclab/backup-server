@@ -37,7 +37,6 @@ type BackupSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	Id           string            `json:"id"`
-	Name         string            `json:"name"`
 	Owner        string            `json:"owner"`
 	Location     map[string]string `json:"location"`
 	BackupPolicy *BackupPolicy     `json:"backupPolicy,omitempty"`
