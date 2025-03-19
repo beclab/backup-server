@@ -14,7 +14,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.SummaryOutput, backupRepo string, err error) {
+func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.SummaryOutput, backupRepo string, backupError error) {
 	var isSpaceBackup bool
 
 	var backupService *backupssdkstorage.BackupService
@@ -22,13 +22,13 @@ func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.Sum
 	switch opt.(type) {
 	case *options.SpaceBackupOptions:
 		isSpaceBackup = true
-		backupOutput, backupRepo, err = s.backupToSpace(opt)
-	case options.S3BackupOptions:
-		o := opt.(*options.S3BackupOptions)
+		backupOutput, backupRepo, backupError = s.backupToSpace(opt)
+	case *options.AwsBackupOptions:
+		o := opt.(*options.AwsBackupOptions)
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: o.Password,
 			Logger:   log.GetLogger(),
-			S3: &backupssdkoptions.S3BackupOption{
+			Aws: &backupssdkoptions.AwsBackupOption{
 				RepoName:        o.RepoName,
 				Path:            o.Path,
 				Endpoint:        o.Endpoint,
@@ -36,12 +36,12 @@ func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.Sum
 				SecretAccessKey: o.SecretKey,
 			},
 		})
-	case options.CosBackupOptions:
-		o := opt.(*options.CosBackupOptions)
+	case *options.TencentCloudBackupOptions:
+		o := opt.(*options.TencentCloudBackupOptions)
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: o.Password,
 			Logger:   log.GetLogger(),
-			Cos: &backupssdkoptions.CosBackupOption{
+			TencentCloud: &backupssdkoptions.TencentCloudBackupOption{
 				RepoName:        o.RepoName,
 				Path:            o.Path,
 				Endpoint:        o.Endpoint,
@@ -49,7 +49,7 @@ func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.Sum
 				SecretAccessKey: o.SecretKey,
 			},
 		})
-	case options.FilesystemBackupOptions:
+	case *options.FilesystemBackupOptions:
 		o := opt.(*options.FilesystemBackupOptions)
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: o.Password,
@@ -63,10 +63,10 @@ func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.Sum
 	}
 
 	if !isSpaceBackup {
-		backupOutput, backupRepo, err = backupService.Backup()
+		backupOutput, backupRepo, backupError = backupService.Backup()
 	}
 
-	if err != nil {
+	if backupError != nil {
 		return
 	}
 
@@ -77,7 +77,9 @@ func (s *storage) backupToSpace(opt options.Option) (output *backupssdkrestic.Su
 	var o = opt.(*options.SpaceBackupOptions)
 
 	for {
-		olaresDid, olaresAccessToken, expired, err := s.GetUserToken()
+		var olaresDid, olaresAccessToken string
+		var expired int64
+		olaresDid, olaresAccessToken, expired, err = s.GetUserToken()
 		if err != nil {
 			break
 		}
@@ -105,6 +107,7 @@ func (s *storage) backupToSpace(opt options.Option) (output *backupssdkrestic.Su
 		})
 
 		output, repo, err = backupService.Backup()
+
 		if err != nil {
 			if strings.Contains(err.Error(), "get sts token invalid") {
 				continue

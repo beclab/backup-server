@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
+	utilstring "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"k8s.io/klog/v2"
 )
@@ -54,7 +57,7 @@ type ResponseBackupList struct {
 	Name              string `json:"name"`
 	SnapshotFrequency string `json:"snapshotFrequency"`
 	Location          string `json:"location"`
-	SnapshotName      string `json:"snapshotName"`
+	SnapshotId        string `json:"snapshotId"`
 	Status            string `json:"status"`
 	Size              string `json:"size"`
 	Path              string `json:"path"`
@@ -66,6 +69,21 @@ type ResponseBackupDetail struct {
 	Path           string              `json:"path"`
 	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
 	Size           string              `json:"size"`
+}
+
+type ResponseSnapshotList struct {
+	Id       string `json:"id"`
+	CreateAt int64  `json:"createAt"`
+	Size     string `json:"size"`
+	Status   string `json:"status"`
+}
+
+type ResponseSnapshotDetail struct {
+	Id           string `json:"id"`
+	Size         string `json:"size"`
+	SnapshotType string `json:"snapshotType"`
+	Status       string `json:"status"`
+	Message      string `json:"message"`
 }
 
 type SnapshotDetails struct {
@@ -254,13 +272,48 @@ func parseBackup(ctx context.Context, m velero.Manager, bc *sysv1.BackupConfig, 
 	return
 }
 
+func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interface{} {
+	var data = make(map[string]interface{})
+
+	if snapshots == nil || len(snapshots.Items) == 0 {
+		return data
+	}
+
+	data["totalPage"] = 0
+	data["currentPage"] = 1
+	var ss []*ResponseSnapshotList
+	for _, snapshot := range snapshots.Items {
+		var item = &ResponseSnapshotList{
+			Id:       snapshot.Name,
+			CreateAt: snapshot.Spec.StartAt,
+			Size:     parseSnapshotSize(snapshot.Spec.Size),
+			Status:   parseMessage(snapshot.Spec.Phase),
+		}
+		ss = append(ss, item)
+	}
+
+	data["snapshots"] = ss
+
+	return data
+}
+
+func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDetail {
+	return &ResponseSnapshotDetail{
+		Id:           snapshot.Name,
+		Size:         parseSnapshotSize(snapshot.Spec.Size),
+		SnapshotType: parseSnapshotType(snapshot.Spec.SnapshotType),
+		Status:       parseMessage(snapshot.Spec.Phase),
+		Message:      parseMessage(snapshot.Spec.Message),
+	}
+}
+
 func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	return &ResponseBackupDetail{
-		Id:             backup.Spec.Id,
-		Name:           backup.Name,
+		Id:             backup.Name,
+		Name:           backup.Spec.Name,
 		BackupPolicies: backup.Spec.BackupPolicy,
 		Path:           parseBackupTypePath(backup.Spec.BackupType),
-		Size:           "",
+		Size:           parseSnapshotSize(backup.Spec.Size),
 	}
 }
 
@@ -282,15 +335,15 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 
 	for _, backup := range data.Items {
 		var r = &ResponseBackupList{
-			Id:                backup.Spec.Id,
-			Name:              backup.Name,
-			SnapshotFrequency: backup.Spec.BackupPolicy.SnapshotFrequency,
+			Id:                backup.Name,
+			Name:              backup.Spec.Name,
+			SnapshotFrequency: parseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
 			Location:          parseLocationConfig(backup.Spec.Location),
 			Path:              parseBackupTypePath(backup.Spec.BackupType),
 		}
 
-		if s, ok := bs[backup.Spec.Id]; ok {
-			r.SnapshotName = s.Name
+		if s, ok := bs[backup.Name]; ok {
+			r.SnapshotId = s.Name
 			r.Size = parseSnapshotSize(s.Spec.Size)
 			r.Status = *s.Spec.Phase
 		}
@@ -390,13 +443,13 @@ func parseBackupTypePath(backupType map[string]string) string {
 func parseLocationConfig(locationConfig map[string]string) string {
 	var location string
 	if locationConfig == nil {
-		return location
+		return parseBackupLocation(location)
 	}
 
 	for l, _ := range locationConfig {
 		location = l
 	}
-	return location
+	return parseBackupLocation(location)
 }
 
 func parseSnapshotSize(size *uint64) string {
@@ -405,4 +458,46 @@ func parseSnapshotSize(size *uint64) string {
 	}
 
 	return fmt.Sprintf("%d", *size)
+}
+
+func parseSnapshotType(snapshotType *int) string {
+	var t = constant.UnKnownBackup
+
+	if snapshotType == nil || (*snapshotType < 0 || *snapshotType > 1) {
+		return utilstring.Title(t)
+	}
+	if *snapshotType == 0 {
+		t = constant.FullyBackup
+	} else {
+		t = constant.IncrementalBackup
+	}
+
+	return utilstring.Title(t)
+}
+
+func parseMessage(msg *string) string {
+	if msg == nil {
+		return ""
+	}
+	return *msg
+}
+
+func parseBackupSnapshotFrequency(str string) string {
+	str = strings.ReplaceAll(str, "@", "")
+	return utilstring.Title(str)
+}
+
+func parseBackupLocation(l string) string {
+	switch l {
+	case constant.BackupLocationSpace.String():
+		return constant.BackupLocationSpaceAlias.String()
+	case constant.BackupLocationAws.String():
+		return constant.BackupLocationAwsAlias.String()
+	case constant.BackupLocationTencentCloud.String():
+		return constant.BackupLocationCosAlias.String()
+	case constant.BackupLocationFileSystem.String():
+		return constant.BackupLocationFileSystemAlias.String()
+	default:
+		return constant.BackupLocationUnKnownAlias.String()
+	}
 }

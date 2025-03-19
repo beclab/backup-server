@@ -3,11 +3,14 @@ package operator
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/converter"
+	"bytetrade.io/web3os/backup-server/pkg/util"
+	"bytetrade.io/web3os/backups-sdk/pkg/utils"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,6 +58,10 @@ func (o *BackupOperator) ListBackups(ctx context.Context, owner string, page int
 		return nil, fmt.Errorf("backups not exists")
 	}
 
+	sort.Slice(backups.Items, func(i, j int) bool {
+		return !backups.Items[i].ObjectMeta.CreationTimestamp.Before(&backups.Items[j].ObjectMeta.CreationTimestamp)
+	})
+
 	return backups, nil
 }
 
@@ -64,19 +71,17 @@ func (o *BackupOperator) GetBackupById(ctx context.Context, backupId string) (*s
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "id=" + backupId,
-	})
+	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, backupId, metav1.GetOptions{})
 
 	if err != nil {
 		return nil, err
 	}
 
-	if backups == nil || backups.Items == nil || len(backups.Items) == 0 {
-		return nil, fmt.Errorf("backup not exists")
+	if backups == nil {
+		return nil, nil
 	}
 
-	return &backups.Items[0], nil
+	return backups, nil
 }
 
 func (o *BackupOperator) GetBackup(ctx context.Context, owner string, backupName string) (*sysv1.Backup, error) {
@@ -86,7 +91,7 @@ func (o *BackupOperator) GetBackup(ctx context.Context, owner string, backupName
 	}
 
 	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "name=" + backupName + ",owner=" + owner,
+		LabelSelector: "name=" + util.MD5(backupName) + ",owner=" + owner,
 	})
 
 	if err != nil {
@@ -101,15 +106,15 @@ func (o *BackupOperator) GetBackup(ctx context.Context, owner string, backupName
 }
 
 func (o *BackupOperator) CreateBackup(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+	var backupId = utils.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      backupName,
+			Name:      backupId,
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
 				"owner": owner,
-				"name":  backupName,
-				"id":    backupSpec.Id,
+				"name":  util.MD5(backupName),
 			},
 		},
 		TypeMeta: metav1.TypeMeta{
@@ -133,7 +138,7 @@ RETRY:
 	}
 
 	_, err = dynamicClient.Resource(constant.BackupGVR).Namespace(constant.DefaultOsSystemNamespace).
-		Apply(ctx, res.GetName(), &res, metav1.ApplyOptions{Force: true, FieldManager: "backup-controller"})
+		Apply(ctx, res.GetName(), &res, metav1.ApplyOptions{Force: true, FieldManager: constant.BackupController})
 
 	if err != nil && apierrors.IsConflict(err) {
 		goto RETRY

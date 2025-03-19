@@ -13,7 +13,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
-	"bytetrade.io/web3os/backups-sdk/pkg/utils"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -99,7 +98,7 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 	var backupType = make(map[string]string)
 	backupType["file"] = o.buildBackupType()
 	bc := &sysv1.BackupSpec{
-		Id:         utils.NewUUID(),
+		Name:       o.c.Name,
 		Owner:      o.owner,
 		BackupType: backupType,
 	}
@@ -122,7 +121,7 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 		backupSpec *sysv1.BackupSpec
 	)
 
-	clusterId, err := o.getClusterId()
+	clusterId, err := o.getClusterId(ctx)
 	if err != nil {
 		return errors.WithStack(fmt.Errorf("get cluster id error %v", err))
 	}
@@ -135,14 +134,14 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 		// }
 	}
 
-	log.Infof("merged backup spec: %s", util.PrettyJSON(backupSpec))
+	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
 	backup, err := o.backupOperator.CreateBackup(ctx, o.owner, o.c.Name, backupSpec)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("create backup %s, uid %s", backup.Name, backup.Spec.Id)
+	log.Infof("create backup %s, id %s", backup.Spec.Name, backup.Name)
 
 	return nil
 }
@@ -349,7 +348,9 @@ func (o *BackupPlan) validLocation() error {
 	location := o.c.Location
 	locationConfig := o.c.LocationConfig
 
-	if ok := util.ListContains([]string{constant.BackupLocationSpace.String(), constant.BackupLocationS3.String()}, location); !ok {
+	if ok := util.ListContains([]string{constant.BackupLocationSpace.String(),
+		constant.BackupLocationAws.String(), constant.BackupLocationTencentCloud.String(),
+	}, location); !ok {
 		return errors.Errorf("backup %s location %s not support", o.c.Name, location)
 	}
 
@@ -359,7 +360,7 @@ func (o *BackupPlan) validLocation() error {
 		}
 	} else {
 		if locationConfig.Endpoint == "" || locationConfig.AccessKey == "" || locationConfig.SecretKey == "" {
-			return errors.Errorf("backup %s location s3 invalid, please check endpoint, accessKey, secretKey", o.c.Name)
+			return errors.Errorf("backup %s location %s invalid, please check endpoint, accessKey, secretKey", o.c.Name, location)
 		}
 	}
 	return nil
@@ -407,7 +408,7 @@ func (o *BackupPlan) validBackupPolicy() error {
 
 }
 
-func (o *BackupPlan) getClusterId() (string, error) {
+func (o *BackupPlan) getClusterId(ctx context.Context) (string, error) {
 	var clusterId string
 	factory, err := client.NewFactory()
 	if err != nil {
@@ -429,7 +430,7 @@ func (o *BackupPlan) getClusterId() (string, error) {
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
 	}, func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
 		unstructuredUser, err := dynamicClient.Resource(constant.TerminusGVR).Get(ctx, "terminus", metav1.GetOptions{})

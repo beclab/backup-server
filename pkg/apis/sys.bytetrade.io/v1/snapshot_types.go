@@ -28,7 +28,6 @@ type SnapshotSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	Id            string            `json:"id"`
 	BackupId      string            `json:"backupId"`
 	Location      string            `json:"location"`
 	SnapshotType  *int              `json:"snapshotType"`

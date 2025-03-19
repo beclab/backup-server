@@ -103,7 +103,7 @@ func (o *SnapshotOperator) getPassword(backup *sysv1.Backup) (string, error) {
 	return pwdResp.Data.Value, nil
 }
 
-func (o *SnapshotOperator) getOlaresId(owner string) (string, error) {
+func (o *SnapshotOperator) GetOlaresId(owner string) (string, error) {
 	dynamicClient, err := o.factory.DynamicClient()
 	if err != nil {
 		return "", errors.WithStack(fmt.Errorf("get dynamic client error %v", err))

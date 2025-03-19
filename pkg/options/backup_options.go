@@ -12,7 +12,7 @@ type SpaceBackupOptions struct {
 	Password       string
 }
 
-type S3BackupOptions struct {
+type AwsBackupOptions struct {
 	RepoName  string
 	Endpoint  string
 	AccessKey string
@@ -21,7 +21,7 @@ type S3BackupOptions struct {
 	Password  string
 }
 
-type CosBackupOptions struct {
+type TencentCloudBackupOptions struct {
 	RepoName  string
 	Endpoint  string
 	AccessKey string

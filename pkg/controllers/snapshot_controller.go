@@ -14,9 +14,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,16 +69,10 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *SnapshotReconciler) handleUpdateSysBackup(sb *sysapiv1.Snapshot) {
 	var (
 		name = sb.Name
-		ctx  = context.Background()
+		// ctx  = context.Background()
 
-		err error
+		// err error
 	)
-
-	log.Debugf("waiting for velero is available")
-	if err = r.waitingAvailable(ctx); err != nil {
-		log.Errorf("waiting for velero server available failed: %v", err)
-		return
-	}
 
 	log.Infof("waiting for velero and middleware backup completed")
 	// if sb.Spec.MiddleWarePhase == nil ||
@@ -92,28 +84,6 @@ func (r *SnapshotReconciler) handleUpdateSysBackup(sb *sysapiv1.Snapshot) {
 	log.Debugf("starting async to backup %q osdata", name)
 
 	// go r.manager.AsyncOsDataBackup(name)
-}
-
-func (r *SnapshotReconciler) waitingAvailable(ctx context.Context) error {
-	var observation int
-
-	return wait.PollImmediate(time.Second, 5*time.Minute, func() (bool, error) {
-		ok, err := r.manager.Available(ctx)
-		if err != nil && apierrors.IsNotFound(err) {
-			return false, nil
-		} else if err != nil {
-			return false, err
-		}
-		if !ok {
-			return false, nil
-		}
-		observation++
-
-		if observation >= 3 {
-			return true, nil
-		}
-		return false, nil
-	})
 }
 
 func (r *SnapshotReconciler) handleDeleteBackup(name string, sb *sysapiv1.Backup) {
@@ -153,7 +123,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				backup, err := r.getBackup(snapshot.Spec.BackupId)
 				if err != nil {
-					log.Errorf("get backup error %v", err)
+					log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
 					return false
 				}
 
@@ -176,7 +146,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 
 				if err := r.snapshotOperator.SetSnapshotPhase(backup.Name, snapshot, snapshotPhase); err != nil {
-					log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Spec.Id, err)
+					log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Name, err)
 				}
 
 				return false
@@ -200,12 +170,15 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
+				var backupName = backup.Spec.Name
+				var snapshotCreateAt = r.snapshotOperator.ParseSnapshotName(b.Spec.StartAt)
+
 				if util.ListContains([]string{constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String()}, *b.Spec.Phase) {
-					log.Infof("backup: %s, snapshot: %s, phase: %s", backup.Name, b.Spec.Id, *b.Spec.Phase)
+					log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *b.Spec.Phase)
 					return false
 				}
 
-				log.Infof("run backup: %s, snapshot: %s", backup.Name, r.snapshotOperator.ParseSnapshotName(b.Spec.StartAt))
+				log.Infof("run backup: %s, snapshot: %s", backupName, snapshotCreateAt)
 
 				if err := r.snapshotOperator.Backup(backup, b); err != nil {
 					log.Errorf("backup %s snapshot error %v", backup.Name, err)

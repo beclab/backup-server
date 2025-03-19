@@ -14,11 +14,13 @@ const (
 
 	FullyBackup       string = "fully"
 	IncrementalBackup string = "incremental"
+	UnKnownBackup     string = "unknown"
 
 	KindSnapshot string = "Snapshot"
 	KindBackup   string = "Backup"
 
 	SnapshotController string = "snapshot-controller"
+	BackupController   string = "backup-controller"
 )
 
 type BackupLocation string
@@ -28,8 +30,16 @@ func (b BackupLocation) String() string {
 }
 
 const (
-	BackupLocationSpace BackupLocation = "space"
-	BackupLocationS3    BackupLocation = "s3"
+	BackupLocationSpace        BackupLocation = "space"
+	BackupLocationAws          BackupLocation = "aws"
+	BackupLocationTencentCloud BackupLocation = "tencentcloud"
+	BackupLocationFileSystem   BackupLocation = "filesystem"
+
+	BackupLocationSpaceAlias      BackupLocation = "Olares Space"
+	BackupLocationAwsAlias        BackupLocation = "AWS S3"
+	BackupLocationCosAlias        BackupLocation = "TencentCloud COS"
+	BackupLocationFileSystemAlias BackupLocation = "Local"
+	BackupLocationUnKnownAlias    BackupLocation = "Unknown"
 )
 
 type BackupSnapshotFrequency string

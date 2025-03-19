@@ -18,8 +18,6 @@ import (
 type Manager interface {
 	IsReady(ctx context.Context) (bool, error)
 
-	Available(ctx context.Context) (bool, error)
-
 	NewCredentials(c *sysv1.BackupConfigSpec) []byte
 
 	SetBackupConfig(ctx context.Context, name string, bcSpec *sysv1.BackupConfigSpec) error
@@ -146,29 +144,6 @@ func (v *velero) IsReady(ctx context.Context) (bool, error) {
 	if !done && err != nil {
 		return false, err
 	}
-
-	return true, nil
-}
-
-// ???
-// should always return true
-func (v *velero) Available(ctx context.Context) (bool, error) {
-	// vc, err := v.factory.Client()
-	// if err != nil {
-	// 	return false, err
-	// }
-
-	// bc, err := v.DefaultBackupConfigSpec()
-	// if err != nil {
-	// 	return false, err
-	// }
-
-	// bsl, err := vc.VeleroV1().BackupStorageLocations(v.namespace).
-	// 	Get(ctx, bc.StorageLocation, metav1.GetOptions{})
-	// if err != nil {
-	// 	return false, err
-	// }
-	// return bsl.Status.Phase == velerov1api.BackupStorageLocationPhaseAvailable, nil
 
 	return true, nil
 }

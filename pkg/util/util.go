@@ -16,6 +16,15 @@ import (
 	"github.com/pkg/errors"
 )
 
+func Base64encode(s []byte) string {
+	return base64.StdEncoding.EncodeToString(s)
+}
+
+func MD5(s string) string {
+	hash := md5.Sum([]byte(s))
+	return hex.EncodeToString(hash[:])
+}
+
 func ParseToInt64(v string) int64 {
 	i, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {

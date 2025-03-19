@@ -36,7 +36,7 @@ type BackupSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	Id           string            `json:"id"`
+	Name         string            `json:"name"`
 	Owner        string            `json:"owner"`
 	Location     map[string]string `json:"location"`
 	BackupPolicy *BackupPolicy     `json:"backupPolicy,omitempty"`
@@ -57,6 +57,7 @@ type BackupStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced, shortName={bc}, categories={all}
+// +kubebuilder:printcolumn:JSONPath=.spec.name, name=name, type=string
 // +kubebuilder:printcolumn:JSONPath=.spec.owner, name=owner, type=string
 // +kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=creation, type=date
 //+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"strconv"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/config"
@@ -9,6 +10,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
+	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -49,17 +51,6 @@ func (h *Handler) init(req *restful.Request, resp *restful.Response) {
 }
 
 func (h *Handler) available(req *restful.Request, resp *restful.Response) {
-	ctx := req.Request.Context()
-
-	ok, err := h.veleroBackupManager.Available(ctx)
-	if err != nil {
-		response.HandleError(resp, err)
-		return
-	}
-	if !ok {
-		response.HandleError(resp, errors.New("backup service unavailable"))
-		return
-	}
 	response.SuccessNoData(resp)
 }
 
@@ -85,6 +76,9 @@ func (h *Handler) list(req *restful.Request, resp *restful.Response) {
 			log.Errorf("get snapshots error %v", err)
 			continue
 		}
+		if snapshots == nil || len(snapshots.Items) == 0 {
+			continue
+		}
 		allSnapshots.Items = append(allSnapshots.Items, snapshots.Items...)
 	}
 
@@ -97,23 +91,15 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	owner := "zhaoyu001"
 	_ = owner
 
-	backup, err := h.backupOperator.GetBackupById(ctx, id) // get
+	backup, err := h.backupOperator.GetBackupById(ctx, id)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
 		return
 	}
 
 	response.Success(resp, parseResponseBackupDetail(backup))
-
-	// r, err := NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Get(ctx, name)
-	// if err != nil {
-	// 	response.HandleError(resp, errors.WithMessage(err, "describe backup"))
-	// 	return
-	// }
-	// response.Success(resp, r)
 }
 
-// + todo
 func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -130,7 +116,7 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	owner := "zhaoyu001"
 
-	log.Debugf("received backup create request: %s", util.PrettyJSON(b))
+	log.Debugf("received backup create request: %s", util.ToJSON(b))
 
 	if b.Location == "" || b.LocationConfig == nil {
 		response.HandleError(resp, errors.New("backup location is required"))
@@ -213,90 +199,52 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 }
 
 func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
-	// ctx := req.Request.Context()
+	ctx := req.Request.Context()
 
-	// limit := 10
+	var limit int64 = 10
 
-	// plan := req.PathParameter("plan_name")
-	// q := req.QueryParameter("limit")
-	// if q != "" {
-	// 	v, err := strconv.Atoi(q)
-	// 	if err != nil {
-	// 		log.Warnf("list snapshot, invalid limit parameter: %q", q)
-	// 	} else {
-	// 		limit = v
-	// 	}
-	// }
+	backupId := req.PathParameter("id")
+	q := req.QueryParameter("limit")
+	if q != "" {
+		v, err := strconv.ParseInt(q, 10, 64)
+		if err != nil {
+			log.Warnf("list snapshot, invalid limit parameter: %q", q)
+		} else {
+			limit = v
+		}
+	}
 
-	// l, err := h.veleroBackupManager.ListSysBackups(ctx, plan)
-	// if err != nil {
-	// 	response.HandleError(resp, errors.WithMessage(err, "failed to list backup snapshots"))
-	// 	return
-	// }
+	var labelSelector = "backup-id=" + backupId
+	var snapshots, err = h.snapshotOperator.ListSnapshots(ctx, limit, labelSelector, "")
+	if err != nil {
+		response.HandleError(resp, errors.WithMessage(err, "get snapshots error"))
+		return
+	}
 
-	// if limit > len(l.Items) || limit == -1 {
-	// 	limit = len(l.Items)
-	// }
+	if snapshots == nil || len(snapshots.Items) == 0 {
+		response.HandleError(resp, errors.New("snapshots not exists"))
+		return
+	}
 
-	// limitedBackups := l.Items[:limit]
-
-	// var snapshots []Snapshot
-
-	// for _, i := range limitedBackups {
-	// 	if i.Spec.Extra == nil {
-	// 		log.Warnf("backup %q not extra", i.Name)
-	// 		continue
-	// 	}
-
-	// 	var bc *sysv1.BackupConfig
-
-	// 	bc, err = h.veleroBackupManager.GetBackupConfig(ctx, plan)
-	// 	if err != nil {
-	// 		log.Warnf("backup %q get backup config: %v", i.Name, err)
-	// 		continue
-	// 	}
-
-	// 	if bc == nil {
-	// 		continue
-	// 	}
-	// 	if b := parseBackup(ctx, h.veleroBackupManager, bc, &i); b != nil {
-	// 		snapshots = append(snapshots, Snapshot{
-	// 			Name:              b.Name,
-	// 			CreationTimestamp: b.CreationTimestamp,
-	// 			Size:              b.Size,
-	// 			Phase:             b.Phase,
-	// 			FailedMessage:     b.FailedMessage,
-	// 		})
-	// 	}
-	// }
-	// response.Success(resp, response.NewListResult(snapshots))
+	response.Success(resp, parseResponseSnapshotList(snapshots))
 }
 
 func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
-	// 	ctx := req.Request.Context()
-	// 	name := req.PathParameter("name")
+	ctx := req.Request.Context()
+	id := req.PathParameter("id")
 
-	// 	b, err := h.veleroBackupManager.GetSysBackup(ctx, name)
-	// 	if err != nil {
-	// 		response.HandleError(resp, errors.WithMessagef(err, "describe snapshot %q", name))
-	// 		return
-	// 	}
-	// 	plan := req.PathParameter("plan_name")
+	snapshot, err := h.snapshotOperator.GetSnapshot(ctx, id)
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("snapshot %s not found", id))
+		return
+	}
 
-	// 	var res *SnapshotDetails
+	if snapshot == nil {
+		response.HandleError(resp, errors.WithMessage(err, "snapshots not exists"))
+		return
+	}
 
-	// 	if bcName, ok := b.Labels[velero.LabelBackupConfig]; ok && bcName != "" && bcName == plan {
-	// 		var bc *sysv1.BackupConfig
-	// 		bc, err = h.veleroBackupManager.GetBackupConfig(ctx, bcName)
-	// 		if err != nil {
-	// 			log.Warnf("backup %q get backup config: %v", name, err)
-	// 		} else if bc != nil {
-	// 			bb := parseBackup(ctx, h.veleroBackupManager, bc, b)
-	// 			res = parseBackupSnapshotDetail(bb)
-	// 		}
-	// 	}
-
-	// 	response.Success(resp, res)
+	response.Success(resp, parseResponseSnapshotDetail(snapshot))
 }
 
 func (h *Handler) deleteSnapshot(req *restful.Request, resp *restful.Response) {
@@ -360,33 +308,6 @@ func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response)
 	// 	response.SuccessNoData(resp)
 }
 
-// listBackups for sync cloud
-func (h *Handler) listBackups(req *restful.Request, resp *restful.Response) {
-	// 	ctx := req.Request.Context()
-
-	// 	list, err := h.veleroBackupManager.ListSysBackups(ctx, "")
-	// 	if err != nil {
-	// 		response.HandleError(resp, err)
-	// 		return
-	// 	}
-
-	// 	var backups SyncBackupList
-
-	// 	for _, backup := range list.Items {
-	// 		if bcName, ok := backup.Labels[velero.LabelBackupConfig]; ok && bcName != "" {
-	// 			var bc *sysv1.BackupConfig
-	// 			bc, err = h.veleroBackupManager.GetBackupConfig(ctx, bcName)
-	// 			if err != nil {
-	// 				log.Warnf("backup %q get backup config: %v", backup.Name, err)
-	// 			} else if bc != nil {
-	// 				backups = append(backups, parseBackup(ctx, h.veleroBackupManager, bc, &backup))
-	// 			}
-	// 		}
-
-	// }
-	// response.Success(resp, response.NewListResult(backups))
-}
-
 func (h *Handler) getAllIncrementBackups(ctx context.Context, namespace, name, uid string) ([]*sysv1.Backup, error) {
 	c, err := h.factory.Sysv1Client()
 	if err != nil {
@@ -414,4 +335,29 @@ func (h *Handler) getAllIncrementBackups(ctx context.Context, namespace, name, u
 		}
 	}
 	return res, nil
+}
+
+func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {
+	// ctx := req.Request.Context()
+	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := "zhaoyu001"
+
+	olaresId, err := h.snapshotOperator.GetOlaresId(owner)
+	if err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "get olares id error"))
+		return
+	}
+
+	storage := storage.NewStorage(h.factory, owner, olaresId)
+	regions, err := storage.GetRegions()
+	if err != nil {
+		response.HandleError(resp, err)
+		return
+	}
+
+	response.Success(resp, regions)
+}
+
+func (h *Handler) restoreSnapshot(req *restful.Request, resp *restful.Response) {
+
 }

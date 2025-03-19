@@ -47,13 +47,12 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans/{id}").
 		To(handler.get).
-		Param(ws.PathParameter("id", "backup id").DataType("string").Required(true)).
+		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
 		Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
 			DataType("string").Required(true)).
 		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
-	// + new plan
 	ws.Route(ws.POST("/plans").
 		To(handler.add).
 		Reads(BackupCreate{}).
@@ -62,29 +61,30 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("add backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.DELETE("/plans/{name}").
-		To(handler.deleteBackupPlan).
-		Param(ws.PathParameter("name", "backup name").DataType("string").Required(true)).
-		Doc("delete backup").Metadata(restfulspec.KeyOpenAPITags, tags).
-		Returns(http.StatusOK, "", "success"))
+	ws.Route(ws.DELETE("/plans/{id}"). // todo
+						To(handler.deleteBackupPlan).
+						Param(ws.PathParameter("name", "backup plan id").DataType("string").Required(true)).
+						Doc("delete backup").Metadata(restfulspec.KeyOpenAPITags, tags).
+						Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.PUT("/plans/{name}").
-		To(handler.update).
-		Reads(BackupCreate{}).
-		Param(ws.PathParameter("name", "backup plan name").DataType("string").Required(true)).
-		Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
-			DataType("string").Required(true)).
-		Doc("update backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
-		Returns(http.StatusOK, "", "success"))
+	ws.Route(ws.PUT("/plans/{id}"). // todo
+					To(handler.update).
+					Reads(BackupCreate{}).
+					Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
+					Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
+						DataType("string").Required(true)).
+					Doc("update backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
+					Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.GET("/plans/{plan_name}/snapshots").
-		Param(ws.QueryParameter("limit", "limit of snapshots").Required(false)).
+	ws.Route(ws.GET("/plans/{id}/snapshots").
+		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
+		// Param(ws.QueryParameter("limit", "limit of snapshots").Required(false)). // todo
 		To(handler.listSnapshots).
 		Doc("list backup snapshots").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.GET("/plans/{plan_name}/snapshots/{name}").
-		Param(ws.PathParameter("name", "snapshot name").DataType("string").Required(true)).
+	ws.Route(ws.GET("/plans/snapshots/{id}").
+		Param(ws.PathParameter("id", "snapshot id").DataType("string").Required(true)).
 		To(handler.getSnapshot).
 		Doc("get backup snapshot details").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
@@ -95,9 +95,22 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("delete backup snapshot").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.GET("/plans/{plan_name}/backups").
-		To(handler.listBackups).
-		Doc("list backups").Metadata(restfulspec.KeyOpenAPITags, tags).
+	// ws.Route(ws.GET("/plans/{plan_name}/backups").
+	// 	To(handler.listBackups).
+	// 	Doc("list backups").Metadata(restfulspec.KeyOpenAPITags, tags).
+	// 	Returns(http.StatusOK, "", "success"))
+
+	// todo
+	ws.Route(ws.POST("/plans/restore/{id}").
+		Param(ws.PathParameter("id", "snapshot id").DataType("string").
+			Required(true)).
+		To(handler.restoreSnapshot).
+		Doc("restore backup snapshot").
+		Returns(http.StatusOK, "", "success"))
+
+	ws.Route(ws.GET("/plans/regions").
+		To(handler.getSpaceRegions).
+		Doc("get space regions").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
 	container.Add(ws)

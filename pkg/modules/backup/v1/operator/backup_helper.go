@@ -10,7 +10,7 @@ func (o *BackupOperator) GetBackupIdForLabels(backups *sysv1.BackupList) []strin
 	var labels []string
 
 	for _, backup := range backups.Items {
-		labels = append(labels, fmt.Sprintf("backup-id=%s", backup.Spec.Id))
+		labels = append(labels, fmt.Sprintf("backup-id=%s", backup.Name))
 	}
 	return labels
 }

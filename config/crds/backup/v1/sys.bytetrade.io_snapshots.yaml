@@ -61,8 +61,6 @@ spec:
                   additionalProperties:
                     type: string
                   type: object
-                id:
-                  type: string
                 location:
                   type: string
                 message:
@@ -85,7 +83,6 @@ spec:
                   type: integer
               required:
                 - backupId
-                - id
                 - location
                 - phase
                 - snapshotType

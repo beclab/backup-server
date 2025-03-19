@@ -1,6 +1,21 @@
 package string
 
-import "unicode/utf8"
+import (
+	"unicode/utf8"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+)
+
+var caser cases.Caser
+
+func init() {
+	caser = cases.Title(language.English)
+}
+
+func Title(str string) string {
+	return caser.String(str)
+}
 
 func ReverseString(str string) string {
 	if str == "" {

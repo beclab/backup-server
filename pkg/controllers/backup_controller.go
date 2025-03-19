@@ -81,13 +81,15 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	} else if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	} else if backup.Spec.BackupPolicy.Enabled {
-		err = r.reconcileBackupPolicies(backup.Name, backup) // ! todo
+		err = r.reconcileBackupPolicies(backup)
 		if err != nil {
 			return ctrl.Result{}, errors.WithStack(err)
 		}
 	} else {
 		return ctrl.Result{}, nil
 	}
+
+	// todo restore
 
 	// ignore when restore in progress
 	// vc, err := r.factory.Client()
@@ -115,7 +117,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, nil
 }
 
-func (r *BackupReconciler) reconcileBackupPolicies(name string, backup *sysv1.Backup) error {
+func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 	ctx := context.Background()
 	if backup.Spec.BackupPolicy != nil {
 		cron, _ := util.ParseToCron(backup.Spec.BackupPolicy.SnapshotFrequency, backup.Spec.BackupPolicy.TimesOfDay, backup.Spec.BackupPolicy.DayOfWeek)

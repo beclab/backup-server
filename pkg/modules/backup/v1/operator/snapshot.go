@@ -70,7 +70,7 @@ func (o *SnapshotOperator) ListSnapshots(ctx context.Context, limit int64, label
 	}
 
 	if l == nil || l.Items == nil || len(l.Items) == 0 {
-		return nil, fmt.Errorf("snapshots not exists")
+		return nil, nil
 	}
 
 	sort.Slice(l.Items, func(i, j int) bool {
@@ -85,17 +85,17 @@ func (o *SnapshotOperator) CreateSnapshotSchedule(ctx context.Context, backup *s
 
 	entries := o.cron.Entries()
 	for _, e := range entries {
-		if e.Job.(backupJob).name == backup.Name {
+		if e.Job.(backupJob).name == backup.Spec.Name {
 			log.Info("remove prev cron job to apply new one")
 			o.cron.Remove(e.ID)
 		}
 	}
 
 	_, err := o.cron.AddJob(schedule, backupJob{
-		name: backup.Name,
+		name: backup.Spec.Name,
 		f: func() {
-			log.Infof("prepare to create backup task, name: %s", backup.Name)
-			flag, err := o.getRunningSnapshot(ctx, backup.Spec.Id) // avoided running multiple snapshots simultaneously
+			log.Infof("prepare to create backup task, name: %s", backup.Spec.Name)
+			flag, err := o.getRunningSnapshot(ctx, backup.Name) // avoided running multiple snapshots simultaneously
 			if err != nil {
 				log.Errorf("get running snapshot error %v", err)
 				return
@@ -105,7 +105,7 @@ func (o *SnapshotOperator) CreateSnapshotSchedule(ctx context.Context, backup *s
 				return
 			}
 
-			flag, err = o.getFullySnapshot(ctx, backup.Spec.Id)
+			flag, err = o.getFullySnapshot(ctx, backup.Name)
 			if err != nil {
 				log.Errorf("get complete snapshot error %v", err)
 				return
@@ -143,7 +143,7 @@ func (o *SnapshotOperator) CreateSnapshot(ctx context.Context, backup *sysv1.Bac
 		return nil, err
 	}
 	var startAt = time.Now().UnixMilli()
-	var name = fmt.Sprintf("%s-%d", backup.Name, startAt)
+	var name = utils.NewUUID() // fmt.Sprintf("%s-%d", backup.Name, startAt)
 	var phase = constant.SnapshotPhasePending.String()
 	var parseSnapshotType = o.parseSnapshotType(snapshotType)
 
@@ -156,13 +156,12 @@ func (o *SnapshotOperator) CreateSnapshot(ctx context.Context, backup *sysv1.Bac
 			Name:      name,
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
-				"backup-id":     backup.Spec.Id,
+				"backup-id":     backup.Name,
 				"snapshot-type": fmt.Sprintf("%d", *parseSnapshotType),
 			},
 		},
 		Spec: sysv1.SnapshotSpec{
-			Id:           utils.NewUUID(),
-			BackupId:     backup.Spec.Id,
+			BackupId:     backup.Name,
 			Location:     location,
 			SnapshotType: parseSnapshotType,
 			StartAt:      startAt,
@@ -179,12 +178,35 @@ func (o *SnapshotOperator) CreateSnapshot(ctx context.Context, backup *sysv1.Bac
 	return created, nil
 }
 
+func (o *SnapshotOperator) GetSnapshot(ctx context.Context, id string) (*sysv1.Snapshot, error) {
+	c, err := o.factory.Sysv1Client()
+	if err != nil {
+		return nil, err
+	}
+
+	snapshot, err := c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if snapshot == nil {
+		return nil, nil
+	}
+
+	return snapshot, nil
+}
+
 func (o *SnapshotOperator) getRunningSnapshot(ctx context.Context, backupId string) (bool, error) {
 	// check exists
 	var labelSelector = fmt.Sprintf("backup-id=%s", backupId)
 	snapshots, err := o.ListSnapshots(ctx, 1, labelSelector, "") // find all snapshots by backupName
 	if err != nil {
 		return false, err
+	}
+
+	if snapshots == nil || len(snapshots.Items) == 0 {
+		return false, nil
 	}
 
 	for _, snapshot := range snapshots.Items {
@@ -202,6 +224,10 @@ func (o *SnapshotOperator) getFullySnapshot(ctx context.Context, backupId string
 	snapshots, err := o.ListSnapshots(ctx, 1, labelSelector, "") // find all snapshots by backupName
 	if err != nil {
 		return false, err
+	}
+
+	if snapshots == nil || len(snapshots.Items) == 0 {
+		return false, nil
 	}
 
 	for _, snapshot := range snapshots.Items {
@@ -244,7 +270,7 @@ func (o *SnapshotOperator) Backup(backup *sysv1.Backup, snapshot *sysv1.Snapshot
 	password := "123"
 
 	var olaresId string
-	olaresId, err = o.getOlaresId(backup.Spec.Owner)
+	olaresId, err = o.GetOlaresId(backup.Spec.Owner)
 
 	var location string
 	var locationConfig map[string]string
@@ -263,7 +289,7 @@ func (o *SnapshotOperator) Backup(backup *sysv1.Backup, snapshot *sysv1.Snapshot
 
 	var opt options.Option
 	switch location {
-	case "space":
+	case constant.BackupLocationSpace.String():
 		opt = &options.SpaceBackupOptions{
 			RepoName:       backup.Name,
 			ClusterId:      locationConfig["clusterId"],
@@ -273,18 +299,34 @@ func (o *SnapshotOperator) Backup(backup *sysv1.Backup, snapshot *sysv1.Snapshot
 			CloudApiMirror: constant.DefaultSyncServerURL,
 			Password:       password,
 		}
-	case "s3", "cos":
+	case constant.BackupLocationAws.String():
+		opt = &options.AwsBackupOptions{
+			RepoName:  backup.Name,
+			Endpoint:  locationConfig["endpoint"],
+			AccessKey: locationConfig["accessKey"],
+			SecretKey: locationConfig["secretKey"],
+			Path:      backupPath,
+			Password:  password,
+		}
+	case constant.BackupLocationTencentCloud.String():
+		opt = &options.TencentCloudBackupOptions{
+			RepoName:  backup.Name,
+			Endpoint:  locationConfig["endpoint"],
+			AccessKey: locationConfig["accessKey"],
+			SecretKey: locationConfig["secretKey"],
+			Path:      backupPath,
+			Password:  password,
+		}
 	}
 
 	storage := storage.NewStorage(o.factory, backup.Spec.Owner, olaresId)
-	backupOutput, backupRepo, err := storage.Backup(opt)
-	if err != nil {
-		log.Errorf("backup %s snapshot error %v", backup.Name, err)
+	backupOutput, backupRepo, backupErr := storage.Backup(opt)
+	if backupErr != nil {
+		log.Errorf("backup %s snapshot error %v", backup.Name, backupErr)
 	}
 
-	// todo update
 	log.Infof("update snapshot phase")
-	err = o.UpdateSnapshot(backup.Name, backupOutput, backupRepo, err, snapshot)
+	err = o.UpdateSnapshot(backup.Name, backupOutput, backupRepo, backupErr, snapshot)
 
 	// todo notify
 
@@ -339,7 +381,7 @@ func (o *SnapshotOperator) SetSnapshotPhase(backupName string, snapshot *sysv1.S
 func (o *SnapshotOperator) UpdateSnapshot(backupName string,
 	backupOutput *backupssdkrestic.SummaryOutput,
 	backupRepo string,
-	err error,
+	backupError error,
 	snapshot *sysv1.Snapshot) (e error) {
 
 	c, err := o.factory.Sysv1Client()
@@ -366,9 +408,9 @@ func (o *SnapshotOperator) UpdateSnapshot(backupName string,
 			return fmt.Errorf("retry")
 		}
 
-		if err != nil {
+		if backupError != nil {
 			s.Spec.Phase = pointer.String(constant.SnapshotPhaseFailed.String())
-			s.Spec.Message = pointer.String(err.Error())
+			s.Spec.Message = pointer.String(backupError.Error())
 		} else {
 			s.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 			s.Spec.Phase = pointer.String(constant.SnapshotPhaseComplete.String())
