@@ -1,4 +1,4 @@
-package storage
+package account
 
 import (
 	"context"
@@ -7,80 +7,67 @@ import (
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/options"
-	"bytetrade.io/web3os/backup-server/pkg/util"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/storage/models"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type StorageInterface interface {
-	Backup(opt options.Option) (backupOutput *backupssdkrestic.SummaryOutput, backupRepo string, backupError error)
-	Restore()
-
-	GetUserToken() (olaresDid, olaresAccessToken string, expired int64, err error)
-	GetRegions() ([]map[string]string, error)
+type Account struct {
+	factory  client.Factory
+	location string
+	ip       string
+	nounce   string
+	owner    string
 }
 
-type storage struct {
-	factory client.Factory
-	owner   string
-}
+func (a *Account) GetStorage() {
+	var url = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/retrieve", a.ip)
 
-func NewStorage(f client.Factory, owner string) StorageInterface {
-	return &storage{
-		factory: f,
-		owner:   owner,
+	var parmf = "integration-account:%s:%s" // awss3:xxx space:xxx tencent:xxx
+	var parm string
+
+	switch a.location {
+	case constant.BackupLocationSpace.String():
+		parm = fmt.Sprintf(parmf, "space", "")
+	case constant.BackupLocationAws.String():
+		parm = fmt.Sprintf(parmf, "awss3", "")
+	case constant.BackupLocationTencentCloud.String():
+		parm = fmt.Sprintf(parmf, "tencent", "")
 	}
-}
 
-func (s *storage) GetUserToken() (olaresDid, olaresAccessToken string, expired int64, err error) {
-	podIp, err := s.getPodIp()
-	if err != nil {
+	if parm == "" {
+		// todo error
 		return
 	}
-
-	appKey, err := s.getAppKey()
-	if err != nil {
-		return
-	}
-
-	terminusNonce, err := util.GenTerminusNonce(appKey)
-	_ = terminusNonce
-	if err != nil {
-		log.Errorf("generate nonce error: %v", err)
-		return
-	}
-
-	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/retrieave", podIp)
 
 	client := resty.New().SetTimeout(10 * time.Second)
 	var data = make(map[string]string)
-	data["name"] = fmt.Sprintf("integration-account:awss3:%s", s.olaresId)
-	log.Infof("fetch account from settings: %s", settingsUrl)
+	data["name"] = parm
+	log.Infof("fetch account from settings: %s", url)
 	resp, err := client.R().SetDebug(true).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader("Terminus-Nonce", terminusNonce).
+		SetHeader("Terminus-Nonce", a.nounce).
 		SetBody(data).
-		SetResult(&AccountResponse{}).
-		Post(settingsUrl)
+		SetResult(&models.AccountResponse{}).
+		Post(url)
 
 	if err != nil {
 		return
 	}
 
 	if resp.StatusCode() != http.StatusOK {
-		err = errors.WithStack(fmt.Errorf("request account api response not ok, status: %d", resp.StatusCode()))
+		err = errors.WithStack(fmt.Errorf("request account response not ok, status: %d", resp.StatusCode()))
 		return
 	}
 
-	accountResp := resp.Result().(*AccountResponse)
+	accountResp := resp.Result().(*models.AccountResponse)
 
 	if accountResp.Code == 1 && accountResp.Message == "" {
-		err = errors.WithStack(fmt.Errorf("olres space is not enabled"))
+		err = errors.WithStack(fmt.Errorf("account invalid"))
 		return
 	} else if accountResp.Code != 0 {
 		err = errors.WithStack(fmt.Errorf("request account api response error, status: %d, message: %s", accountResp.Code, accountResp.Message))
@@ -97,15 +84,14 @@ func (s *storage) GetUserToken() (olaresDid, olaresAccessToken string, expired i
 		return
 	}
 
-	olaresDid = accountResp.Data.RawData.UserId
-	olaresAccessToken = accountResp.Data.RawData.AccessToken
-	expired = accountResp.Data.RawData.ExpiresAt
+	// olaresDid = accountResp.Data.RawData.UserId
+	// olaresAccessToken = accountResp.Data.RawData.AccessToken
+	// expired = accountResp.Data.RawData.ExpiresAt
 
-	return
 }
 
-func (s *storage) getPodIp() (string, error) {
-	kubeClient, err := s.factory.KubeClient()
+func (a *Account) getPodIp() (string, error) {
+	kubeClient, err := a.factory.KubeClient()
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
@@ -113,7 +99,7 @@ func (s *storage) getPodIp() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", s.owner)).List(ctx, metav1.ListOptions{
+	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", a.owner)).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=systemserver",
 	})
 	if err != nil {
@@ -133,8 +119,8 @@ func (s *storage) getPodIp() (string, error) {
 	return podIp, nil
 }
 
-func (s *storage) getAppKey() (string, error) {
-	kubeClient, err := s.factory.KubeClient()
+func (a *Account) getAppKey() (string, error) {
+	kubeClient, err := a.factory.KubeClient()
 	if err != nil {
 		return "", errors.WithStack(err)
 	}

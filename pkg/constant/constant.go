@@ -12,15 +12,20 @@ const (
 	DefaultOwnerHeaderKey    = "X-Backup-Owner"
 	DefaultOsSystemNamespace = "os-system"
 
-	FullyBackup       string = "fully"
-	IncrementalBackup string = "incremental"
-	UnKnownBackup     string = "unknown"
+	FullyBackup         string = "fully"
+	FullyBackupId       int    = 0
+	IncrementalBackup   string = "incremental"
+	IncrementalBackupId int    = 1
+	UnKnownBackup       string = "unknown"
+	UnKnownBackupId     int    = 2
 
 	KindSnapshot string = "Snapshot"
 	KindBackup   string = "Backup"
+	KindRestore  string = "Restore"
 
 	SnapshotController string = "snapshot-controller"
 	BackupController   string = "backup-controller"
+	RestoreController  string = "restore-controller"
 )
 
 type BackupLocation string

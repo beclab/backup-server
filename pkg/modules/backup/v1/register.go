@@ -7,6 +7,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	apiruntime "bytetrade.io/web3os/backup-server/pkg/apiserver/runtime"
 	"bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	restfulspec "github.com/emicklei/go-restful-openapi/v2"
 	"github.com/emicklei/go-restful/v3"
@@ -48,7 +49,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	ws.Route(ws.GET("/plans/{id}").
 		To(handler.get).
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
-		Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
+		Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner").
 			DataType("string").Required(true)).
 		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
@@ -71,7 +72,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 					To(handler.update).
 					Reads(BackupCreate{}).
 					Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
-					Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
+					Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner").
 						DataType("string").Required(true)).
 					Doc("update backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 					Returns(http.StatusOK, "", "success"))
@@ -102,9 +103,9 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	// todo
 	ws.Route(ws.POST("/plans/restore/{id}").
-		Param(ws.PathParameter("id", "snapshot id").DataType("string").
-			Required(true)).
 		To(handler.restoreSnapshot).
+		Reads(Restore{}).
+		Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner")).
 		Doc("restore backup snapshot").
 		Returns(http.StatusOK, "", "success"))
 

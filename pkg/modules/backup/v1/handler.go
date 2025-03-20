@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"context"
 	"strconv"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -17,7 +16,6 @@ import (
 	"github.com/emicklei/go-restful/v3"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type Handler struct {
@@ -139,13 +137,6 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 		response.HandleError(resp, errors.New("the backup plan "+b.Name+" already exists"))
 		return
 	}
-
-	// check is exist backup in progress
-	// todo
-	// if _, err = h.veleroBackupManager.ExistRunningBackup(ctx); err != nil {
-	// 	response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
-	// 	return
-	// }
 
 	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Apply(ctx, &b); err != nil {
 		response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
@@ -308,35 +299,6 @@ func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response)
 	// 	response.SuccessNoData(resp)
 }
 
-func (h *Handler) getAllIncrementBackups(ctx context.Context, namespace, name, uid string) ([]*sysv1.Backup, error) {
-	c, err := h.factory.Sysv1Client()
-	if err != nil {
-		return nil, err
-	}
-
-	backups, err := c.SysV1().Backups(namespace).
-		List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	var res []*sysv1.Backup
-
-	for _, elem := range backups.Items {
-		if elem.Spec.Extra != nil {
-			extra := elem.Spec.Extra
-			if backupType, ok := extra[velero.ExtraBackupType]; ok && backupType == velero.IncrementalBackup {
-				refUid, ok1 := extra[velero.ExtraRefFullyBackupUid]
-				refName, ok2 := extra[velero.ExtraRefFullyBackupName]
-				if ok1 && ok2 && refUid == uid && refName == name {
-					res = append(res, &elem)
-				}
-			}
-		}
-	}
-	return res, nil
-}
-
 func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {
 	// ctx := req.Request.Context()
 	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
@@ -359,5 +321,31 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 }
 
 func (h *Handler) restoreSnapshot(req *restful.Request, resp *restful.Response) {
+	ctx, id := req.Request.Context(), req.PathParameter("id")
+	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := "zhaoyu001"
+	_ = owner
+
+	snapshot, err := h.snapshotOperator.GetSnapshot(ctx, id)
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("failed to get snapshot %s: %v", id, err))
+		return
+	}
+
+	if snapshot == nil {
+		response.HandleError(resp, errors.Errorf("snapshot %s not exists", id))
+		return
+	}
+
+	backup, err := h.backupOperator.GetBackupById(ctx, snapshot.Spec.BackupId)
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("failed to get backup %s: %v", snapshot.Spec.BackupId, err))
+		return
+	}
+
+	if backup == nil {
+		response.HandleError(resp, errors.Errorf("backup %s not exists", snapshot.Spec.BackupId))
+		return
+	}
 
 }

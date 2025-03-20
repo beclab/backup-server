@@ -27,6 +27,8 @@ type Interface interface {
 	Backups() BackupInformer
 	// BackupConfigs returns a BackupConfigInformer.
 	BackupConfigs() BackupConfigInformer
+	// Restores returns a RestoreInformer.
+	Restores() RestoreInformer
 	// Snapshots returns a SnapshotInformer.
 	Snapshots() SnapshotInformer
 }
@@ -50,6 +52,11 @@ func (v *version) Backups() BackupInformer {
 // BackupConfigs returns a BackupConfigInformer.
 func (v *version) BackupConfigs() BackupConfigInformer {
 	return &backupConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Restores returns a RestoreInformer.
+func (v *version) Restores() RestoreInformer {
+	return &restoreInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Snapshots returns a SnapshotInformer.

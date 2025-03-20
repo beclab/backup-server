@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -9,11 +10,11 @@ import (
 	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned"
 	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
+	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -31,32 +32,27 @@ type SnapshotReconciler struct {
 
 	backupOperator   *operator.BackupOperator
 	snapshotOperator *operator.SnapshotOperator
-
-	sc sysv1.Interface
 }
 
-func NewSnapshotController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme) *SnapshotReconciler {
-	b := &SnapshotReconciler{Client: c,
+func NewSnapshotController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, backupOperator *operator.BackupOperator,
+	snapshotOperator *operator.SnapshotOperator) *SnapshotReconciler {
+	return &SnapshotReconciler{Client: c,
 		factory:          factory,
 		manager:          bcm,
 		scheme:           schema,
-		backupOperator:   operator.NewBackupOperator(factory),
-		snapshotOperator: operator.NewSnapshotOperator(factory),
+		backupOperator:   backupOperator,
+		snapshotOperator: snapshotOperator,
 	}
-
-	sc, err := factory.Sysv1Client()
-	if err != nil {
-		panic(err)
-	}
-
-	b.sc = sc
-	return b
 }
+
+//+kubebuilder:rbac:groups=sys.bytetrade.i,resources=snapshot,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=snapshot/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=snapshot/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the BackupConfig object against the actual cluster state, and then
+// the Snapshot object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
@@ -114,13 +110,14 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&sysapiv1.Snapshot{}, builder.WithPredicates(predicate.Funcs{
 			GenericFunc: func(genericEvent event.GenericEvent) bool { return false },
 			CreateFunc: func(e event.CreateEvent) bool { // Pending,Running Failed Complete
-				log.Info("hit snapshot create event")
+
 				snapshot, ok := r.isSysSnapshot(e.Object)
 				if !ok {
 					log.Debugf("not a sys snapshot")
 					return false
 				}
 
+				log.Infof("hit snapshot create event %s", *snapshot.Spec.Phase)
 				backup, err := r.getBackup(snapshot.Spec.BackupId)
 				if err != nil {
 					log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
@@ -130,23 +127,20 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				// If the computer restarts and causes the snapshot to remain incomplete, its status will be changed from "Running" to "Failed."
 				// This prevents a large number of "Running" tasks from triggering backup actions after the computer restarts.
 
-				var snapshotPhase = constant.SnapshotPhaseFailed
 				var phase = *snapshot.Spec.Phase
 
 				switch phase {
 				case constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String():
 					return false
 				case constant.SnapshotPhaseRunning.String():
-					// todo
 					// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
 					// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
-					snapshotPhase = constant.SnapshotPhaseFailed // todo fix snapshot data
+					if err := r.snapshotOperator.SetSnapshotPhase(backup.Name, snapshot, constant.SnapshotPhaseFailed); err != nil {
+						log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Name, err)
+					}
 				case constant.SnapshotPhasePending.String():
-					snapshotPhase = constant.SnapshotPhaseRunning
-				}
-
-				if err := r.snapshotOperator.SetSnapshotPhase(backup.Name, snapshot, snapshotPhase); err != nil {
-					log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Name, err)
+					log.Infof("add to worker")
+					worker.Worker.AppendSnapshotTask(snapshot.Name)
 				}
 
 				return false
@@ -157,32 +151,38 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				// todo need update backup.spec.Size
 
 				oldObj, newObj := updateEvent.ObjectOld, updateEvent.ObjectNew
-				a, ok1 := r.isSysSnapshot(oldObj)
-				b, ok2 := r.isSysSnapshot(newObj)
+				oldSnapshot, ok1 := r.isSysSnapshot(oldObj)
+				newSnapshot, ok2 := r.isSysSnapshot(newObj)
 
-				if !(ok1 && ok2) || reflect.DeepEqual(a.Spec, b.Spec) {
+				fmt.Println("---old---", util.ToJSON(oldSnapshot))
+				fmt.Println("---new---", util.ToJSON(newSnapshot))
+				return false
+
+				if !(ok1 && ok2) || reflect.DeepEqual(oldSnapshot.Spec, newSnapshot.Spec) {
 					return false
 				}
 
-				backup, err := r.getBackup(b.Spec.BackupId)
+				backup, err := r.getBackup(newSnapshot.Spec.BackupId)
 				if err != nil {
 					log.Errorf("get backup error %v", err)
 					return false
 				}
 
 				var backupName = backup.Spec.Name
-				var snapshotCreateAt = r.snapshotOperator.ParseSnapshotName(b.Spec.StartAt)
+				var snapshotCreateAt = r.snapshotOperator.ParseSnapshotName(newSnapshot.Spec.StartAt)
 
-				if util.ListContains([]string{constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String()}, *b.Spec.Phase) {
-					log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *b.Spec.Phase)
+				if util.ListContains([]string{constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String()}, *newSnapshot.Spec.Phase) {
+					log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *newSnapshot.Spec.Phase)
 					return false
 				}
 
 				log.Infof("run backup: %s, snapshot: %s", backupName, snapshotCreateAt)
 
-				if err := r.snapshotOperator.Backup(backup, b); err != nil {
-					log.Errorf("backup %s snapshot error %v", backup.Name, err)
-				}
+				// worker.Worker.AppendSnapshotTask(newSnapshot.Name)
+
+				// if err := r.snapshotOperator.Backup(backup, newSnapshot); err != nil {
+				// 	log.Errorf("backup %s snapshot error %v", backup.Name, err)
+				// }
 
 				// resticPhase := b.Spec.ResticPhase
 				// if resticPhase != nil {

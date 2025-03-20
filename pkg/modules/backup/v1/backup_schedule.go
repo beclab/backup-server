@@ -101,6 +101,9 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		Name:       o.c.Name,
 		Owner:      o.owner,
 		BackupType: backupType,
+		Extra: map[string]string{
+			"password": util.Base64encode([]byte(o.c.Password)),
+		},
 	}
 
 	if o.c.Location != "" && o.c.LocationConfig != nil {
@@ -359,8 +362,8 @@ func (o *BackupPlan) validLocation() error {
 			return errors.Errorf("backup %s location space invalid, cloudName: %s, regionId: %s", o.c.Name, locationConfig.CloudName, locationConfig.RegionId)
 		}
 	} else {
-		if locationConfig.Endpoint == "" || locationConfig.AccessKey == "" || locationConfig.SecretKey == "" {
-			return errors.Errorf("backup %s location %s invalid, please check endpoint, accessKey, secretKey", o.c.Name, location)
+		if locationConfig.Name == "" {
+			return errors.Errorf("backup %s location %s invalid, please check name", o.c.Name, location)
 		}
 	}
 	return nil

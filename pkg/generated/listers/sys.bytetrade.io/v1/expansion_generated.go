@@ -33,6 +33,14 @@ type BackupConfigListerExpansion interface{}
 // BackupConfigNamespaceLister.
 type BackupConfigNamespaceListerExpansion interface{}
 
+// RestoreListerExpansion allows custom methods to be added to
+// RestoreLister.
+type RestoreListerExpansion interface{}
+
+// RestoreNamespaceListerExpansion allows custom methods to be added to
+// RestoreNamespaceLister.
+type RestoreNamespaceListerExpansion interface{}
+
 // SnapshotListerExpansion allows custom methods to be added to
 // SnapshotLister.
 type SnapshotListerExpansion interface{}

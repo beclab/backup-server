@@ -1,13 +1,17 @@
 package controller
 
 import (
+	"context"
+
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/common"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
+	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
+	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/lithammer/dedent"
 	pkgerrors "github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -128,6 +132,11 @@ func run(factory client.Factory) error {
 		return pkgerrors.Errorf("unable to setup ready check: %v", err)
 	}
 
+	var backupOperator = operator.NewBackupOperator(factory)
+	var snapshotOperator = operator.NewSnapshotOperator(factory)
+
+	workerManager := worker.NewWorkerManage(context.TODO(), backupOperator, snapshotOperator)
+	workerManager.StartBackup()
 	manager := velero.NewManager(factory)
 
 	enabledControllers := map[string]struct{}{
@@ -136,14 +145,14 @@ func run(factory client.Factory) error {
 	}
 
 	if _, ok := enabledControllers[controllers.BackupController]; ok {
-		if err = controllers.NewBackupController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
+		if err = controllers.NewBackupController(mgr.GetClient(), factory, manager, mgr.GetScheme(), backupOperator, snapshotOperator).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backupConfig controller: %v", err)
 		}
 	}
 
 	if _, ok := enabledControllers[controllers.SnapshotController]; ok {
-		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
+		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, manager, mgr.GetScheme(), backupOperator, snapshotOperator).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backup controller: %v", err)
 		}

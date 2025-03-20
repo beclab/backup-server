@@ -48,7 +48,7 @@ require (
 	go.uber.org/zap v1.24.0
 	golang.org/x/text v0.21.0
 	k8s.io/api v0.26.2
-	k8s.io/apimachinery v0.32.1
+	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.1
 	k8s.io/code-generator v0.26.1
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d

@@ -4,16 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"github.com/emicklei/go-restful/v3"
-	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -49,59 +45,59 @@ type PasswordResponseData struct {
 	Value string `json:"value"`
 }
 
-func (o *SnapshotOperator) getPassword(backup *sysv1.Backup) (string, error) {
-	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", backup.Spec.Owner)
-	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
+// func (o *SnapshotOperator) getPassword(backup *sysv1.Backup) (string, error) {
+// 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", backup.Spec.Owner)
+// 	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
 
-	req := &ProxyRequest{
-		Op:       "getAccount",
-		DataType: "backupPassword",
-		Version:  "v1",
-		Group:    "service.settings",
-		Data:     backup.Name,
-	}
+// 	req := &ProxyRequest{
+// 		Op:       "getAccount",
+// 		DataType: "backupPassword",
+// 		Version:  "v1",
+// 		Group:    "service.settings",
+// 		Data:     backup.Name,
+// 	}
 
-	terminusNonce, err := util.GenTerminusNonce("")
-	if err != nil {
-		log.Error("generate nonce error, ", err)
-		return "", err
-	}
+// 	terminusNonce, err := util.GenTerminusNonce("")
+// 	if err != nil {
+// 		log.Error("generate nonce error, ", err)
+// 		return "", err
+// 	}
 
-	log.Info("fetch password from settings, ", settingsUrl)
-	resp, err := client.R().
-		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader("Terminus-Nonce", terminusNonce).
-		SetBody(req).
-		SetResult(&PasswordResponse{}).
-		Post(settingsUrl)
+// 	log.Info("fetch password from settings, ", settingsUrl)
+// 	resp, err := client.R().
+// 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
+// 		SetHeader("Terminus-Nonce", terminusNonce).
+// 		SetBody(req).
+// 		SetResult(&PasswordResponse{}).
+// 		Post(settingsUrl)
 
-	if err != nil {
-		log.Error("request settings password api error, ", err)
-		return "", err
-	}
+// 	if err != nil {
+// 		log.Error("request settings password api error, ", err)
+// 		return "", err
+// 	}
 
-	if resp.StatusCode() != http.StatusOK {
-		log.Error("request settings password api response not ok, ", resp.StatusCode())
-		err = errors.New(string(resp.Body()))
-		return "", err
-	}
+// 	if resp.StatusCode() != http.StatusOK {
+// 		log.Error("request settings password api response not ok, ", resp.StatusCode())
+// 		err = errors.New(string(resp.Body()))
+// 		return "", err
+// 	}
 
-	pwdResp := resp.Result().(*PasswordResponse)
-	log.Infof("settings password api response, %+v", pwdResp)
-	if pwdResp.Code != 0 {
-		log.Error("request settings password api response error, ", pwdResp.Code, ", ", pwdResp.Message)
-		err = errors.New(pwdResp.Message)
-		return "", err
-	}
+// 	pwdResp := resp.Result().(*PasswordResponse)
+// 	log.Infof("settings password api response, %+v", pwdResp)
+// 	if pwdResp.Code != 0 {
+// 		log.Error("request settings password api response error, ", pwdResp.Code, ", ", pwdResp.Message)
+// 		err = errors.New(pwdResp.Message)
+// 		return "", err
+// 	}
 
-	if pwdResp.Data == nil {
-		log.Error("request settings password api response data is nil, ", pwdResp.Code, ", ", pwdResp.Message)
-		err = errors.New("request settings password api response data is nil")
-		return "", err
-	}
+// 	if pwdResp.Data == nil {
+// 		log.Error("request settings password api response data is nil, ", pwdResp.Code, ", ", pwdResp.Message)
+// 		err = errors.New("request settings password api response data is nil")
+// 		return "", err
+// 	}
 
-	return pwdResp.Data.Value, nil
-}
+// 	return pwdResp.Data.Value, nil
+// }
 
 func (o *SnapshotOperator) GetOlaresId(owner string) (string, error) {
 	dynamicClient, err := o.factory.DynamicClient()

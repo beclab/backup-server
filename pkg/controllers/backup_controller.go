@@ -37,19 +37,18 @@ type BackupReconciler struct {
 	scheme           *runtime.Scheme
 	backupOperator   *operator.BackupOperator
 	snapshotOperator *operator.SnapshotOperator
-	// snapshotOperator:    operator.NewSnapshotOperator(factory),
-	// backupOperator:      operator.NewBackupOperator(factory),
 }
 
-func NewBackupController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme) *BackupReconciler {
+func NewBackupController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, backupOperator *operator.BackupOperator,
+	snapshotOperator *operator.SnapshotOperator) *BackupReconciler {
 	return &BackupReconciler{
 		Client:           c,
 		manager:          bcm,
 		factory:          factory,
 		bcManager:        bcm,
 		scheme:           schema,
-		backupOperator:   operator.NewBackupOperator(factory),
-		snapshotOperator: operator.NewSnapshotOperator(factory),
+		backupOperator:   backupOperator,
+		snapshotOperator: snapshotOperator,
 	}
 }
 
@@ -125,7 +124,7 @@ func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 		if err != nil {
 			return err
 		}
-		log.Debugf("schedule %q created: %q", backup.Name, cron)
+		log.Debugf("schedule %q created: %q", backup.Spec.Name, cron)
 	}
 	return nil
 }

@@ -34,6 +34,7 @@ func (s *storage) Backup(opt options.Option) (backupOutput *backupssdkrestic.Sum
 				Endpoint:        o.Endpoint,
 				AccessKey:       o.AccessKey,
 				SecretAccessKey: o.SecretKey,
+				LimitUploadRate: "200",
 			},
 		})
 	case *options.TencentCloudBackupOptions:

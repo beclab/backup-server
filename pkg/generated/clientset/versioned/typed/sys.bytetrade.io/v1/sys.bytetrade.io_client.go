@@ -29,6 +29,7 @@ type SysV1Interface interface {
 	RESTClient() rest.Interface
 	BackupsGetter
 	BackupConfigsGetter
+	RestoresGetter
 	SnapshotsGetter
 }
 
@@ -43,6 +44,10 @@ func (c *SysV1Client) Backups(namespace string) BackupInterface {
 
 func (c *SysV1Client) BackupConfigs(namespace string) BackupConfigInterface {
 	return newBackupConfigs(c, namespace)
+}
+
+func (c *SysV1Client) Restores(namespace string) RestoreInterface {
+	return newRestores(c, namespace)
 }
 
 func (c *SysV1Client) Snapshots(namespace string) SnapshotInterface {

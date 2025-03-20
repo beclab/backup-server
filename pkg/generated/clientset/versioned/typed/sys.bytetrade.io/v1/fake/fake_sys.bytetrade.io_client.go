@@ -35,6 +35,10 @@ func (c *FakeSysV1) BackupConfigs(namespace string) v1.BackupConfigInterface {
 	return &FakeBackupConfigs{c, namespace}
 }
 
+func (c *FakeSysV1) Restores(namespace string) v1.RestoreInterface {
+	return &FakeRestores{c, namespace}
+}
+
 func (c *FakeSysV1) Snapshots(namespace string) v1.SnapshotInterface {
 	return &FakeSnapshots{c, namespace}
 }

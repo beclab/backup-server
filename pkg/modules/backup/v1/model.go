@@ -16,27 +16,19 @@ import (
 )
 
 type LocationConfig struct {
+	Name      string `json:"name"`
 	CloudName string `json:"cloudName,omitempty"`
 	RegionId  string `json:"regionId,omitempty"`
-	Endpoint  string `json:"endpoint,omitempty"`
-	AccessKey string `json:"accessKey,omitempty"`
-	SecretKey string `json:"secretKey,omitempty"`
 }
 
 type BackupCreate struct {
-	Name string `json:"name"`
-
-	Path string `json:"path"`
-
-	Location string `json:"location"` // space or s3
-
-	LocationConfig *LocationConfig `json:"locationConfig,omitempty"`
-
-	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
-
-	Password string `json:"password,omitempty"`
-
-	ConfirmPassword string `json:"confirmPassword,omitempty"`
+	Name            string              `json:"name"`
+	Path            string              `json:"path"`
+	Location        string              `json:"location"` // space or s3
+	LocationConfig  *LocationConfig     `json:"locationConfig,omitempty"`
+	BackupPolicies  *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
+	Password        string              `json:"password,omitempty"`
+	ConfirmPassword string              `json:"confirmPassword,omitempty"`
 }
 
 type Snapshot struct {
@@ -50,6 +42,12 @@ type Snapshot struct {
 	Phase *string `json:"phase"`
 
 	FailedMessage string `json:"failedMessage,omitempty"`
+}
+
+type Restore struct {
+	BackupUrl  string `json:"backupUrl"`
+	SnapshotId string `json:"snapshotId"`
+	Path       string `json:"path"`
 }
 
 type ResponseBackupList struct {

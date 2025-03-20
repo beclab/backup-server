@@ -8,9 +8,11 @@ type AccountResponse struct {
 }
 
 type AccountResponseRawData struct {
+	ExpiresAt    int64  `json:"expires_at"`
 	RefreshToken string `json:"refresh_token"`
 	AccessToken  string `json:"access_token"`
-	ExpiresAt    int64  `json:"expires_at"`
+	Endpoint     string `json:"endpoint"`
+	Bucket       string `json:"bucket"`
 	UserId       string `json:"userid"`
 	Available    bool   `json:"available"`
 	CreateAt     int64  `json:"create_at"`
@@ -23,7 +25,7 @@ type AccountResponseData struct {
 	CloudUrl string                  `json:"cloudUrl"`
 }
 
-type AllAccountResponse struct {
+type AccountsResponse struct {
 	response.Header
 	Data []*AccountsResponseRawData `json:"data,omitempty"`
 }
@@ -33,4 +35,21 @@ type AccountsResponseRawData struct {
 	Type      string `json:"type"`
 	Available bool   `json:"available"`
 	CreateAt  int64  `json:"create_at"`
+}
+
+type StorageSpaceConfig struct {
+	OlaresDid              string
+	OlaresSpaceAccessToken string
+	Expired                int64
+}
+
+type StorageIntegrationConfig struct {
+	Type      string `json:"type"`
+	OlaresDid string `json:"olares_did"`
+	AccessKey string `json:"access_token"`
+	SecretKey string `json:"secret_key"`
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	Available bool   `json:"available"`
+	ExpiresAt int64  `json:"expires_at"`
 }

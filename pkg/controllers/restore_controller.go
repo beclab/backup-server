@@ -3,7 +3,9 @@ package controllers
 import (
 	"context"
 
+	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	bclient "bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/pkg/errors"
@@ -13,34 +15,47 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-type BackupRestoreReconciler struct {
+type RestoreReconciler struct {
 	client.Client
 	factory   bclient.Factory
 	bcManager velero.Manager
 	scheme    *runtime.Scheme
+
+	backupOperator   *operator.BackupOperator
+	snapshotOperator *operator.SnapshotOperator
 }
 
-func NewBackupRestoreController(c client.Client, factory bclient.Factory, bcm velero.Manager, schema *runtime.Scheme) *BackupRestoreReconciler {
-	return &BackupRestoreReconciler{Client: c, factory: factory, bcManager: bcm, scheme: schema}
+func NewRestoreController(c client.Client, factory bclient.Factory, bcm velero.Manager, schema *runtime.Scheme, backupOperator *operator.BackupOperator,
+	snapshotOperator *operator.SnapshotOperator) *RestoreReconciler {
+	return &RestoreReconciler{Client: c,
+		factory:          factory,
+		bcManager:        bcm,
+		scheme:           schema,
+		backupOperator:   backupOperator,
+		snapshotOperator: snapshotOperator,
+	}
 }
 
-//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=backupconfigs,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=backupconfigs/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=backupconfigs/finalizers,verbs=update
+//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=restore,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=restore/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=sys.bytetrade.io,resources=restore/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the BackupConfig object against the actual cluster state, and then
+// the Restore object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
-func (r *BackupRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *RestoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log.Infof("received br request, namespace: %q, name: %q", req.Namespace, req.Name)
 
 	// vc, err := r.factory.Client()
@@ -88,7 +103,7 @@ func (r *BackupRestoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *BackupRestoreReconciler) isReady(ctx context.Context) error {
+func (r *RestoreReconciler) isReady(ctx context.Context) error {
 	kc, err := r.factory.KubeClient()
 	if err != nil {
 		return err
@@ -131,11 +146,11 @@ func (r *BackupRestoreReconciler) isReady(ctx context.Context) error {
 	return r.pvReady(ctx, appService, "charts_pv")
 }
 
-func (r *BackupRestoreReconciler) stsAvailable(status appsv1.StatefulSetStatus) bool {
+func (r *RestoreReconciler) stsAvailable(status appsv1.StatefulSetStatus) bool {
 	return status.AvailableReplicas == status.ReadyReplicas && status.ReadyReplicas == 1
 }
 
-func (r *BackupRestoreReconciler) pvReady(ctx context.Context, st *appsv1.StatefulSet, pvAnnotationName string) error {
+func (r *RestoreReconciler) pvReady(ctx context.Context, st *appsv1.StatefulSet, pvAnnotationName string) error {
 	kc, err := r.factory.KubeClient()
 	if err != nil {
 		return err
@@ -159,7 +174,7 @@ func (r *BackupRestoreReconciler) pvReady(ctx context.Context, st *appsv1.Statef
 	return nil
 }
 
-// func (r *BackupRestoreReconciler) updateRestore(ctx context.Context, vc clientset.Interface, namespace, restoreName string) error {
+// func (r *RestoreReconciler) updateRestore(ctx context.Context, vc clientset.Interface, namespace, restoreName string) error {
 // 	patchAnnotation := fmt.Sprintf(`{"metadata":{"annotations":{"%s":"true"}}}`, velero.AnnotationOSDataBackupRestored)
 
 // 	updatedRestore, err := vc.VeleroV1().Restores(namespace).
@@ -172,20 +187,27 @@ func (r *BackupRestoreReconciler) pvReady(ctx context.Context, st *appsv1.Statef
 // }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *BackupRestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	_, err := ctrl.NewControllerManagedBy(mgr).
+		For(&sysapiv1.Restore{}, builder.WithPredicates(predicate.Funcs{
+			GenericFunc: func(genericEvent event.GenericEvent) bool { return false },
+			CreateFunc: func(e event.CreateEvent) bool {
+				log.Info("hit restore update event")
+				return false
+			},
+			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+				log.Info("hit restore update event")
+
+				return false
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				log.Info("hit restore delete event")
+				return false
+			},
+		})).Build(r)
+	if err != nil {
+		return err
+	}
+
 	return nil
-	// return ctrl.NewControllerManagedBy(mgr).
-	// 	For(&sysv1.Restore{},
-	// 		builder.WithPredicates(newCreateOnlyPredicate(func(e event.CreateEvent) bool {
-	// 			log.Info("hit backup restore create event")
-
-	// 			v, ok := e.Object.(*velerov1api.Restore)
-	// 			if !ok {
-	// 				return false
-	// 			}
-	// 			log.Infof("restore backup name: %s", v.Spec.BackupName)
-	// 			return v.Namespace == velero.DefaultVeleroNamespace
-
-	// 		}))).
-	// 	Complete(r)
 }
