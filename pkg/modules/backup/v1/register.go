@@ -8,7 +8,7 @@ import (
 	apiruntime "bytetrade.io/web3os/backup-server/pkg/apiserver/runtime"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	restfulspec "github.com/emicklei/go-restful-openapi/v2"
 	"github.com/emicklei/go-restful/v3"
 )
@@ -21,8 +21,9 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	ws := apiruntime.NewWebService(cfg, ModuleVersion)
 	//ws.Consumes(restful.MIME_JSON)
 	ws.Produces(restful.MIME_JSON)
+	var factory = client.ClientFactory()
 
-	handler := New(cfg, client.ClientFactory())
+	handler := New(cfg, factory, handlers.NewHandler(factory))
 
 	ws.Route(ws.GET("/ready").
 		To(handler.ready).
@@ -39,14 +40,14 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("backup server status").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.GET("/plans").
+	ws.Route(ws.GET("/plans/backup").
 		To(handler.list).
 		Param(ws.QueryParameter("page", "page of plans").Required(false)).
 		Param(ws.QueryParameter("limit", "page size of plans").Required(false)).
 		Doc("list backup plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
-	ws.Route(ws.GET("/plans/{id}").
+	ws.Route(ws.GET("/plans/backup/{id}").
 		To(handler.get).
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
 		Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner").
@@ -54,44 +55,44 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
-	ws.Route(ws.POST("/plans").
-		To(handler.add).
+	ws.Route(ws.POST("/plans/backup").
+		To(handler.addBackup).
 		Reads(BackupCreate{}).
-		Param(ws.HeaderParameter(velero.BackupOwnerHeaderKey, "backup owner").
+		Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner").
 			DataType("string").Required(false)).
 		Doc("add backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.DELETE("/plans/{id}"). // todo
-						To(handler.deleteBackupPlan).
-						Param(ws.PathParameter("name", "backup plan id").DataType("string").Required(true)).
-						Doc("delete backup").Metadata(restfulspec.KeyOpenAPITags, tags).
+	ws.Route(ws.DELETE("/plans/backup/{id}"). // todo
+							To(handler.deleteBackupPlan).
+							Param(ws.PathParameter("name", "backup plan id").DataType("string").Required(true)).
+							Doc("delete backup").Metadata(restfulspec.KeyOpenAPITags, tags).
+							Returns(http.StatusOK, "", "success"))
+
+	ws.Route(ws.PUT("/plans/backup/{id}"). // todo
+						To(handler.update).
+						Reads(BackupCreate{}).
+						Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
+						Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner").
+							DataType("string").Required(true)).
+						Doc("update backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 						Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.PUT("/plans/{id}"). // todo
-					To(handler.update).
-					Reads(BackupCreate{}).
-					Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
-					Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner").
-						DataType("string").Required(true)).
-					Doc("update backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
-					Returns(http.StatusOK, "", "success"))
-
-	ws.Route(ws.GET("/plans/{id}/snapshots").
+	ws.Route(ws.GET("/plans/backup/{id}/snapshots").
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
 		// Param(ws.QueryParameter("limit", "limit of snapshots").Required(false)). // todo
 		To(handler.listSnapshots).
 		Doc("list backup snapshots").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.GET("/plans/snapshots/{id}").
+	ws.Route(ws.GET("/plans/backup/snapshots/{id}").
 		Param(ws.PathParameter("id", "snapshot id").DataType("string").Required(true)).
 		To(handler.getSnapshot).
 		Doc("get backup snapshot details").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
-	ws.Route(ws.DELETE("/plans/{plan_name}/snapshots/{name}").
-		Param(ws.PathParameter("name", "snapshot name").DataType("string").Required(true)).
+	ws.Route(ws.DELETE("/plans/backup/snapshots/{id}").
+		Param(ws.PathParameter("id", "snapshot id").DataType("string").Required(true)).
 		To(handler.deleteSnapshot).
 		Doc("delete backup snapshot").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
@@ -101,14 +102,14 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	// 	Doc("list backups").Metadata(restfulspec.KeyOpenAPITags, tags).
 	// 	Returns(http.StatusOK, "", "success"))
 
-	// todo
-	ws.Route(ws.POST("/plans/restore/{id}").
-		To(handler.restoreSnapshot).
-		Reads(Restore{}).
+	ws.Route(ws.POST("/plans/restore").
+		To(handler.addRestore). // todo restore
+		Reads(RestoreCreate{}).
 		Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner")).
-		Doc("restore backup snapshot").
+		Doc("create restore task").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", "success"))
 
+	// space regions
 	ws.Route(ws.GET("/plans/regions").
 		To(handler.getSpaceRegions).
 		Doc("get space regions").Metadata(restfulspec.KeyOpenAPITags, tags).

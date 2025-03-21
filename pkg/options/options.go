@@ -1,3 +1,6 @@
 package options
 
-type Option interface{}
+type Option interface {
+	GetLocation() string
+	GetLocationConfigName() string
+}

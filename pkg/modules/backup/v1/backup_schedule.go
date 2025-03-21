@@ -9,7 +9,7 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -27,20 +27,19 @@ const (
 )
 
 type BackupPlan struct {
-	owner            string
-	c                *BackupCreate
-	factory          client.Factory
-	manager          velero.Manager
-	backupOperator   *operator.BackupOperator
-	snapshotOperator *operator.SnapshotOperator
+	owner   string
+	c       *BackupCreate
+	factory client.Factory
+	manager velero.Manager
+	handler handlers.Interface
 }
 
-func NewBackupPlan(owner string, factory client.Factory, manager velero.Manager, backupOperator *operator.BackupOperator) *BackupPlan {
+func NewBackupPlan(owner string, factory client.Factory, manager velero.Manager, handler handlers.Interface) *BackupPlan {
 	return &BackupPlan{
-		owner:          owner,
-		factory:        factory,
-		manager:        manager,
-		backupOperator: backupOperator,
+		owner:   owner,
+		factory: factory,
+		manager: manager,
+		handler: handler,
 	}
 }
 
@@ -139,7 +138,7 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 
 	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
-	backup, err := o.backupOperator.CreateBackup(ctx, o.owner, o.c.Name, backupSpec)
+	backup, err := o.handler.GetBackupHandler().CreateBackup(ctx, o.owner, o.c.Name, backupSpec)
 	if err != nil {
 		return err
 	}
@@ -147,56 +146,6 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 	log.Infof("create backup %s, id %s", backup.Spec.Name, backup.Name)
 
 	return nil
-}
-
-func (o *BackupPlan) hasAvailableFullyBackup(ctx context.Context) bool {
-	sc, err := o.factory.Sysv1Client()
-	if err != nil {
-		log.Warnf("new sc client: %v", err)
-		return false
-	}
-
-	l, err := sc.SysV1().Backups(o.manager.Namespace()).
-		List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Errorf("list sys backups: %v", err)
-		return false
-	}
-
-	for _, b := range l.Items {
-		if b.Spec.Extra != nil {
-			if v, ok := b.Spec.Extra[velero.ExtraBackupType]; !(ok && v == velero.FullyBackup) {
-				continue
-			}
-			// phase, middlewarePhase := b.Spec.Phase, b.Spec.MiddleWarePhase
-			// if b.Spec.Size != nil && (phase != nil && *phase == velero.Succeed) &&
-			// 	(middlewarePhase != nil && util.ListContains([]string{velero.Succeed, velero.Success}, *middlewarePhase)) {
-			// 	return true
-			// }
-			return true
-		}
-	}
-	return false
-}
-
-func (o *BackupPlan) hasInProgressBackup(ctx context.Context) (bool, error) {
-	sc, err := o.factory.Sysv1Client()
-	if err != nil {
-		return false, err
-	}
-
-	ns := o.manager.Namespace()
-	l, err := sc.SysV1().Backups(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return false, err
-	}
-	for _, item := range l.Items {
-		_ = item
-		// if util.ListContains([]string{velero.Pending, velero.Started, velero.Running}, *item.Spec.Phase) {
-		// 	return true, errors.Errorf("backup %q in progress", item.Name)
-		// }
-	}
-	return false, nil
 }
 
 // func (o *BackupPlan) createFullySysBackup(ctx context.Context, config, name, owner string) error {
@@ -220,89 +169,6 @@ func (o *BackupPlan) hasInProgressBackup(ctx context.Context) (bool, error) {
 // 	}
 // 	return nil
 // }
-
-func (o *BackupPlan) GetLatest(ctx context.Context, name string) (*ResponseDescribeBackup, error) {
-	bc, err := o.manager.GetBackupConfig(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = o.manager.FormatSysBackupTimeofDay(bc); err != nil {
-		log.Errorf("convert time to timestamp error: %v", err)
-	}
-
-	rs := ResponseDescribeBackup{
-		Name: name,
-		// BackupPolicies: bc.Spec.BackupPolicy,
-	}
-
-	// l, err := o.manager.ListSysBackups(ctx, name)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// var latestSysBackup *sysv1.Backup
-	// if l != nil && l.Items != nil && len(l.Items) > 0 {
-	// 	latestSysBackup = &l.Items[0]
-	// }
-
-	// if latestSysBackup != nil && latestSysBackup.Spec.Size != nil {
-	// 	rs.Size = latestSysBackup.Spec.Size
-	// }
-
-	// phase, message := o.GetBackupResult(latestSysBackup)
-
-	// // rs.NextBackupTimestamp = o.GetNextBackupTime(*bc.Spec.BackupPolicy)
-	// rs.Phase = phase
-	// rs.FailedMessage = message
-
-	// if latestSysBackup != nil {
-	// 	rs.SnapshotName = latestSysBackup.Name
-	// 	rs.CreationTimestamp = latestSysBackup.ObjectMeta.CreationTimestamp.Unix()
-	// }
-
-	return &rs, nil
-}
-
-func (o *BackupPlan) Get(ctx context.Context, name string) (*ResponseDescribeBackup, error) {
-	bc, err := o.manager.GetBackupConfig(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = o.manager.FormatSysBackupTimeofDay(bc); err != nil {
-		log.Errorf("convert time to timestamp error: %v", err)
-	}
-
-	r := ResponseDescribeBackup{
-		Name: name,
-		// BackupPolicies: bc.Spec.BackupPolicy,
-	}
-
-	// l, err := o.manager.ListSysBackups(ctx, name)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// // get the latest succeed backup size
-	// if l != nil && len(l.Items) > 0 {
-	// 	for _, i := range l.Items {
-	// 		_ = i
-	// 		// phase, middlewarePhase := i.Spec.Phase, i.Spec.MiddleWarePhase
-	// 		// if phase == nil || middlewarePhase == nil {
-	// 		// 	continue
-	// 		// }
-
-	// 		// if *phase == velero.VeleroBackupCompleted && util.ListContains([]string{velero.Succeed, velero.Success}, *middlewarePhase) {
-	// 		// 	if i.Spec.Size != nil {
-	// 		// 		r.Size = i.Spec.Size
-	// 		// 	}
-	// 		// }
-	// 	}
-	// }
-
-	return &r, nil
-}
 
 func (o *BackupPlan) Del(ctx context.Context, name string) error {
 	return errors.New("to be implement")
@@ -352,7 +218,7 @@ func (o *BackupPlan) validLocation() error {
 	locationConfig := o.c.LocationConfig
 
 	if ok := util.ListContains([]string{constant.BackupLocationSpace.String(),
-		constant.BackupLocationAws.String(), constant.BackupLocationTencentCloud.String(),
+		constant.BackupLocationAwsS3.String(), constant.BackupLocationTencentCloud.String(),
 	}, location); !ok {
 		return errors.Errorf("backup %s location %s not support", o.c.Name, location)
 	}
@@ -471,14 +337,11 @@ func (o *BackupPlan) buildBackupType() string {
 
 func (o *BackupPlan) buildLocationConfig(location string, clusterId string, config *LocationConfig) string {
 	var data = make(map[string]string)
+	data["name"] = config.Name
 	if location == constant.BackupLocationSpace.String() {
 		data["cloudName"] = config.CloudName
 		data["regionId"] = config.RegionId
 		data["clusterId"] = clusterId
-	} else {
-		data["endpoint"] = config.Endpoint
-		data["accessKey"] = config.AccessKey
-		data["secretKey"] = config.SecretKey
 	}
 
 	return util.ToJSON(data)

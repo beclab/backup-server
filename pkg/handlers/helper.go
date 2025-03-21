@@ -1,4 +1,4 @@
-package operator
+package handlers
 
 import (
 	"encoding/json"
@@ -44,7 +44,7 @@ func getBackupLocationConfig(backup *sysv1.Backup) (location string, locationCon
 		}
 		_, ok := locationConfig["name"]
 		if !ok {
-			return location, nil, fmt.Errorf("location config name not exsits, config: %s", v)
+			return location, nil, fmt.Errorf("location %s config name not exsits, config: %s", k, v)
 		}
 
 		location = k

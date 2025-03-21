@@ -7,48 +7,40 @@ import (
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/pkg/errors"
-	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/gengo/examples/set-gen/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // BackupReconciler reconciles a Backup object
 type BackupReconciler struct {
 	client.Client
-	manager          velero.Manager
-	factory          k8sclient.Factory
-	bcManager        velero.Manager
-	scheme           *runtime.Scheme
-	backupOperator   *operator.BackupOperator
-	snapshotOperator *operator.SnapshotOperator
+	manager   velero.Manager
+	factory   k8sclient.Factory
+	bcManager velero.Manager
+	scheme    *runtime.Scheme
+	handler   handlers.Interface
 }
 
-func NewBackupController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, backupOperator *operator.BackupOperator,
-	snapshotOperator *operator.SnapshotOperator) *BackupReconciler {
+func NewBackupController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, handler handlers.Interface) *BackupReconciler {
 	return &BackupReconciler{
-		Client:           c,
-		manager:          bcm,
-		factory:          factory,
-		bcManager:        bcm,
-		scheme:           schema,
-		backupOperator:   backupOperator,
-		snapshotOperator: snapshotOperator,
+		Client:    c,
+		manager:   bcm,
+		factory:   factory,
+		bcManager: bcm,
+		scheme:    schema,
+		handler:   handler,
 	}
 }
 
@@ -120,7 +112,7 @@ func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 	ctx := context.Background()
 	if backup.Spec.BackupPolicy != nil {
 		cron, _ := util.ParseToCron(backup.Spec.BackupPolicy.SnapshotFrequency, backup.Spec.BackupPolicy.TimesOfDay, backup.Spec.BackupPolicy.DayOfWeek)
-		err := r.snapshotOperator.CreateSnapshotSchedule(ctx, backup, cron, !backup.Spec.BackupPolicy.Enabled)
+		err := r.handler.GetSnapshotHandler().CreateSnapshotSchedule(ctx, backup, cron, !backup.Spec.BackupPolicy.Enabled)
 		if err != nil {
 			return err
 		}
@@ -202,25 +194,9 @@ func (r *BackupReconciler) deleteBackupConfig(name string, namespace string) {
 	// }
 }
 
-func (r *BackupReconciler) backupConfigExist() bool {
-	sc, err := r.factory.Sysv1Client()
-	if err != nil {
-		log.Warnf("failed to new sys client: %v", err)
-		return false
-	}
-
-	l, err := sc.SysV1().Backups(r.bcManager.Namespace()).
-		List(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		log.Warnf("list backup: %v", err)
-		return false
-	}
-	return len(l.Items) > 0
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	c, err := ctrl.NewControllerManagedBy(mgr).
+	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&sysv1.Backup{}, builder.WithPredicates(predicate.Funcs{
 			GenericFunc: func(e event.GenericEvent) bool { return false },
 			CreateFunc: func(e event.CreateEvent) bool {
@@ -228,10 +204,10 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return true
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
-				if !isTrue(e.Object) {
-					return false
-				}
-				r.deleteBackupConfig(e.Object.GetName(), e.Object.GetNamespace())
+				// if !isTrue(e.Object) {
+				// 	return false
+				// }
+				// r.deleteBackupConfig(e.Object.GetName(), e.Object.GetNamespace())
 				return false
 			},
 			UpdateFunc: func(e event.UpdateEvent) bool {
@@ -252,26 +228,28 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	return c.Watch(&source.Kind{Type: &appsv1.Deployment{}},
-		handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{
-				Namespace: o.GetNamespace(),
-				Name:      o.GetName()}},
-			}
-		}), newDeleteOnlyPredicate(func(e event.DeleteEvent) bool {
-			log.Info("hit velero deployment delete event")
-			return isTrue(e.Object) && e.Object.GetName() == velero.DefaultVeleroDeploymentName &&
-				r.backupConfigExist()
-		}))
+	return nil
+
+	// return c.Watch(&source.Kind{Type: &appsv1.Deployment{}},
+	// 	handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
+	// 		return []reconcile.Request{{NamespacedName: types.NamespacedName{
+	// 			Namespace: o.GetNamespace(),
+	// 			Name:      o.GetName()}},
+	// 		}
+	// 	}), newDeleteOnlyPredicate(func(e event.DeleteEvent) bool {
+	// 		log.Info("hit velero deployment delete event")
+	// 		return isTrue(e.Object) && e.Object.GetName() == velero.DefaultVeleroDeploymentName &&
+	// 			r.backupConfigExist()
+	// 	}))
 }
 
 func isTrue(objects ...client.Object) bool {
 	fs := sets.NewByte()
 
 	for _, o := range objects {
-		v, ok := o.GetLabels()["component"]
+		_, ok := o.GetLabels()["component"]
 		if o.GetNamespace() == velero.DefaultVeleroNamespace &&
-			ok && util.ListContains([]string{velero.Velero, "backup"}, v) {
+			ok {
 			fs.Insert('y')
 		} else {
 			fs.Insert('n')

@@ -44,10 +44,11 @@ type Snapshot struct {
 	FailedMessage string `json:"failedMessage,omitempty"`
 }
 
-type Restore struct {
+type RestoreCreate struct {
 	BackupUrl  string `json:"backupUrl"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
+	Password   string `json:"password"`
 }
 
 type ResponseBackupList struct {
@@ -305,6 +306,15 @@ func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDeta
 	}
 }
 
+func parseResponseSpaceRegions(data string) []map[string]string {
+	var result []map[string]string
+	if err := json.Unmarshal([]byte(data), &result); err != nil {
+		return nil
+	}
+
+	return result
+}
+
 func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	return &ResponseBackupDetail{
 		Id:             backup.Name,
@@ -489,8 +499,8 @@ func parseBackupLocation(l string) string {
 	switch l {
 	case constant.BackupLocationSpace.String():
 		return constant.BackupLocationSpaceAlias.String()
-	case constant.BackupLocationAws.String():
-		return constant.BackupLocationAwsAlias.String()
+	case constant.BackupLocationAwsS3.String():
+		return constant.BackupLocationAwsS3Alias.String()
 	case constant.BackupLocationTencentCloud.String():
 		return constant.BackupLocationCosAlias.String()
 	case constant.BackupLocationFileSystem.String():

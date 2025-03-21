@@ -2,13 +2,16 @@ package http
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/util"
+	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 )
 
@@ -63,4 +66,29 @@ func RequestJSON(method, url string, headers map[string]string, body, to any) (s
 	}
 
 	return resp.StatusCode, nil
+}
+
+func Post[T any](url string, headers map[string]string, data interface{}) (*T, error) {
+	var result T
+	client := resty.New().SetTimeout(10 * time.Second).
+		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).R().SetDebug(true)
+
+	if headers != nil {
+		client.SetHeaders(headers)
+	}
+
+	resp, err := client.
+		SetBody(data).
+		SetResult(&result).
+		Post(url)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("request failed, status code: %d", resp.StatusCode())
+	}
+
+	return &result, nil
 }

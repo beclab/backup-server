@@ -6,7 +6,6 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/pkg/errors"
 )
 
@@ -48,7 +47,6 @@ func (o *Option) BackupConfigSpec() *sysv1.BackupConfigSpec {
 		AccessKey: o.AccessKey,
 		SecretKey: o.SecretKey,
 	}
-	velero.SetDefaultBackupConfigSpec(&bc)
 
 	return &bc
 }

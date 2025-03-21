@@ -26,6 +26,8 @@ const (
 	SnapshotController string = "snapshot-controller"
 	BackupController   string = "backup-controller"
 	RestoreController  string = "restore-controller"
+
+	BackupTypeFile string = "file"
 )
 
 type BackupLocation string
@@ -36,12 +38,12 @@ func (b BackupLocation) String() string {
 
 const (
 	BackupLocationSpace        BackupLocation = "space"
-	BackupLocationAws          BackupLocation = "aws"
+	BackupLocationAwsS3        BackupLocation = "awss3"
 	BackupLocationTencentCloud BackupLocation = "tencentcloud"
 	BackupLocationFileSystem   BackupLocation = "filesystem"
 
 	BackupLocationSpaceAlias      BackupLocation = "Olares Space"
-	BackupLocationAwsAlias        BackupLocation = "AWS S3"
+	BackupLocationAwsS3Alias      BackupLocation = "AWS S3"
 	BackupLocationCosAlias        BackupLocation = "TencentCloud COS"
 	BackupLocationFileSystemAlias BackupLocation = "Local"
 	BackupLocationUnKnownAlias    BackupLocation = "Unknown"
@@ -70,7 +72,13 @@ var (
 	SnapshotGVR = schema.GroupVersionResource{
 		Group:    scheme.SchemeGroupVersion.Group,
 		Version:  scheme.SchemeGroupVersion.Version,
-		Resource: "snapshot",
+		Resource: "snapshots",
+	}
+
+	RestoreGVR = schema.GroupVersionResource{
+		Group:    scheme.SchemeGroupVersion.Group,
+		Version:  scheme.SchemeGroupVersion.Version,
+		Resource: "restores",
 	}
 
 	TerminusGVR = schema.GroupVersionResource{
@@ -86,15 +94,16 @@ var (
 	}
 )
 
-type SnapshotPhase string
+type Phase string
 
-func (s SnapshotPhase) String() string {
+func (s Phase) String() string {
 	return string(s)
 }
 
 const (
-	SnapshotPhasePending  SnapshotPhase = "Pending"
-	SnapshotPhaseRunning  SnapshotPhase = "Running"
-	SnapshotPhaseFailed   SnapshotPhase = "Failed"
-	SnapshotPhaseComplete SnapshotPhase = "Complete"
+	Pending   Phase = "Pending"
+	Running   Phase = "Running"
+	Failed    Phase = "Failed"
+	Completed Phase = "Completed"
+	Canceled  Phase = "Canceled"
 )

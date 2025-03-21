@@ -10,7 +10,7 @@ import (
 	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -29,19 +29,15 @@ type SnapshotReconciler struct {
 	factory k8sclient.Factory
 	manager velero.Manager
 	scheme  *runtime.Scheme
-
-	backupOperator   *operator.BackupOperator
-	snapshotOperator *operator.SnapshotOperator
+	handler handlers.Interface
 }
 
-func NewSnapshotController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, backupOperator *operator.BackupOperator,
-	snapshotOperator *operator.SnapshotOperator) *SnapshotReconciler {
+func NewSnapshotController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, handler handlers.Interface) *SnapshotReconciler {
 	return &SnapshotReconciler{Client: c,
-		factory:          factory,
-		manager:          bcm,
-		scheme:           schema,
-		backupOperator:   backupOperator,
-		snapshotOperator: snapshotOperator,
+		factory: factory,
+		manager: bcm,
+		scheme:  schema,
+		handler: handler,
 	}
 }
 
@@ -100,8 +96,8 @@ func (r *SnapshotReconciler) handleDeleteBackup(name string, sb *sysapiv1.Backup
 	log.Debugf("successfully to delete backup %q", name)
 }
 
-func (r *SnapshotReconciler) setSnapshotPhase(backupName string, snapshot *v1.Snapshot, phase constant.SnapshotPhase) error {
-	return r.snapshotOperator.SetSnapshotPhase(backupName, snapshot, phase)
+func (r *SnapshotReconciler) setSnapshotPhase(backupName string, snapshot *v1.Snapshot, phase constant.Phase) error {
+	return r.handler.GetSnapshotHandler().SetSnapshotPhase(backupName, snapshot, phase)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -109,15 +105,17 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	_, err := ctrl.NewControllerManagedBy(mgr).
 		For(&sysapiv1.Snapshot{}, builder.WithPredicates(predicate.Funcs{
 			GenericFunc: func(genericEvent event.GenericEvent) bool { return false },
-			CreateFunc: func(e event.CreateEvent) bool { // Pending,Running Failed Complete
+			CreateFunc: func(e event.CreateEvent) bool {
+				log.Info("hit snapshot create event")
+				// Pending,Running Failed Complete
 
 				snapshot, ok := r.isSysSnapshot(e.Object)
 				if !ok {
-					log.Debugf("not a sys snapshot")
+					log.Debugf("not a snapshot resource")
 					return false
 				}
 
-				log.Infof("hit snapshot create event %s", *snapshot.Spec.Phase)
+				log.Infof("hit snapshot create event %s %s", snapshot.Name, *snapshot.Spec.Phase)
 				backup, err := r.getBackup(snapshot.Spec.BackupId)
 				if err != nil {
 					log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
@@ -130,17 +128,17 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				var phase = *snapshot.Spec.Phase
 
 				switch phase {
-				case constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String():
+				case constant.Completed.String(), constant.Failed.String():
 					return false
-				case constant.SnapshotPhaseRunning.String():
+				case constant.Running.String():
 					// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
 					// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
-					if err := r.snapshotOperator.SetSnapshotPhase(backup.Name, snapshot, constant.SnapshotPhaseFailed); err != nil {
+					if err := r.handler.GetSnapshotHandler().SetSnapshotPhase(backup.Name, snapshot, constant.Failed); err != nil {
 						log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Name, err)
 					}
-				case constant.SnapshotPhasePending.String():
-					log.Infof("add to worker")
-					worker.Worker.AppendSnapshotTask(snapshot.Name)
+				case constant.Pending.String():
+					log.Infof("add to backup worker %s", snapshot.Name)
+					worker.Worker.AppendBackupTask(snapshot.Name)
 				}
 
 				return false
@@ -169,9 +167,9 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 
 				var backupName = backup.Spec.Name
-				var snapshotCreateAt = r.snapshotOperator.ParseSnapshotName(newSnapshot.Spec.StartAt)
+				var snapshotCreateAt = r.handler.GetSnapshotHandler().ParseSnapshotName(newSnapshot.Spec.StartAt)
 
-				if util.ListContains([]string{constant.SnapshotPhaseComplete.String(), constant.SnapshotPhaseFailed.String()}, *newSnapshot.Spec.Phase) {
+				if util.ListContains([]string{constant.Completed.String(), constant.Failed.String()}, *newSnapshot.Spec.Phase) {
 					log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *newSnapshot.Spec.Phase)
 					return false
 				}
@@ -248,7 +246,7 @@ func (r *SnapshotReconciler) isSysSnapshot(obj client.Object) (*sysapiv1.Snapsho
 func (r *SnapshotReconciler) getBackup(backupId string) (*v1.Backup, error) {
 	var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	backup, err := r.backupOperator.GetBackupById(ctx, backupId)
+	backup, err := r.handler.GetBackupHandler().GetBackupById(ctx, backupId)
 	if err != nil {
 		return nil, err
 	}

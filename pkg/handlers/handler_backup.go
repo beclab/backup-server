@@ -1,4 +1,4 @@
-package operator
+package handlers
 
 import (
 	"context"
@@ -10,39 +10,24 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/converter"
 	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backups-sdk/pkg/utils"
+	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-type BackupOperator struct {
+type BackupHandler struct {
 	factory client.Factory
 }
 
-type OwnerBackupListCache struct {
-	Pages map[int]*Backuplist
-}
-
-type Backuplist struct {
-	token string
-	List  *sysv1.BackupList
-}
-
-var owenerBackupListCache map[string]*OwnerBackupListCache
-
-func init() {
-	owenerBackupListCache = make(map[string]*OwnerBackupListCache)
-}
-
-func NewBackupOperator(f client.Factory) *BackupOperator {
-	return &BackupOperator{
+func NewBackupHandler(f client.Factory) *BackupHandler {
+	return &BackupHandler{
 		factory: f,
 	}
 }
 
-func (o *BackupOperator) ListBackups(ctx context.Context, owner string, page int64, limit int64) (*sysv1.BackupList, error) {
+func (o *BackupHandler) ListBackups(ctx context.Context, owner string, page int64, limit int64) (*sysv1.BackupList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
@@ -65,7 +50,7 @@ func (o *BackupOperator) ListBackups(ctx context.Context, owner string, page int
 	return backups, nil
 }
 
-func (o *BackupOperator) GetBackupById(ctx context.Context, backupId string) (*sysv1.Backup, error) {
+func (o *BackupHandler) GetBackupById(ctx context.Context, backupId string) (*sysv1.Backup, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
@@ -84,7 +69,7 @@ func (o *BackupOperator) GetBackupById(ctx context.Context, backupId string) (*s
 	return backups, nil
 }
 
-func (o *BackupOperator) GetBackup(ctx context.Context, owner string, backupName string) (*sysv1.Backup, error) {
+func (o *BackupHandler) GetBackup(ctx context.Context, owner string, backupName string) (*sysv1.Backup, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
@@ -105,8 +90,8 @@ func (o *BackupOperator) GetBackup(ctx context.Context, owner string, backupName
 	return &backups.Items[0], nil
 }
 
-func (o *BackupOperator) CreateBackup(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
-	var backupId = utils.NewUUID()
+func (o *BackupHandler) CreateBackup(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+	var backupId = uuid.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
@@ -149,7 +134,7 @@ RETRY:
 	return backup, nil
 }
 
-func (o *BackupOperator) GetBackupIdForLabels(backups *sysv1.BackupList) []string {
+func (o *BackupHandler) GetBackupIdForLabels(backups *sysv1.BackupList) []string {
 	var labels []string
 
 	for _, backup := range backups.Items {

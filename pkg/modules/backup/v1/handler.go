@@ -8,7 +8,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -22,17 +22,15 @@ type Handler struct {
 	cfg                 *config.Config
 	factory             client.Factory
 	veleroBackupManager velero.Manager
-	backupOperator      *operator.BackupOperator
-	snapshotOperator    *operator.SnapshotOperator
+	handler             handlers.Interface
 }
 
-func New(cfg *config.Config, factory client.Factory) *Handler {
+func New(cfg *config.Config, factory client.Factory, handler handlers.Interface) *Handler {
 	return &Handler{
 		cfg:                 cfg,
 		factory:             factory,
 		veleroBackupManager: velero.NewManager(factory),
-		backupOperator:      operator.NewBackupOperator(factory),
-		snapshotOperator:    operator.NewSnapshotOperator(factory),
+		handler:             handlers.NewHandler(factory),
 	}
 }
 
@@ -59,17 +57,17 @@ func (h *Handler) list(req *restful.Request, resp *restful.Response) {
 	// l := req.QueryParameter("limit")
 
 	// todo support page
-	backups, err := h.backupOperator.ListBackups(ctx, owner, 0, 5)
+	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, 5)
 	if err != nil {
 		log.Errorf("get backups error %v", err)
 		response.HandleError(resp, err)
 		return
 	}
 
-	labelsSelector := h.backupOperator.GetBackupIdForLabels(backups)
+	labelsSelector := h.handler.GetBackupHandler().GetBackupIdForLabels(backups)
 	var allSnapshots = new(sysv1.SnapshotList)
 	for _, ls := range labelsSelector {
-		snapshots, err := h.snapshotOperator.ListSnapshots(ctx, 0, ls, "")
+		snapshots, err := h.handler.GetSnapshotHandler().ListSnapshots(ctx, 0, ls, "")
 		if err != nil {
 			log.Errorf("get snapshots error %v", err)
 			continue
@@ -89,7 +87,7 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	owner := "zhaoyu001"
 	_ = owner
 
-	backup, err := h.backupOperator.GetBackupById(ctx, id)
+	backup, err := h.handler.GetBackupHandler().GetBackupById(ctx, id)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
 		return
@@ -98,7 +96,7 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	response.Success(resp, parseResponseBackupDetail(backup))
 }
 
-func (h *Handler) add(req *restful.Request, resp *restful.Response) {
+func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
 		b   BackupCreate
@@ -127,7 +125,7 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 	}
 
 	// if backup is exists
-	backup, err := h.backupOperator.GetBackup(ctx, owner, b.Name) // new plan
+	backup, err := h.handler.GetBackupHandler().GetBackup(ctx, owner, b.Name) // new plan
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
 		return
@@ -138,7 +136,7 @@ func (h *Handler) add(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Apply(ctx, &b); err != nil {
+	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.handler).Apply(ctx, &b); err != nil {
 		response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
 		return
 	}
@@ -165,7 +163,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 
 	format := "failed to update backup plan %q"
 
-	backup, err := h.backupOperator.GetBackup(ctx, owner, name)
+	backup, err := h.handler.GetBackupHandler().GetBackup(ctx, owner, name)
 	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessage(err, "failed to update backup"))
 		return
@@ -176,7 +174,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.backupOperator).Update(ctx, &b, backup); err != nil {
+	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.handler).Update(ctx, &b, backup); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, format, name))
 		return
 	}
@@ -206,7 +204,7 @@ func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
 	}
 
 	var labelSelector = "backup-id=" + backupId
-	var snapshots, err = h.snapshotOperator.ListSnapshots(ctx, limit, labelSelector, "")
+	var snapshots, err = h.handler.GetSnapshotHandler().ListSnapshots(ctx, limit, labelSelector, "")
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "get snapshots error"))
 		return
@@ -224,7 +222,7 @@ func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	id := req.PathParameter("id")
 
-	snapshot, err := h.snapshotOperator.GetSnapshot(ctx, id)
+	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, id)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("snapshot %s not found", id))
 		return
@@ -300,33 +298,43 @@ func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response)
 }
 
 func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {
-	// ctx := req.Request.Context()
+	ctx := req.Request.Context()
 	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	owner := "zhaoyu001"
 
-	olaresId, err := h.snapshotOperator.GetOlaresId(owner)
+	olaresId, err := h.handler.GetSnapshotHandler().GetOlaresId(owner)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "get olares id error"))
 		return
 	}
 
-	storage := storage.NewStorage(h.factory, owner, olaresId)
-	regions, err := storage.GetRegions()
+	storage := storage.NewStorage(h.factory, owner)
+	regions, err := storage.GetRegions(ctx, olaresId)
 	if err != nil {
 		response.HandleError(resp, err)
 		return
 	}
 
-	response.Success(resp, regions)
+	response.Success(resp, parseResponseSpaceRegions(regions))
 }
 
-func (h *Handler) restoreSnapshot(req *restful.Request, resp *restful.Response) {
+func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
+	var (
+		err error
+		b   RestoreCreate
+	)
+
+	if err = req.ReadEntity(&b); err != nil {
+		response.HandleError(resp, errors.WithStack(err))
+		return
+	}
+
 	ctx, id := req.Request.Context(), req.PathParameter("id")
 	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	owner := "zhaoyu001"
 	_ = owner
 
-	snapshot, err := h.snapshotOperator.GetSnapshot(ctx, id)
+	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, id)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get snapshot %s: %v", id, err))
 		return
@@ -337,7 +345,7 @@ func (h *Handler) restoreSnapshot(req *restful.Request, resp *restful.Response) 
 		return
 	}
 
-	backup, err := h.backupOperator.GetBackupById(ctx, snapshot.Spec.BackupId)
+	backup, err := h.handler.GetBackupHandler().GetBackupById(ctx, snapshot.Spec.BackupId)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get backup %s: %v", snapshot.Spec.BackupId, err))
 		return
@@ -347,5 +355,19 @@ func (h *Handler) restoreSnapshot(req *restful.Request, resp *restful.Response) 
 		response.HandleError(resp, errors.Errorf("backup %s not exists", snapshot.Spec.BackupId))
 		return
 	}
+
+	// todo create CRD
+	var restoreType = make(map[string]string)
+	restoreType["path"] = b.Path
+	restoreType["snapshotId"] = b.SnapshotId
+
+	_, err = h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("create restore task failed: %v", err))
+		return
+	}
+
+	// todo
+	response.SuccessNoData(resp)
 
 }

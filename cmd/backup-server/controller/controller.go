@@ -7,7 +7,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/common"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
-	"bytetrade.io/web3os/backup-server/pkg/modules/backup/v1/operator"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -132,38 +132,40 @@ func run(factory client.Factory) error {
 		return pkgerrors.Errorf("unable to setup ready check: %v", err)
 	}
 
-	var backupOperator = operator.NewBackupOperator(factory)
-	var snapshotOperator = operator.NewSnapshotOperator(factory)
+	var handler = handlers.NewHandler(factory)
 
-	workerManager := worker.NewWorkerManage(context.TODO(), backupOperator, snapshotOperator)
-	workerManager.StartBackup()
+	workerManager := worker.NewWorkerManage(context.TODO(), handler)
+	workerManager.StartBackupWorker()
+	workerManager.StartRestoreWorker()
+
 	manager := velero.NewManager(factory)
 
 	enabledControllers := map[string]struct{}{
 		controllers.BackupController:   {},
 		controllers.SnapshotController: {},
+		controllers.RestoreController:  {},
 	}
 
 	if _, ok := enabledControllers[controllers.BackupController]; ok {
-		if err = controllers.NewBackupController(mgr.GetClient(), factory, manager, mgr.GetScheme(), backupOperator, snapshotOperator).
+		if err = controllers.NewBackupController(mgr.GetClient(), factory, manager, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backupConfig controller: %v", err)
 		}
 	}
 
 	if _, ok := enabledControllers[controllers.SnapshotController]; ok {
-		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, manager, mgr.GetScheme(), backupOperator, snapshotOperator).
+		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, manager, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backup controller: %v", err)
 		}
 	}
 
-	// if _, ok := enabledControllers[controllers.RestoreController]; ok {
-	// 	if err = controllers.NewBackupRestoreController(mgr.GetClient(), factory, manager, mgr.GetScheme()).
-	// 		SetupWithManager(mgr); err != nil {
-	// 		return pkgerrors.Errorf("unable to create backupRestore controller: %v", err)
-	// 	}
-	// }
+	if _, ok := enabledControllers[controllers.RestoreController]; ok {
+		if err = controllers.NewRestoreController(mgr.GetClient(), factory, manager, mgr.GetScheme(), handler).
+			SetupWithManager(mgr); err != nil {
+			return pkgerrors.Errorf("unable to create restore controller: %v", err)
+		}
+	}
 
 	log.Info("starting manager")
 
