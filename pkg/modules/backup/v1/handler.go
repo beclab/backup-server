@@ -108,9 +108,8 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	}
 
 	ctx := req.Request.Context()
-	// ! debug
-	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
-	owner := "zhaoyu001"
+	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey) // ! debug
+	owner = "zhaoyu001"
 
 	log.Debugf("received backup create request: %s", util.ToJSON(b))
 
@@ -299,8 +298,8 @@ func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response)
 
 func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
-	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
-	owner := "zhaoyu001"
+	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner = "zhaoyu001"
 
 	olaresId, err := h.handler.GetSnapshotHandler().GetOlaresId(owner)
 	if err != nil {
@@ -330,8 +329,8 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	ctx, id := req.Request.Context(), req.PathParameter("id")
-	// owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
-	owner := "zhaoyu001"
+	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner = "zhaoyu001"
 	_ = owner
 
 	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, id)
@@ -356,10 +355,18 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	// todo create CRD
 	var restoreType = make(map[string]string)
 	restoreType["path"] = b.Path
-	restoreType["snapshotId"] = b.SnapshotId
+
+	if b.SnapshotId != "" {
+		restoreType["snapshotId"] = b.SnapshotId
+	} else if b.BackupUrl != "" {
+		restoreType["backupUrl"] = b.BackupUrl
+	} else {
+		response.HandleError(resp, errors.Errorf("restore type invalid, snapshotId: %s, backupUrl: %s",
+			b.SnapshotId, b.BackupUrl))
+		return
+	}
 
 	_, err = h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
 	if err != nil {

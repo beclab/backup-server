@@ -1,11 +1,15 @@
-package notify
+package handlers
 
 import (
 	"fmt"
 
+	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/util/http"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backups-sdk/pkg/utils"
 	"github.com/emicklei/go-restful/v3"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -45,34 +49,67 @@ type Response struct {
 	Message string `json:"message"`
 }
 
-func SendNewBackup(cloudApiUrl string, backup *Backup) error {
+type NotifyHandler struct {
+	factory  client.Factory
+	handlers Interface
+}
+
+func NewNotifyHandler(f client.Factory, handlers Interface) *NotifyHandler {
+	return &NotifyHandler{
+		factory:  f,
+		handlers: handlers,
+	}
+}
+
+func (o *NotifyHandler) UpdateState() {
+
+}
+
+func (o *NotifyHandler) NotifySnapshotFailed(err error, backup *sysv1.Backup, snapshot *sysv1.Snapshot, f func(err error, backup *sysv1.Backup, snapshot *sysv1.Snapshot) error) error {
+	var tokenService = &integration.Integration{
+		Factory: o.factory,
+		Owner:   backup.Spec.Owner,
+	}
+	token, e := tokenService.GetIntegrationSpaceToken()
+	if e != nil {
+		return f(errors.WithMessage(fmt.Errorf("get space token error %v", e), err.Error()), backup, snapshot)
+	}
+
+	return f(err, backup, snapshot)
+}
+
+func (o *NotifyHandler) updateBackup(cloudApiUrl string, token integration.IntegrationToken, backup *sysv1.Backup, snapshot *sysv1.Snapshot, state string) error {
+	var backupPath = getBackupPath(backup)
+	var location, _, _ = getBackupLocationConfig(backup)
 	var url = fmt.Sprintf("%s%s", cloudApiUrl, SendBackupUrl)
 	var headers = make(map[string]string)
+	var t = token.(*integration.IntegrationSpace)
 	headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 	var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupPath=%s&backupLocation=%s&status=%s",
-		backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupPath, backup.BackupLocation, backup.Status)
+		t.OlaresDid, t.AccessToken, backup.Name, backup.Spec.Name, backupPath, location, state)
 
 	log.Infof("send backup data: %s", data)
 
-	result, err := utils.Post[Response](url, headers, data)
+	result, err := http.Post[Response](url, headers, data)
 	if err != nil {
 		return err
 	}
 
 	if result.Code != 200 {
-		return fmt.Errorf("send new backup record failed: %d, url: %s", result.Code, url)
+		return fmt.Errorf("update backup record failed: %d, url: %s", result.Code, url)
 	}
 	return nil
 }
 
-func SendNewSnapshot(cloudApiUrl string, snapshot *Snapshot) error {
+func (o *NotifyHandler) updateSnapshot(cloudApiUrl string, token integration.IntegrationToken, backup *sysv1.Backup, snapshot *sysv1.Snapshot, state string) {
+	var t = token.(*integration.IntegrationSpace)
 	var url = fmt.Sprintf("%s%s", cloudApiUrl, SendSnapshotUrl)
 	var headers = make(map[string]string)
 	headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 
-	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
-		snapshot.SnapshotId, snapshot.Size, snapshot.Uint,
-		snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
+	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", t.OlaresDid, backup.Name,
+		snapshot.Name, *snapshot.Spec.Size, "byte",
+		snapshot.Spec.StartAt, snapshot.Status, *snapshot.Spec.SnapshotType,
 		snapshot.Url, snapshot.CloudName, snapshot.RegionId,
 		snapshot.Bucket, snapshot.Prefix, snapshot.Message)
 

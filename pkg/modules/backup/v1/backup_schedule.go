@@ -100,9 +100,7 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		Name:       o.c.Name,
 		Owner:      o.owner,
 		BackupType: backupType,
-		Extra: map[string]string{
-			"password": util.Base64encode([]byte(o.c.Password)),
-		},
+		Extra:      map[string]string{},
 	}
 
 	if o.c.Location != "" && o.c.LocationConfig != nil {

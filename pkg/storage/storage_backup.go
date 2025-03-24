@@ -16,22 +16,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *storage) Backup(ctx context.Context, opt options.Option) (backupOutput *backupssdkrestic.SummaryOutput, backupRepo string, backupError error) {
+func (s *storage) Backup(ctx context.Context, opt options.Option, token integration.IntegrationToken, tokenService *integration.Integration) (backupOutput *backupssdkrestic.SummaryOutput, backupRepo string, backupError error) {
 	var isSpaceBackup bool
 	var logger = log.GetLogger()
-
-	var tokenService = &integration.Integration{
-		Factory:  s.factory,
-		Owner:    s.owner,
-		Location: opt.GetLocation(),
-		Name:     opt.GetLocationConfigName(),
-	}
-
-	var token, err = tokenService.GetIntegrationToken()
-	if err != nil {
-		backupError = errors.WithStack(fmt.Errorf("get location %s user %s token error %v", opt.GetLocation(), opt.GetLocationConfigName(), err))
-		return
-	}
 
 	var backupService *backupssdkstorage.BackupService
 
@@ -127,6 +114,7 @@ func (s *storage) backupToSpace(ctx context.Context, opt options.Option, token i
 			if strings.Contains(err.Error(), "refresh-token error") {
 				token, err = tokenService.GetIntegrationToken()
 				if err != nil {
+					err = fmt.Errorf("backup space get integration token error: %v", err)
 					break
 				}
 				continue

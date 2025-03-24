@@ -103,7 +103,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	// 	Returns(http.StatusOK, "", "success"))
 
 	ws.Route(ws.POST("/plans/restore").
-		To(handler.addRestore). // todo restore
+		To(handler.addRestore).
 		Reads(RestoreCreate{}).
 		Param(ws.HeaderParameter(constant.DefaultOwnerHeaderKey, "backup owner")).
 		Doc("create restore task").Metadata(restfulspec.KeyOpenAPITags, tags).

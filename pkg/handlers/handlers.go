@@ -12,20 +12,25 @@ type Interface interface {
 	GetBackupHandler() *BackupHandler
 	GetSnapshotHandler() *SnapshotHandler
 	GetRestoreHandler() *RestoreHandler
+	GetNotifyHandler() *NotifyHandler
 }
 
 type handlers struct {
 	BackupHandler   *BackupHandler
 	SnapshotHandler *SnapshotHandler
 	RestoreHandler  *RestoreHandler
+	NotifyHandler   *NotifyHandler
 }
 
 func NewHandler(factory client.Factory) Interface {
-	return &handlers{
-		BackupHandler:   NewBackupHandler(factory),
-		SnapshotHandler: NewSnapshotHandler(factory),
-		RestoreHandler:  NewRestoreHandler(factory),
-	}
+	var handlers = &handlers{}
+
+	handlers.BackupHandler = NewBackupHandler(factory, handlers)
+	handlers.SnapshotHandler = NewSnapshotHandler(factory, handlers)
+	handlers.RestoreHandler = NewRestoreHandler(factory, handlers)
+	handlers.NotifyHandler = NewNotifyHandler(factory, handlers)
+
+	return handlers
 }
 
 func (h *handlers) GetBackupHandler() *BackupHandler {
@@ -38,4 +43,8 @@ func (h *handlers) GetSnapshotHandler() *SnapshotHandler {
 
 func (h *handlers) GetRestoreHandler() *RestoreHandler {
 	return h.RestoreHandler
+}
+
+func (h *handlers) GetNotifyHandler() *NotifyHandler {
+	return h.NotifyHandler
 }

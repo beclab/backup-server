@@ -138,7 +138,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					}
 				case constant.Pending.String():
 					log.Infof("add to backup worker %s", snapshot.Name)
-					worker.Worker.AppendBackupTask(snapshot.Name)
+					worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s", snapshot.Spec.BackupId, snapshot.Name))
 				}
 
 				return false

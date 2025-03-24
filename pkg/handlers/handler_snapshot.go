@@ -7,10 +7,10 @@ import (
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/converter"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/options"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
@@ -28,8 +28,9 @@ import (
 )
 
 type SnapshotHandler struct {
-	factory client.Factory
-	cron    *cron.Cron
+	factory  client.Factory
+	cron     *cron.Cron
+	handlers Interface
 }
 
 type backupJob struct {
@@ -39,13 +40,14 @@ type backupJob struct {
 
 func (b backupJob) Run() { b.f() }
 
-func NewSnapshotHandler(f client.Factory) *SnapshotHandler {
+func NewSnapshotHandler(f client.Factory, handlers Interface) *SnapshotHandler {
 	c := cron.New()
 	c.Start()
 
 	return &SnapshotHandler{
-		factory: f,
-		cron:    c,
+		factory:  f,
+		cron:     c,
+		handlers: handlers,
 	}
 }
 
@@ -316,7 +318,7 @@ RETRY:
 	return nil
 }
 
-func (o *SnapshotHandler) updateSnapshotFailedStatus(backupError error, snapshot *sysv1.Snapshot) error {
+func (o *SnapshotHandler) updateSnapshotFailedStatus(backupError error, backup *sysv1.Backup, snapshot *sysv1.Snapshot) error {
 	snapshot.Spec.Phase = pointer.String(constant.Failed.String())
 	snapshot.Spec.Message = pointer.String(backupError.Error())
 	snapshot.Spec.EndAt = time.Now().UnixMilli()
@@ -344,26 +346,10 @@ func (o *SnapshotHandler) updateSnapshotFinishedStatus(backupOutput *backupssdkr
 	snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 	snapshot.Spec.EndAt = time.Now().UnixMilli()
 
+	// TODO
+	// 计划修改 snapshot.spec.extra["location"]: '{"location":"space/awss3/tencentcloud", "locationConfigName":"{name}"}'
+
 	return o.Update(context.Background(), snapshot.Name, &snapshot.Spec) // update finished
-}
-
-func (o *SnapshotHandler) getPassword(backup *sysv1.Backup) (string, error) {
-	// todo
-	if backup.Spec.Extra == nil {
-		return "", fmt.Errorf("backup extra not exists")
-	}
-
-	p, ok := backup.Spec.Extra["password"]
-	if !ok {
-		return "", fmt.Errorf("backup extra key not exists")
-	}
-
-	key, err := util.Base64decode(p)
-	if err != nil {
-		return "", fmt.Errorf("base64 decode extra key error %v", err)
-	}
-
-	return string(key), nil
 }
 
 // backup
@@ -383,6 +369,10 @@ func (o *SnapshotHandler) validateBackupPreconditions(backup *sysv1.Backup, snap
 	return nil
 }
 
+func (s *SnapshotHandler) getBackupLocation() {
+
+}
+
 func (o *SnapshotHandler) prepareBackupParams(ctx context.Context, backup *sysv1.Backup) (*BackupParams, error) {
 	var err error
 	params := &BackupParams{
@@ -390,7 +380,7 @@ func (o *SnapshotHandler) prepareBackupParams(ctx context.Context, backup *sysv1
 		LocationConfig: make(map[string]string),
 	}
 
-	params.Password, err = o.getPassword(backup)
+	params.Password, err = getBackupPassword(backup.Spec.Owner, backup.Spec.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -415,11 +405,11 @@ func (o *SnapshotHandler) updateSnapshotToRunning(ctx context.Context, snapshot 
 	return o.Update(ctx, snapshot.Name, &snapshot.Spec) // update running
 }
 
-func (o *SnapshotHandler) createBackupOption(backupName string, params *BackupParams) options.Option {
+func (o *SnapshotHandler) createBackupOption(backupId string, params *BackupParams) options.Option {
 	switch params.Location {
 	case constant.BackupLocationSpace.String():
 		return &options.SpaceBackupOptions{
-			RepoName:       backupName,
+			RepoName:       backupId,
 			Location:       params.Location,
 			OlaresId:       params.LocationConfig["name"],
 			ClusterId:      params.LocationConfig["clusterId"],
@@ -431,7 +421,7 @@ func (o *SnapshotHandler) createBackupOption(backupName string, params *BackupPa
 		}
 	case constant.BackupLocationAwsS3.String():
 		return &options.AwsS3BackupOptions{
-			RepoName:           backupName,
+			RepoName:           backupId,
 			Location:           params.Location,
 			LocationConfigName: params.LocationConfig["name"],
 			Path:               params.Path,
@@ -439,7 +429,7 @@ func (o *SnapshotHandler) createBackupOption(backupName string, params *BackupPa
 		}
 	case constant.BackupLocationTencentCloud.String():
 		return &options.TencentCloudBackupOptions{
-			RepoName:           backupName,
+			RepoName:           backupId,
 			Location:           params.Location,
 			LocationConfigName: params.LocationConfig["name"],
 			Path:               params.Path,
@@ -452,10 +442,12 @@ func (o *SnapshotHandler) createBackupOption(backupName string, params *BackupPa
 func (o *SnapshotHandler) executeBackup(ctx context.Context,
 	backup *sysv1.Backup,
 	snapshot *sysv1.Snapshot,
-	opt options.Option, params *BackupParams) error {
+	opt options.Option, params *BackupParams,
+	token integration.IntegrationToken, tokenService *integration.Integration) error {
+
 	_ = params
 	storage := storage.NewStorage(o.factory, backup.Spec.Owner)
-	backupOutput, backupRepo, backupErr := storage.Backup(ctx, opt) // long time
+	backupOutput, backupRepo, backupErr := storage.Backup(ctx, opt, token, tokenService) // long time
 
 	if backupErr != nil {
 		log.Errorf("backup %s snapshot %s error: %v", backup.Spec.Name, snapshot.Name, backupErr)
@@ -465,116 +457,55 @@ func (o *SnapshotHandler) executeBackup(ctx context.Context,
 
 	err := o.updateSnapshotFinishedStatus(backupOutput, backupRepo, backupErr, snapshot)
 
-	// todo notify
-
 	return err
 }
 
-func (o *SnapshotHandler) Backup(ctx context.Context, backup *sysv1.Backup, snapshot *sysv1.Snapshot) error {
+func (o *SnapshotHandler) Backup(ctx context.Context, backupId, snapshotId string) error {
 	var err error
 
+	snapshot, err := o.handlers.GetSnapshotHandler().GetSnapshot(context.Background(), snapshotId)
+	if err != nil {
+		return fmt.Errorf("get snapshot %s error: %v", snapshotId, err)
+	}
+
+	backup, err := o.handlers.GetBackupHandler().GetBackupById(ctx, backupId)
+	if err != nil {
+		return fmt.Errorf("get backup %s error %v", backupId, err)
+	}
+
 	if err = o.validateBackupPreconditions(backup, snapshot); err != nil {
-		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, snapshot).Error())
+		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
 	}
 
 	params, err := o.prepareBackupParams(ctx, backup)
 	if err != nil {
-		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, snapshot).Error())
-	}
-
-	if err := o.updateSnapshotToRunning(ctx, snapshot, params); err != nil {
-		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, snapshot).Error())
+		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
 	}
 
 	opt := o.createBackupOption(backup.Name, params)
 
-	return o.executeBackup(ctx, backup, snapshot, opt, params)
+	if err := o.updateSnapshotToRunning(ctx, snapshot, params); err != nil {
+		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
+	} else {
+		// TODO notify Running + add snapshot record
+	}
+
+	var tokenService = &integration.Integration{
+		Factory:  o.factory,
+		Owner:    backup.Spec.Owner,
+		Location: opt.GetLocation(),
+		Name:     opt.GetLocationConfigName(), // olaresId
+	}
+	token, err := tokenService.GetIntegrationToken()
+	if err != nil {
+		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
+	}
+
+	return o.executeBackup(ctx, backup, snapshot, opt, params, token, tokenService)
 
 }
 
 // --
-
-type ProxyRequest struct {
-	Op       string      `json:"op"`
-	DataType string      `json:"datatype"`
-	Version  string      `json:"version"`
-	Group    string      `json:"group"`
-	Param    interface{} `json:"param,omitempty"`
-	Data     string      `json:"data,omitempty"`
-	Token    string
-}
-
-type AccountValue struct {
-	Email   string `json:"email"`
-	Userid  string `json:"userid"`
-	Token   string `json:"token"`
-	Expired any    `json:"expired"`
-}
-
-type PasswordResponse struct {
-	response.Header
-	Data *PasswordResponseData `json:"data,omitempty"`
-}
-
-type PasswordResponseData struct {
-	Env   string `json:"env"`
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-// func (o *SnapshotOperator) getPassword(backup *sysv1.Backup) (string, error) {
-// 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", backup.Spec.Owner)
-// 	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
-
-// 	req := &ProxyRequest{
-// 		Op:       "getAccount",
-// 		DataType: "backupPassword",
-// 		Version:  "v1",
-// 		Group:    "service.settings",
-// 		Data:     backup.Name,
-// 	}
-
-// 	terminusNonce, err := util.GenTerminusNonce("")
-// 	if err != nil {
-// 		log.Error("generate nonce error, ", err)
-// 		return "", err
-// 	}
-
-// 	log.Info("fetch password from settings, ", settingsUrl)
-// 	resp, err := client.R().
-// 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-// 		SetHeader("Terminus-Nonce", terminusNonce).
-// 		SetBody(req).
-// 		SetResult(&PasswordResponse{}).
-// 		Post(settingsUrl)
-
-// 	if err != nil {
-// 		log.Error("request settings password api error, ", err)
-// 		return "", err
-// 	}
-
-// 	if resp.StatusCode() != http.StatusOK {
-// 		log.Error("request settings password api response not ok, ", resp.StatusCode())
-// 		err = errors.New(string(resp.Body()))
-// 		return "", err
-// 	}
-
-// 	pwdResp := resp.Result().(*PasswordResponse)
-// 	log.Infof("settings password api response, %+v", pwdResp)
-// 	if pwdResp.Code != 0 {
-// 		log.Error("request settings password api response error, ", pwdResp.Code, ", ", pwdResp.Message)
-// 		err = errors.New(pwdResp.Message)
-// 		return "", err
-// 	}
-
-// 	if pwdResp.Data == nil {
-// 		log.Error("request settings password api response data is nil, ", pwdResp.Code, ", ", pwdResp.Message)
-// 		err = errors.New("request settings password api response data is nil")
-// 		return "", err
-// 	}
-
-// 	return pwdResp.Data.Value, nil
-// }
 
 func (o *SnapshotHandler) GetOlaresId(owner string) (string, error) {
 	dynamicClient, err := o.factory.DynamicClient()

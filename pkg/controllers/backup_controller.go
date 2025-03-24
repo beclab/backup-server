@@ -204,6 +204,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return true
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
+				log.Info("hit backup delete event")
 				// if !isTrue(e.Object) {
 				// 	return false
 				// }

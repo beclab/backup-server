@@ -24,6 +24,24 @@ type Integration struct {
 	Name     string
 }
 
+func (i *Integration) GetIntegrationSpaceToken() (IntegrationToken, error) {
+	data, err := i.query()
+	if err != nil {
+		return nil, nil
+	}
+
+	return i.withSpaceToken(data), nil
+}
+
+func (i *Integration) GetIntegrationCloudToken() (IntegrationToken, error) {
+	data, err := i.query()
+	if err != nil {
+		return nil, nil
+	}
+
+	return i.withSpaceToken(data), nil
+}
+
 func (i *Integration) GetIntegrationToken() (IntegrationToken, error) {
 	data, err := i.query()
 	if err != nil {
@@ -175,7 +193,7 @@ func (i *Integration) formatUrl(location, name string) string {
 	case "aws":
 		l = "awss3"
 	case "tencentcloud":
-		l = "tencent" // TODO debug
+		l = "tencentcloud" // TODO debug
 	}
 	return fmt.Sprintf("integration-account:%s:%s", l, name)
 }

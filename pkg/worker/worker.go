@@ -2,10 +2,10 @@ package worker
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -17,8 +17,8 @@ type WorkerManage struct {
 	ctx      context.Context
 	handlers handlers.Interface
 
-	backupQueue  []string
-	restoreQueue []string
+	backupQueue  []string // backupid_snapshotid
+	restoreQueue []string // backupid_snapshotid
 
 	activeBackup  *activeBackup
 	activeRestore *activeRestore
@@ -29,13 +29,13 @@ type WorkerManage struct {
 type activeBackup struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
-	snapshot *sysv1.Snapshot
+	snapshot string
 }
 
 type activeRestore struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
-	snapshot *sysv1.Snapshot
+	snapshot string
 }
 
 func NewWorkerManage(ctx context.Context, handlers handlers.Interface) *WorkerManage {
@@ -81,33 +81,14 @@ func (w *WorkerManage) StartRestoreWorker() {
 }
 
 func (w *WorkerManage) RunRestore(ctx context.Context) {
-	// TODO
-}
-
-func (w *WorkerManage) RunBackup(ctx context.Context) {
-	if w.activeBackup != nil {
-		log.Infof("[worker] active backup %s snapshot %s is running", w.activeBackup.snapshot.Spec.BackupId, w.activeBackup.snapshot.Name)
+	if w.activeRestore != nil {
+		log.Infof("[worker] active restore %s is running", w.activeRestore.snapshot)
 		return
 	}
 
-	snapshotId, ok := w.getBackupQueue()
+	snapshotId, ok := w.getRestoreQueue()
 	if !ok {
-		return
-	}
-
-	log.Infof("[worker] backup queue - snapshot %s", snapshotId)
-
-	// move to backup handler
-
-	snapshot, err := w.handlers.GetSnapshotHandler().GetSnapshot(context.Background(), snapshotId)
-	if err != nil {
-		log.Errorf("[worker] get snapshot %s error: %v", snapshotId, err)
-		return
-	}
-
-	backup, err := w.handlers.GetBackupHandler().GetBackupById(ctx, snapshot.Spec.BackupId)
-	if err != nil {
-		log.Errorf("[worker] get backup %s error: %v", snapshot.Spec.BackupId, err)
+		log.Errorf("[worker] no restore in queue")
 		return
 	}
 
@@ -115,35 +96,64 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 	w.activeBackup = &activeBackup{
 		ctx:      ctxTask,
 		cancel:   cancelTask,
-		snapshot: snapshot,
+		snapshot: snapshotId,
 	}
-	log.Infof("[worker] run backup %s snapshot %s", backup.Spec.Name, snapshotId)
+	log.Infof("[worker] run restore %s", snapshotId)
 
 	// ~ run backup
-	if err := w.handlers.GetSnapshotHandler().Backup(w.ctx, backup, snapshot); err != nil {
-		log.Errorf("[worker] backup %s snapshot %s error: %v", backup.Spec.Name, snapshotId, err)
+	if err := w.handlers.GetRestoreHandler().Restore(w.ctx, snapshotId); err != nil {
+		log.Errorf("[worker] restore %s error: %v", snapshotId, err)
+	}
+
+	w.clearActiveRestore()
+}
+
+func (w *WorkerManage) RunBackup(ctx context.Context) {
+	if w.activeBackup != nil {
+		log.Infof("[worker] active snapshot %s is running", w.activeBackup.snapshot)
+		return
+	}
+
+	backupId, snapshotId, ok := w.getBackupQueue()
+	if !ok {
+		log.Errorf("[worker] no snapshot in queue")
+		return
+	}
+
+	var ctxTask, cancelTask = context.WithCancel(ctx)
+	w.activeBackup = &activeBackup{
+		ctx:      ctxTask,
+		cancel:   cancelTask,
+		snapshot: snapshotId,
+	}
+	log.Infof("[worker] run backup %s snapshot %s", backupId, snapshotId)
+
+	// ~ run backup
+	err := w.handlers.GetSnapshotHandler().Backup(w.ctx, backupId, snapshotId)
+	if err != nil { // TODO notify
+		log.Errorf("[worker] snapshot %s error: %v", snapshotId, err)
 	}
 
 	w.clearActiveBackup()
 }
 
-func (w *WorkerManage) AppendBackupTask(snapshot string) {
+func (w *WorkerManage) AppendBackupTask(id string) {
 	w.queueMutex.Lock()
 	defer w.queueMutex.Unlock()
 
-	w.backupQueue = append(w.backupQueue, snapshot)
+	w.backupQueue = append(w.backupQueue, id)
 }
 
-func (w *WorkerManage) AppendRestoreTask(snapshot string) {
+func (w *WorkerManage) AppendRestoreTask(snapshotId string) { // TODO backupid_snapshotid
 	w.queueMutex.Lock()
 	defer w.queueMutex.Unlock()
 
-	w.restoreQueue = append(w.restoreQueue, snapshot)
+	w.restoreQueue = append(w.restoreQueue, snapshotId)
 }
 
 func (w *WorkerManage) StopBackup(snapshotId string) {
-	if w.activeBackup.snapshot.Name != snapshotId {
-		log.Warnf("active backup %s not equal %s", w.activeBackup.snapshot.Name, snapshotId)
+	if w.activeBackup.snapshot != snapshotId {
+		log.Warnf("active snapshot %s is not equal %s", w.activeBackup.snapshot, snapshotId)
 		return
 	}
 
@@ -164,18 +174,23 @@ func (w *WorkerManage) clearActiveRestore() {
 	w.activeRestore = nil
 }
 
-func (w *WorkerManage) getBackupQueue() (string, bool) {
+func (w *WorkerManage) getBackupQueue() (string, string, bool) {
 	w.queueMutex.Lock()
 	defer w.queueMutex.Unlock()
 
 	if len(w.backupQueue) == 0 {
-		return "", false
+		return "", "", false
 	}
 
 	first := w.backupQueue[0]
 	w.backupQueue = w.backupQueue[1:]
 
-	return first, true
+	ids := strings.Split(first, "_")
+	if len(ids) != 2 {
+		return "", "", false
+	}
+
+	return ids[0], ids[1], true
 }
 
 func (w *WorkerManage) getRestoreQueue() (string, bool) {

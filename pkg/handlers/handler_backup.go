@@ -18,12 +18,14 @@ import (
 )
 
 type BackupHandler struct {
-	factory client.Factory
+	factory  client.Factory
+	handlers Interface
 }
 
-func NewBackupHandler(f client.Factory) *BackupHandler {
+func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 	return &BackupHandler{
-		factory: f,
+		factory:  f,
+		handlers: handlers,
 	}
 }
 
