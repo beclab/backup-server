@@ -65,12 +65,18 @@ spec:
                   additionalProperties:
                     type: string
                   type: object
+                size:
+                  format: int64
+                  type: integer
+                snapshotId:
+                  type: string
                 startAt:
                   format: int64
                   type: integer
               required:
                 - phase
                 - restoreType
+                - snapshotId
                 - startAt
               type: object
             status:

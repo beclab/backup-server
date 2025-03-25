@@ -200,8 +200,13 @@ func GetFirstDayOfWeek(t time.Time) time.Time {
 	return t.Add(offset).Truncate(24 * time.Hour)
 }
 
-func IsTimestampExpired(targetTimestamp int64) bool {
+func IsTimestampNearingExpiration(targetTimestamp int64) bool {
 	adjustedTimestamp := targetTimestamp - (15 * 1000)
 	currentTimestamp := time.Now().UnixMilli()
 	return adjustedTimestamp < currentTimestamp
+}
+
+func ParseUnixMilliToDate(targetTimestamp int64) string {
+	t := time.UnixMilli(targetTimestamp)
+	return t.Format("2006-01-02 15:04:05")
 }

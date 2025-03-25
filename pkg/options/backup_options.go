@@ -1,21 +1,18 @@
 package options
 
+import "bytetrade.io/web3os/backup-server/pkg/util"
+
 var _ Option = &SpaceBackupOptions{}
 
 type SpaceBackupOptions struct {
-	RepoName       string
-	Location       string
-	ClusterId      string
-	OlaresId       string
-	CloudName      string
-	RegionId       string
-	CloudApiMirror string
-	Path           string
-	Password       string
-}
-
-func (o *SpaceBackupOptions) GetRepoName() string {
-	return o.RepoName
+	Location       string `json:"location"`
+	ClusterId      string `json:"cluster_id"`
+	OlaresId       string `json:"olares_id"`
+	CloudName      string `json:"cloud_name"`
+	RegionId       string `json:"region_id"`
+	CloudApiMirror string `json:"cloud_api_mirror"`
+	Path           string `json:"path"`
+	Password       string `json:"-"`
 }
 
 func (o *SpaceBackupOptions) GetLocation() string {
@@ -26,18 +23,17 @@ func (o *SpaceBackupOptions) GetLocationConfigName() string {
 	return o.OlaresId
 }
 
+func (o *SpaceBackupOptions) String() string {
+	return util.ToJSON(o)
+}
+
 var _ Option = &AwsS3BackupOptions{}
 
 type AwsS3BackupOptions struct {
-	RepoName           string
-	Location           string
-	LocationConfigName string
-	Path               string
-	Password           string
-}
-
-func (o *AwsS3BackupOptions) GetRepoName() string {
-	return o.RepoName
+	Location           string `json:"location"`
+	LocationConfigName string `json:"location_config_name"`
+	Path               string `json:"path"`
+	Password           string `json:"-"`
 }
 
 func (o *AwsS3BackupOptions) GetLocation() string {
@@ -48,18 +44,17 @@ func (o *AwsS3BackupOptions) GetLocationConfigName() string {
 	return o.LocationConfigName
 }
 
-var _ Option = &AwsS3BackupOptions{}
-
-type TencentCloudBackupOptions struct {
-	RepoName           string
-	Location           string
-	LocationConfigName string
-	Path               string
-	Password           string
+func (o *AwsS3BackupOptions) String() string {
+	return util.ToJSON(o)
 }
 
-func (o *TencentCloudBackupOptions) GetRepoName() string {
-	return o.RepoName
+var _ Option = &TencentCloudBackupOptions{}
+
+type TencentCloudBackupOptions struct {
+	Location           string `json:"location"`
+	LocationConfigName string `json:"location_config_name"`
+	Path               string `json:"path"`
+	Password           string `json:"-"`
 }
 
 func (o *TencentCloudBackupOptions) GetLocation() string {
@@ -70,16 +65,17 @@ func (o *TencentCloudBackupOptions) GetLocationConfigName() string {
 	return o.LocationConfigName
 }
 
-type FilesystemBackupOptions struct {
-	RepoName string
-	Location string
-	Endpoint string
-	Path     string
-	Password string
+func (o *TencentCloudBackupOptions) String() string {
+	return util.ToJSON(o)
 }
 
-func (o *FilesystemBackupOptions) GetRepoName() string {
-	return o.RepoName
+var _ Option = &FilesystemBackupOptions{}
+
+type FilesystemBackupOptions struct {
+	Location string `json:"location"`
+	Endpoint string `json:"endpoint"`
+	Path     string `json:"path"`
+	Password string `json:"-"`
 }
 
 func (o *FilesystemBackupOptions) GetLocation() string {
@@ -88,4 +84,8 @@ func (o *FilesystemBackupOptions) GetLocation() string {
 
 func (o *FilesystemBackupOptions) GetLocationConfigName() string {
 	return ""
+}
+
+func (o *FilesystemBackupOptions) String() string {
+	return util.ToJSON(o)
 }

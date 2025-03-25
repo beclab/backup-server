@@ -8,6 +8,7 @@ import (
 
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
@@ -15,15 +16,84 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var _ IntegrationInterface = &Integration{}
+// var _ IntegrationInterface = &Integration{}
+
+var IntegrationService *Integration
 
 type Integration struct {
-	Factory  client.Factory
-	Owner    string
-	Location string
-	Name     string
+	Factory      client.Factory
+	Owner        string
+	Location     string
+	Name         string
+	OlaresTokens map[string]*SpaceToken
 }
 
+type SpaceToken struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	OlaresDid   string `json:"olares_did"`
+	AccessToken string `json:"access_token"`
+	ExpiresAt   int64  `json:"expires_at"`
+	Available   bool   `json:"available"`
+}
+
+func (s *SpaceToken) Expired() bool {
+	return util.IsTimestampNearingExpiration(s.ExpiresAt)
+}
+
+type IntegrationTokenX struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	Available bool   `json:"available"`
+}
+
+func NewIntegrationService(factory client.Factory) {
+	IntegrationService = &Integration{
+		Factory:      factory,
+		OlaresTokens: make(map[string]*SpaceToken),
+	}
+}
+
+func IntegrationManager() *Integration {
+	return IntegrationService
+}
+
+func (i *Integration) GetIntegrationSpaceToken(olaresId string) (*SpaceToken, error) {
+	token := i.OlaresTokens[olaresId]
+	if token != nil {
+		if !token.Expired() {
+			return token, nil
+		}
+	}
+
+	data, err := i.query(constant.BackupLocationSpace.String(), olaresId)
+	if err != nil {
+		return nil, err
+	}
+
+	token = i.withSpaceToken(data)
+	if token.Expired() {
+		return nil, fmt.Errorf("olares space token expired")
+	}
+
+	i.OlaresTokens[olaresId] = token
+	return token, nil
+}
+
+func (i *Integration) GetIntegrationCloudToken(location, integrationName string) (*IntegrationTokenX, error) {
+	data, err := i.query(location, integrationName)
+	if err != nil {
+		return nil, err
+	}
+
+	return i.withCloudToken(data), nil
+}
+
+// --
 func (i *Integration) GetIntegrationSpaceToken() (IntegrationToken, error) {
 	data, err := i.query()
 	if err != nil {
@@ -55,15 +125,14 @@ func (i *Integration) GetIntegrationToken() (IntegrationToken, error) {
 	return i.withCloudToken(data), nil // TODO filesystem
 }
 
-func (i *Integration) withSpaceToken(data *accountResponseData) IntegrationToken {
-	return &IntegrationSpace{
+func (i *Integration) withSpaceToken(data *accountResponseData) *SpaceToken {
+	return &SpaceToken{
 		Name:        data.Name,
 		Type:        data.Type,
-		OlaresDid:   data.RawData.UserId,
-		AccessToken: data.RawData.AccessToken,
+		OlaresDid:   "did:key:z6MkiwBrVUoVizE94HcMxxqXE47s4SswMyQkJzdMtUBJ4PfJ", // data.RawData.UserId,
+		AccessToken: "d1b40d78955348458f94213a9a8900f1",                         //data.RawData.AccessToken,
 		ExpiresAt:   data.RawData.ExpiresAt,
 		Available:   data.RawData.Available,
-		Location:    i.Location,
 	}
 }
 
@@ -80,7 +149,7 @@ func (i *Integration) withCloudToken(data *accountResponseData) IntegrationToken
 	}
 }
 
-func (i *Integration) query() (*accountResponseData, error) {
+func (i *Integration) query(integrationLocation, integrationAccountName string) (*accountResponseData, error) {
 	ip, err := i.getSettingsIP()
 	if err != nil {
 		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v", err))
@@ -95,7 +164,7 @@ func (i *Integration) query() (*accountResponseData, error) {
 
 	client := resty.New().SetTimeout(10 * time.Second)
 	var data = make(map[string]string)
-	data["name"] = i.formatUrl(i.Location, i.Name)
+	data["name"] = i.formatUrl(integrationLocation, integrationAccountName)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
@@ -128,6 +197,7 @@ func (i *Integration) query() (*accountResponseData, error) {
 		return nil, err
 	}
 
+	accountResp.Data.RawData.ExpiresAt = 1742978678000
 	return accountResp.Data, nil
 }
 

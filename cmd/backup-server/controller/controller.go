@@ -8,6 +8,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/common"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -132,6 +133,7 @@ func run(factory client.Factory) error {
 		return pkgerrors.Errorf("unable to setup ready check: %v", err)
 	}
 
+	integration.NewIntegrationService(factory)
 	var handler = handlers.NewHandler(factory)
 
 	workerManager := worker.NewWorkerManage(context.TODO(), handler)

@@ -9,8 +9,8 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/converter"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/options"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
@@ -18,6 +18,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
+	backupssdkmodel "bytetrade.io/web3os/backups-sdk/pkg/storage/model"
 	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -157,6 +158,10 @@ func (o *SnapshotHandler) CreateSnapshot(ctx context.Context, backup *sysv1.Back
 		return nil, err
 	}
 
+	if err := o.PushNewSnapshotRecord(backup, created); err != nil {
+		log.Errorf("push new snapshot record error: %v", err)
+	}
+
 	return created, nil
 }
 
@@ -182,7 +187,7 @@ func (o *SnapshotHandler) GetSnapshot(ctx context.Context, id string) (*sysv1.Sn
 	return snapshot, nil
 }
 
-func (o *SnapshotHandler) getRunningSnapshot(ctx context.Context, backupId string) (bool, error) {
+func (o *SnapshotHandler) GetRunningSnapshot(ctx context.Context, backupId string) (bool, error) {
 	// check exists
 	var labelSelector = fmt.Sprintf("backup-id=%s", backupId)
 	snapshots, err := o.ListSnapshots(ctx, 1, labelSelector, "") // find all snapshots by backupName
@@ -274,45 +279,28 @@ func (o *SnapshotHandler) SetSnapshotPhase(backupName string, snapshot *sysv1.Sn
 }
 
 func (o *SnapshotHandler) Update(ctx context.Context, snapshotId string, snapshotSpec *sysv1.SnapshotSpec) error {
-	s, err := o.GetSnapshot(ctx, snapshotId)
+	sc, err := o.factory.Sysv1Client()
 	if err != nil {
 		return err
+	}
+
+	s, err := o.GetSnapshot(ctx, snapshotId)
+	if err != nil {
+		return fmt.Errorf("update get snapshot error: %v", err)
 	}
 
 RETRY:
-	var snapshot = &sysv1.Snapshot{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      s.Name,
-			Namespace: constant.DefaultOsSystemNamespace,
-			Labels:    s.Labels,
-		},
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Snapshot",
-			APIVersion: sysv1.SchemeGroupVersion.String(),
-		},
-		Spec: *snapshotSpec,
-	}
+	s.Spec = *snapshotSpec
 
-	obj, err := converter.ToUnstructured(snapshot)
-	if err != nil {
-		return err
-	}
-
-	res := unstructured.Unstructured{Object: obj}
-	res.SetGroupVersionKind(snapshot.GroupVersionKind())
-
-	dynamicClient, err := o.factory.DynamicClient()
-	if err != nil {
-		return err
-	}
-
-	_, err = dynamicClient.Resource(constant.SnapshotGVR).Namespace(constant.DefaultOsSystemNamespace).Update(ctx, &res, metav1.UpdateOptions{FieldManager: constant.SnapshotController})
+	_, err = sc.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Update(ctx, s, metav1.UpdateOptions{
+		FieldManager: constant.SnapshotController,
+	})
 
 	if err != nil && apierrors.IsConflict(err) {
 		log.Warnf("update snapshot %s spec retry", snapshotId)
 		goto RETRY
 	} else if err != nil {
-		return errors.WithStack(err)
+		return errors.WithStack(fmt.Errorf("update snapshot error: %v", err))
 	}
 
 	return nil
@@ -327,29 +315,36 @@ func (o *SnapshotHandler) updateSnapshotFailedStatus(backupError error, backup *
 }
 
 func (o *SnapshotHandler) updateSnapshotFinishedStatus(backupOutput *backupssdkrestic.SummaryOutput,
-	backupRepo string, backupError error,
-	snapshot *sysv1.Snapshot) error {
-	// todo backupRepo
-	_ = backupRepo
+	backupStorageInfo *backupssdkmodel.StorageInfo, backupError error,
+	snapshotId string) error {
+	_ = backupStorageInfo
+	snapshot, err := o.GetSnapshot(context.Background(), snapshotId)
+	if err != nil {
+		return err
+	}
 
 	if backupError != nil {
 		snapshot.Spec.Phase = pointer.String(constant.Failed.String())
 		snapshot.Spec.Message = pointer.String(backupError.Error())
 		snapshot.Spec.ResticPhase = pointer.String(constant.Failed.String())
 	} else {
+		snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 		snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
 		snapshot.Spec.Phase = pointer.String(constant.Completed.String())
 		snapshot.Spec.ResticPhase = pointer.String(constant.Completed.String())
 		snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
 	}
 
-	snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 	snapshot.Spec.EndAt = time.Now().UnixMilli()
 
-	// TODO
-	// 计划修改 snapshot.spec.extra["location"]: '{"location":"space/awss3/tencentcloud", "locationConfigName":"{name}"}'
+	var extra = snapshot.Spec.Extra
+	if extra == nil {
+		extra = make(map[string]string)
+	}
+	extra["storage"] = util.ToJSON(backupStorageInfo)
+	snapshot.Spec.Extra = extra
 
-	return o.Update(context.Background(), snapshot.Name, &snapshot.Spec) // update finished
+	return o.Update(context.Background(), snapshot.Name, &snapshot.Spec) // update completed
 }
 
 // backup
@@ -376,7 +371,7 @@ func (s *SnapshotHandler) getBackupLocation() {
 func (o *SnapshotHandler) prepareBackupParams(ctx context.Context, backup *sysv1.Backup) (*BackupParams, error) {
 	var err error
 	params := &BackupParams{
-		Path:           getBackupPath(backup),
+		Path:           GetBackupPath(backup),
 		LocationConfig: make(map[string]string),
 	}
 
@@ -385,7 +380,7 @@ func (o *SnapshotHandler) prepareBackupParams(ctx context.Context, backup *sysv1
 		return nil, err
 	}
 
-	params.Location, params.LocationConfig, err = getBackupLocationConfig(backup)
+	params.Location, params.LocationConfig, err = GetBackupLocationConfig(backup)
 	if err != nil {
 		return nil, err
 	}
@@ -405,11 +400,10 @@ func (o *SnapshotHandler) updateSnapshotToRunning(ctx context.Context, snapshot 
 	return o.Update(ctx, snapshot.Name, &snapshot.Spec) // update running
 }
 
-func (o *SnapshotHandler) createBackupOption(backupId string, params *BackupParams) options.Option {
+func (o *SnapshotHandler) createBackupOption(backupId string, backupName string, snapshotId string, params *BackupParams) options.Option {
 	switch params.Location {
 	case constant.BackupLocationSpace.String():
 		return &options.SpaceBackupOptions{
-			RepoName:       backupId,
 			Location:       params.Location,
 			OlaresId:       params.LocationConfig["name"],
 			ClusterId:      params.LocationConfig["clusterId"],
@@ -421,7 +415,6 @@ func (o *SnapshotHandler) createBackupOption(backupId string, params *BackupPara
 		}
 	case constant.BackupLocationAwsS3.String():
 		return &options.AwsS3BackupOptions{
-			RepoName:           backupId,
 			Location:           params.Location,
 			LocationConfigName: params.LocationConfig["name"],
 			Path:               params.Path,
@@ -429,7 +422,6 @@ func (o *SnapshotHandler) createBackupOption(backupId string, params *BackupPara
 		}
 	case constant.BackupLocationTencentCloud.String():
 		return &options.TencentCloudBackupOptions{
-			RepoName:           backupId,
 			Location:           params.Location,
 			LocationConfigName: params.LocationConfig["name"],
 			Path:               params.Path,
@@ -442,22 +434,29 @@ func (o *SnapshotHandler) createBackupOption(backupId string, params *BackupPara
 func (o *SnapshotHandler) executeBackup(ctx context.Context,
 	backup *sysv1.Backup,
 	snapshot *sysv1.Snapshot,
-	opt options.Option, params *BackupParams,
-	token integration.IntegrationToken, tokenService *integration.Integration) error {
+	opt options.Option, params *BackupParams) error {
+	var backupName = backup.Spec.Name
+	var snapshotId = snapshot.Name
 
 	_ = params
 	storage := storage.NewStorage(o.factory, backup.Spec.Owner)
-	backupOutput, backupRepo, backupErr := storage.Backup(ctx, opt, token, tokenService) // long time
+	backupOutput, backupStorageInfo, backupErr := storage.Backup(ctx, backup, snapshot, opt) // long time
 
-	if backupErr != nil {
-		log.Errorf("backup %s snapshot %s error: %v", backup.Spec.Name, snapshot.Name, backupErr)
+	if err := o.updateSnapshotFinishedStatus(backupOutput, backupStorageInfo, backupErr, snapshot.Name); err != nil {
+		log.Errorf("Backup %s-%s update state error: %v", backupName, snapshotId, err)
+		return err
 	} else {
-		log.Infof("backup %s snapshot %s completed, data: %+v", backup.Spec.Name, snapshot.Name, backupOutput)
+		log.Infof("Backup %s-%s update state success", backupName, snapshotId)
 	}
 
-	err := o.updateSnapshotFinishedStatus(backupOutput, backupRepo, backupErr, snapshot)
+	if err := o.PushSnapshotResult(backup, snapshot, backupOutput, backupStorageInfo, backupErr); err != nil {
+		log.Errorf("Backup %s-%s push snapshot error: %v", backupName, snapshotId, err)
+		return err
+	} else {
+		log.Infof("Backup %s-%s push snapshot success", backupName, snapshotId)
+	}
 
-	return err
+	return nil
 }
 
 func (o *SnapshotHandler) Backup(ctx context.Context, backupId, snapshotId string) error {
@@ -482,27 +481,124 @@ func (o *SnapshotHandler) Backup(ctx context.Context, backupId, snapshotId strin
 		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
 	}
 
-	opt := o.createBackupOption(backup.Name, params)
+	opt := o.createBackupOption(backup.Name, backup.Spec.Name, snapshotId, params)
 
 	if err := o.updateSnapshotToRunning(ctx, snapshot, params); err != nil {
 		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
-	} else {
-		// TODO notify Running + add snapshot record
 	}
 
+	return o.executeBackup(ctx, backup, snapshot, opt, params)
+
+}
+
+func (o *SnapshotHandler) PushSnapshotStateRunning(backup *sysv1.Backup, snapshot *sysv1.Snapshot) error {
 	var tokenService = &integration.Integration{
 		Factory:  o.factory,
 		Owner:    backup.Spec.Owner,
-		Location: opt.GetLocation(),
-		Name:     opt.GetLocationConfigName(), // olaresId
+		Location: constant.BackupLocationSpace.String(),
+		Name:     "zhaoyu001@olares.cn",
 	}
-	token, err := tokenService.GetIntegrationToken()
+	token, err := tokenService.GetIntegrationSpaceToken()
 	if err != nil {
-		return errors.WithMessage(err, o.updateSnapshotFailedStatus(err, backup, snapshot).Error())
+		return fmt.Errorf("get space token error %v", err)
+	}
+	spaceToken := token.(*integration.IntegrationSpace)
+
+	var snapshotRecord = &notify.Snapshot{
+		UserId:       spaceToken.OlaresDid,
+		BackupId:     backup.Name,
+		SnapshotId:   snapshot.Name,
+		Size:         0,
+		Unit:         constant.DefaultSnapshotSizeUnit,
+		SnapshotTime: snapshot.Spec.StartAt,
+		Status:       constant.Running.String(),
+		Type:         ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
 	}
 
-	return o.executeBackup(ctx, backup, snapshot, opt, params, token, tokenService)
+	if err := notify.PushSnapshot(constant.DefaultSyncServerURL, snapshotRecord); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func (o *SnapshotHandler) PushNewSnapshotRecord(backup *sysv1.Backup, snapshot *sysv1.Snapshot) error {
+	var tokenService = &integration.Integration{
+		Factory:  o.factory,
+		Owner:    backup.Spec.Owner,
+		Location: constant.BackupLocationSpace.String(),
+		Name:     "zhaoyu001@olares.cn",
+	}
+	token, err := tokenService.GetIntegrationSpaceToken()
+	if err != nil {
+		return fmt.Errorf("get space token error %v", err)
+	}
+	spaceToken := token.(*integration.IntegrationSpace)
+
+	var snapshotRecord = &notify.Snapshot{
+		UserId:       spaceToken.OlaresDid,
+		BackupId:     backup.Name,
+		SnapshotId:   snapshot.Name,
+		Size:         0,
+		Unit:         constant.DefaultSnapshotSizeUnit,
+		SnapshotTime: snapshot.Spec.StartAt,
+		Status:       constant.New.String(),
+		Type:         ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
+	}
+
+	if err := notify.PushSnapshot(constant.DefaultSyncServerURL, snapshotRecord); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *SnapshotHandler) PushSnapshotResult(backup *sysv1.Backup, snapshot *sysv1.Snapshot, backupOutput *backupssdkrestic.SummaryOutput, backupStorageInfo *backupssdkmodel.StorageInfo, backupErr error) error {
+	var tokenService = &integration.Integration{
+		Factory:  o.factory,
+		Owner:    backup.Spec.Owner,
+		Location: constant.BackupLocationSpace.String(),
+		Name:     "zhaoyu001@olares.cn",
+	}
+	token, err := tokenService.GetIntegrationSpaceToken()
+	if err != nil {
+		return fmt.Errorf("get space token error %v", err)
+	}
+	spaceToken := token.(*integration.IntegrationSpace)
+
+	var snapshotRecord = &notify.Snapshot{
+		UserId:       spaceToken.OlaresDid,
+		BackupId:     backup.Name,
+		SnapshotId:   snapshot.Name,
+		Unit:         constant.DefaultSnapshotSizeUnit,
+		SnapshotTime: snapshot.Spec.StartAt,
+		Type:         ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
+	}
+
+	if backupStorageInfo != nil {
+		snapshotRecord.Url = backupStorageInfo.Url
+		snapshotRecord.CloudName = backupStorageInfo.CloudName
+		snapshotRecord.RegionId = backupStorageInfo.RegionId
+		snapshotRecord.Bucket = backupStorageInfo.Bucket
+		snapshotRecord.Prefix = backupStorageInfo.Prefix
+	}
+
+	if backupErr != nil {
+		snapshotRecord.Status = constant.Failed.String()
+		snapshotRecord.Message = backupErr.Error()
+	} else {
+		snapshotRecord.ResticSnapshotId = backupOutput.SnapshotID
+		snapshotRecord.Size = backupOutput.TotalBytesProcessed
+		snapshotRecord.Status = constant.Completed.String()
+		snapshotRecord.Message = util.ToJSON(backupOutput)
+	}
+
+	log.Infof("prepare push snapshot result: %s", util.ToJSON(snapshotRecord))
+	if err := notify.PushSnapshot(constant.DefaultSyncServerURL, snapshotRecord); err != nil { // finished
+		return err
+	}
+
+	return nil
 }
 
 // --

@@ -71,7 +71,18 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Second}, nil
 	} else if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
-	} else if backup.Spec.BackupPolicy.Enabled {
+	}
+
+	if !isNotified(backup) {
+		err = r.handler.GetBackupHandler().NotifyToSpace(backup)
+		if err != nil {
+			log.Errorf("push backup %s id %s error %v", backup.Spec.Name, backup.Name, err)
+			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
+		}
+		log.Infof("push backup %s backupid %s record success", backup.Spec.Name, backup.Name)
+	}
+
+	if backup.Spec.BackupPolicy.Enabled {
 		err = r.reconcileBackupPolicies(backup)
 		if err != nil {
 			return ctrl.Result{}, errors.WithStack(err)
@@ -79,33 +90,61 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	} else {
 		return ctrl.Result{}, nil
 	}
-
-	// todo restore
-
-	// ignore when restore in progress
-	// vc, err := r.factory.Client()
-	// if err != nil {
-	// 	return ctrl.Result{}, errors.WithStack(err)
-	// } else {
-	// 	restores, err := vc.VeleroV1().Restores(req.Namespace).
-	// 		List(ctx, metav1.ListOptions{})
-	// 	if err != nil {
-	// 		return ctrl.Result{}, errors.WithStack(err)
-	// 	}
-
-	// 	for _, restore := range restores.Items {
-	// 		if restore.Status.Phase == velerov1api.RestorePhaseInProgress {
-	// 			log.Warn("restore in progress, requeue after 5 minutes")
-	// 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}, nil
-	// 		}
-	// 	}
-	// }
-
-	// if err = r.apply(ctx, req.Namespace, &bc.Spec); err != nil {
-	// 	return ctrl.Result{}, errors.WithStack(err)
-	// }
-
 	return ctrl.Result{}, nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	_, err := ctrl.NewControllerManagedBy(mgr).
+		For(&sysv1.Backup{}, builder.WithPredicates(predicate.Funcs{
+			GenericFunc: func(e event.GenericEvent) bool { return false },
+			CreateFunc: func(e event.CreateEvent) bool {
+				log.Info("hit backup create event")
+				return true
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				log.Info("hit backup update event")
+				if !isTrue(e.ObjectOld, e.ObjectNew) {
+					return false
+				}
+				bc1, ok1 := e.ObjectOld.(*sysv1.Backup)
+				bc2, ok2 := e.ObjectNew.(*sysv1.Backup)
+				if !(ok1 || ok2) || reflect.DeepEqual(bc1.Spec, bc2.Spec) {
+					log.Info("backup not changed")
+					return false
+				}
+				if isPushStateChanged(bc1, bc2) {
+					log.Info("backup push state changed: Pushed")
+					return false
+				}
+
+				return true
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				log.Info("hit backup delete event")
+				// if !isTrue(e.Object) {
+				// 	return false
+				// }
+				// r.deleteBackupConfig(e.Object.GetName(), e.Object.GetNamespace())
+				return false
+			}})).
+		Build(r)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func isNotified(backup *sysv1.Backup) bool {
+	return backup.Spec.Push
+}
+
+func isPushStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bool {
+	if oldBackup.Spec.Push != newBackup.Spec.Push {
+		return true
+	}
+	return false
 }
 
 func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
@@ -121,43 +160,19 @@ func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 	return nil
 }
 
-func (r *BackupReconciler) apply(ctx context.Context, namespace string, bSpec *sysv1.BackupSpec) error {
-	log.Info("prepare to apply velero resources")
+func isTrue(objects ...client.Object) bool {
+	fs := sets.NewByte()
 
-	// kc, err := r.factory.KubeClient()
-	// if err != nil {
-	// 	return err
-	// }
-
-	// v := r.bcManager
-
-	// // credentials secret
-	// applySecret := velero.BuildSecretApplyConfiguration(namespace, velero.DefaultVeleroSecretName, v.NewCredentials(bSpec))
-	// secret, err := kc.CoreV1().Secrets(namespace).
-	// 	Apply(ctx, applySecret, metav1.ApplyOptions{Force: true, FieldManager: velero.ApplyPatchFieldManager})
-	// if err != nil {
-	// 	return pkgerrors.Errorf("unable to apply secret: %v", err)
-	// }
-	// log.Infof("applied %q secret: %s", secret.Name, util.PrettyJSON(secret))
-
-	// // backupStorageLocation
-	// bsl, err := v.ApplyBackupStorageLocation(ctx, bSpec)
-	// if err != nil {
-	// 	return err
-	// }
-	// log.Infof("applied %q backupStorageLocation: %s", bsl.Name, util.PrettyJSON(bsl))
-
-	// // deployment
-	// applyDeployment := velero.DeploymentApplyConfiguration(namespace, bSpec)
-	// deploy, err := kc.AppsV1().
-	// 	Deployments(namespace).
-	// 	Apply(ctx, applyDeployment, metav1.ApplyOptions{Force: true, FieldManager: velero.ApplyPatchFieldManager})
-	// if err != nil {
-	// 	return pkgerrors.Errorf("apply deployment: %v", err)
-	// }
-	// log.Infof("applied %q deployment: %s", deploy.Name, util.PrettyJSON(deploy.Spec))
-
-	return nil
+	for _, o := range objects {
+		_, ok := o.GetLabels()["component"]
+		if o.GetNamespace() == velero.DefaultVeleroNamespace &&
+			ok {
+			fs.Insert('y')
+		} else {
+			fs.Insert('n')
+		}
+	}
+	return fs.HasAll('y')
 }
 
 func (r *BackupReconciler) deleteBackupConfig(name string, namespace string) {
@@ -192,69 +207,4 @@ func (r *BackupReconciler) deleteBackupConfig(name string, namespace string) {
 	// } else {
 	// 	log.Errorf("get backups of config error, %+v, %s", err, name)
 	// }
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	_, err := ctrl.NewControllerManagedBy(mgr).
-		For(&sysv1.Backup{}, builder.WithPredicates(predicate.Funcs{
-			GenericFunc: func(e event.GenericEvent) bool { return false },
-			CreateFunc: func(e event.CreateEvent) bool {
-				log.Info("hit backup create event")
-				return true
-			},
-			DeleteFunc: func(e event.DeleteEvent) bool {
-				log.Info("hit backup delete event")
-				// if !isTrue(e.Object) {
-				// 	return false
-				// }
-				// r.deleteBackupConfig(e.Object.GetName(), e.Object.GetNamespace())
-				return false
-			},
-			UpdateFunc: func(e event.UpdateEvent) bool {
-				log.Info("hit backup update event")
-				if !isTrue(e.ObjectOld, e.ObjectNew) {
-					return false
-				}
-				bc1, ok1 := e.ObjectOld.(*sysv1.Backup)
-				bc2, ok2 := e.ObjectNew.(*sysv1.Backup)
-				if !(ok1 || ok2) || reflect.DeepEqual(bc1.Spec, bc2.Spec) {
-					log.Info("backup not changed")
-					return false
-				}
-				return true
-			}})).
-		Build(r)
-	if err != nil {
-		return err
-	}
-
-	return nil
-
-	// return c.Watch(&source.Kind{Type: &appsv1.Deployment{}},
-	// 	handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
-	// 		return []reconcile.Request{{NamespacedName: types.NamespacedName{
-	// 			Namespace: o.GetNamespace(),
-	// 			Name:      o.GetName()}},
-	// 		}
-	// 	}), newDeleteOnlyPredicate(func(e event.DeleteEvent) bool {
-	// 		log.Info("hit velero deployment delete event")
-	// 		return isTrue(e.Object) && e.Object.GetName() == velero.DefaultVeleroDeploymentName &&
-	// 			r.backupConfigExist()
-	// 	}))
-}
-
-func isTrue(objects ...client.Object) bool {
-	fs := sets.NewByte()
-
-	for _, o := range objects {
-		_, ok := o.GetLabels()["component"]
-		if o.GetNamespace() == velero.DefaultVeleroNamespace &&
-			ok {
-			fs.Insert('y')
-		} else {
-			fs.Insert('n')
-		}
-	}
-	return fs.HasAll('y')
 }

@@ -5,13 +5,13 @@ import "bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 var _ IntegrationToken = &IntegrationSpace{}
 
 type IntegrationSpace struct {
-	Name        string
-	Type        string
-	OlaresDid   string
-	AccessToken string
-	ExpiresAt   int64
-	Available   bool
-	Location    string
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	OlaresDid   string `json:"olares_did"`
+	AccessToken string `json:"access_token"`
+	ExpiresAt   int64  `json:"expires_at"`
+	Available   bool   `json:"available"`
+	Location    string `json:"location"`
 }
 
 func (i *IntegrationSpace) GetType() string {
@@ -21,14 +21,14 @@ func (i *IntegrationSpace) GetType() string {
 var _ IntegrationToken = &IntegrationCloud{}
 
 type IntegrationCloud struct {
-	Name      string
-	Type      string
-	AccessKey string
-	SecretKey string
-	Endpoint  string
-	Bucket    string
-	Available bool
-	Location  string
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	AccessKey string `json:"access_key"`
+	SecretKey string `json:"secret_key"`
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	Available bool   `json:"available"`
+	Location  string `json:"location"`
 }
 
 func (i *IntegrationCloud) GetType() string {

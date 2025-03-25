@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	utilstring "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
@@ -72,6 +74,26 @@ func getBackupPassword(owner string, backupName string) (string, error) {
 	return pwdResp.Data.Value, nil
 }
 
+func GetBackupIntegrationName(location string, locationConfig map[string]string) string {
+	name, ok := locationConfig[location]
+	if !ok {
+		return ""
+	}
+	return name
+}
+
+func ParseSnapshotTypeText(snapshotType *int) string {
+	var t = *snapshotType
+	switch t {
+	case 0:
+		return constant.FullyBackup
+	case 1:
+		return constant.IncrementalBackup
+	default:
+		return constant.UnKnownBackup
+	}
+}
+
 func parseSnapshotType(snapshotType string) *int {
 	var r = constant.UnKnownBackupId
 	switch snapshotType {
@@ -83,7 +105,22 @@ func parseSnapshotType(snapshotType string) *int {
 	return &r
 }
 
-func getBackupPath(backup *sysv1.Backup) string {
+func ParseSnapshotTypeTitle(snapshotType *int) string {
+	var t = constant.UnKnownBackup
+
+	if snapshotType == nil || (*snapshotType < 0 || *snapshotType > 1) {
+		return utilstring.Title(t)
+	}
+	if *snapshotType == 0 {
+		t = constant.FullyBackup
+	} else {
+		t = constant.IncrementalBackup
+	}
+
+	return utilstring.Title(t)
+}
+
+func GetBackupPath(backup *sysv1.Backup) string {
 	var p string
 	for k, v := range backup.Spec.BackupType {
 		if k != "file" {
@@ -100,7 +137,7 @@ func getBackupPath(backup *sysv1.Backup) string {
 	return p
 }
 
-func getRestorePath(restore *sysv1.Restore) string {
+func GetRestorePath(restore *sysv1.Restore) string {
 	var p string
 	for k, v := range restore.Spec.RestoreType {
 		if k != "file" {
@@ -117,7 +154,7 @@ func getRestorePath(restore *sysv1.Restore) string {
 	return p
 }
 
-func getBackupLocationConfig(backup *sysv1.Backup) (location string, locationConfig map[string]string, err error) {
+func GetBackupLocationConfig(backup *sysv1.Backup) (location string, locationConfig map[string]string, err error) {
 	for k, v := range backup.Spec.Location {
 		if err = json.Unmarshal([]byte(v), &locationConfig); err != nil {
 			return
@@ -132,4 +169,78 @@ func getBackupLocationConfig(backup *sysv1.Backup) (location string, locationCon
 	}
 
 	return
+}
+
+func ParseBackupSnapshotFrequency(str string) string {
+	str = strings.ReplaceAll(str, "@", "")
+	return utilstring.Title(str)
+}
+
+func ParseLocationConfig(locationConfig map[string]string) string {
+	var location string
+	if locationConfig == nil {
+		return ParseBackupLocation(location)
+	}
+
+	for l, _ := range locationConfig {
+		location = l
+	}
+	return ParseBackupLocation(location)
+}
+
+func ParseBackupLocation(l string) string {
+	switch l {
+	case constant.BackupLocationSpace.String():
+		return constant.BackupLocationSpaceAlias.String()
+	case constant.BackupLocationAwsS3.String():
+		return constant.BackupLocationAwsS3Alias.String()
+	case constant.BackupLocationTencentCloud.String():
+		return constant.BackupLocationCosAlias.String()
+	case constant.BackupLocationFileSystem.String():
+		return constant.BackupLocationFileSystemAlias.String()
+	default:
+		return constant.BackupLocationUnKnownAlias.String()
+	}
+}
+
+func ParseSnapshotSize(size *uint64) string {
+	if size == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%d", *size)
+}
+
+func ParseBackupTypePath(backupType map[string]string) string {
+	if backupType == nil {
+		return ""
+	}
+	var backupTypeValue map[string]string
+	for k, v := range backupType {
+		if k != "file" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(v), &backupTypeValue); err != nil {
+			return ""
+		}
+		return backupTypeValue["path"]
+	}
+	return ""
+}
+
+func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
+	var res int64
+	var n = time.Now().Local()
+	var prefix int64 = util.ParseToInt64(bp.TimesOfDay) / 1000
+	var incr = util.ParseToNextUnixTime(bp.SnapshotFrequency, bp.TimesOfDay, bp.DayOfWeek)
+
+	switch bp.SnapshotFrequency {
+	case "@weekly":
+		var midweek = util.GetFirstDayOfWeek(n).AddDate(0, 0, bp.DayOfWeek)
+		res = midweek.Unix() + incr + prefix
+	default:
+		var midnight = time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
+		res = midnight.Unix() + incr + prefix
+	}
+	return &res
 }

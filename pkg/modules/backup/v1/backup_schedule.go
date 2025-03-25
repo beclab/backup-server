@@ -100,6 +100,7 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		Name:       o.c.Name,
 		Owner:      o.owner,
 		BackupType: backupType,
+		Push:       false,
 		Extra:      map[string]string{},
 	}
 

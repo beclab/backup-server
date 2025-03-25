@@ -58,26 +58,6 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *SnapshotReconciler) handleUpdateSysBackup(sb *sysapiv1.Snapshot) {
-	var (
-		name = sb.Name
-		// ctx  = context.Background()
-
-		// err error
-	)
-
-	log.Infof("waiting for velero and middleware backup completed")
-	// if sb.Spec.MiddleWarePhase == nil ||
-	// 	!util.ListContains([]string{velero.Succeed, velero.Success}, *sb.Spec.MiddleWarePhase) {
-	// 	log.Infof("velero or middleware backup not ready")
-	// 	return
-	// }
-
-	log.Debugf("starting async to backup %q osdata", name)
-
-	// go r.manager.AsyncOsDataBackup(name)
-}
-
 func (r *SnapshotReconciler) handleDeleteBackup(name string, sb *sysapiv1.Backup) {
 	var (
 	// ctx = context.Background()
@@ -138,7 +118,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					}
 				case constant.Pending.String():
 					log.Infof("add to backup worker %s", snapshot.Name)
-					worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s", snapshot.Spec.BackupId, snapshot.Name))
+					worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
 				}
 
 				return false
@@ -152,13 +132,11 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				oldSnapshot, ok1 := r.isSysSnapshot(oldObj)
 				newSnapshot, ok2 := r.isSysSnapshot(newObj)
 
-				fmt.Println("---old---", util.ToJSON(oldSnapshot))
-				fmt.Println("---new---", util.ToJSON(newSnapshot))
-				return false
-
 				if !(ok1 && ok2) || reflect.DeepEqual(oldSnapshot.Spec, newSnapshot.Spec) {
 					return false
 				}
+
+				log.Infof("snapshot update event old: %s, new: %s", util.ToJSON(oldSnapshot), util.ToJSON(newSnapshot))
 
 				backup, err := r.getBackup(newSnapshot.Spec.BackupId)
 				if err != nil {
@@ -166,41 +144,32 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				var backupName = backup.Spec.Name
-				var snapshotCreateAt = r.handler.GetSnapshotHandler().ParseSnapshotName(newSnapshot.Spec.StartAt)
+				if r.isSnapshotRunning(oldSnapshot, newSnapshot) {
+					log.Info("snapshot push state changed: Running")
+					if err := r.handler.GetSnapshotHandler().PushSnapshotStateRunning(backup, newSnapshot); err != nil {
+						log.Errorf("snapshot %s push state error: %v", newSnapshot.Name, err)
+					} else {
+						log.Infof("push snapshot Running state success: %s", newSnapshot.Name)
+					}
 
-				if util.ListContains([]string{constant.Completed.String(), constant.Failed.String()}, *newSnapshot.Spec.Phase) {
-					log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *newSnapshot.Spec.Phase)
 					return false
 				}
 
-				log.Infof("run backup: %s, snapshot: %s", backupName, snapshotCreateAt)
+				log.Infof("snapshot update event, id: %s, phase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
 
-				// worker.Worker.AppendSnapshotTask(newSnapshot.Name)
-
-				// if err := r.snapshotOperator.Backup(backup, newSnapshot); err != nil {
-				// 	log.Errorf("backup %s snapshot error %v", backup.Name, err)
-				// }
-
-				// resticPhase := b.Spec.ResticPhase
-				// if resticPhase != nil {
-				// 	// restic backup running
-				// 	return false
-				// }
-
-				// oldPhase, newPhase := a.Spec.Phase, b.Spec.Phase
-				// oldMWPhase, newMWPhase := a.Spec.MiddleWarePhase, b.Spec.MiddleWarePhase
-
-				// if (oldPhase != nil && newPhase != nil && *oldPhase == *newPhase) &&
-				// 	(oldMWPhase != nil && newMWPhase != nil && *oldMWPhase == *newMWPhase) {
-				// 	return false
-				// }
-
-				// if velero.VeleroBackupCompleted == *newPhase {
-				// 	log.Debugf("backup %q received %q event", b.Name, *newPhase)
-				// 	r.handleUpdateSysBackup(b)
-				// }
 				return false
+
+				// var backupName = backup.Spec.Name
+				// var snapshotCreateAt = r.handler.GetSnapshotHandler().ParseSnapshotName(newSnapshot.Spec.StartAt)
+
+				// if util.ListContains([]string{constant.Completed.String(), constant.Failed.String()}, *newSnapshot.Spec.Phase) {
+				// 	log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *newSnapshot.Spec.Phase)
+				// 	return false
+				// }
+
+				// log.Infof("run backup: %s, snapshot: %s", backupName, snapshotCreateAt)
+
+				// return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit snapshot delete event")
@@ -252,4 +221,11 @@ func (r *SnapshotReconciler) getBackup(backupId string) (*v1.Backup, error) {
 	}
 
 	return backup, nil
+}
+
+func (r *SnapshotReconciler) isSnapshotRunning(oldSnapshot *v1.Snapshot, newSnapshot *v1.Snapshot) bool {
+	if *oldSnapshot.Spec.Phase == constant.Pending.String() && *newSnapshot.Spec.Phase == constant.Running.String() {
+		return true
+	}
+	return false
 }

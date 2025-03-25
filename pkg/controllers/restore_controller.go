@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"reflect"
 
 	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	bclient "bytetrade.io/web3os/backup-server/pkg/client"
@@ -60,8 +61,6 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			CreateFunc: func(e event.CreateEvent) bool {
 				log.Info("hit restore create event")
 
-				// if phase != Pending (restart) ??
-
 				restore, ok := r.isSysRestore(e.Object)
 				if !ok {
 					log.Debugf("not a restore resource")
@@ -77,17 +76,27 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					worker.Worker.AppendRestoreTask(restore.Name)
 				default:
 					// todo update Failed
+					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
+						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
+					}
 					return false
 				}
-
 				return false
-
-				// check snapshot --> backup exists ?
-
-				// add to worker
 			},
 			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 				log.Info("hit restore update event")
+
+				oldObj, newObj := updateEvent.ObjectOld, updateEvent.ObjectNew
+				oldRestore, ok1 := r.isSysRestore(oldObj)
+				newRestore, ok2 := r.isSysRestore(newObj)
+
+				if !(ok1 && ok2) || reflect.DeepEqual(oldRestore.Spec, newRestore.Spec) {
+					return false
+				}
+
+				if *newRestore.Spec.Phase == constant.Failed.String() {
+					return false
+				}
 
 				return false
 			},

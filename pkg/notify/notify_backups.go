@@ -2,10 +2,13 @@ package notify
 
 import (
 	"fmt"
+	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backups-sdk/pkg/utils"
 	"github.com/emicklei/go-restful/v3"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 )
 
 const (
@@ -14,30 +17,30 @@ const (
 )
 
 type Backup struct {
-	UserId         string // did
-	Token          string // access token
-	BackupId       string
-	Name           string
-	BackupPath     string // backup path
-	BackupLocation string // location  space / awss3 / tencentcloud / ...
-	Status         string // snapshot phase
+	UserId         string `json:"user_id"` // did
+	Token          string `json:"token"`   // access token
+	BackupId       string `json:"backup_id"`
+	Name           string `json:"name"`
+	BackupPath     string `json:"backup_path"`     // backup path
+	BackupLocation string `json:"backup_location"` // location  space / awss3 / tencentcloud / ...
 }
 
 type Snapshot struct {
-	UserId       string // did
-	BackupId     string //
-	SnapshotId   string // restic snapshotId
-	Size         uint64 // snapshot size
-	Uint         string // "byte"
-	SnapshotTime int64  // StartAt
-	Status       string // snapshot phase
-	Type         string // fully / incremental
-	Url          string // repo URL
-	CloudName    string // awss3 / tencentcloud(space）； awss3 / tencentcloud / filesystem
-	RegionId     string // regionId(space); extract from aws/cos URL
-	Bucket       string // bucket(space); extract from aws/cos URL
-	Prefix       string // prefix(space); extract from aws/cos URL
-	Message      string // message
+	UserId           string `json:"user_id"`     // did
+	BackupId         string `json:"backup_id"`   //
+	SnapshotId       string `json:"snapshot_id"` // restic snapshotId
+	ResticSnapshotId string `json:"restic_snapshot_id"`
+	Size             uint64 `json:"size"`          // snapshot size
+	Unit             string `json:"unit"`          // "byte"
+	SnapshotTime     int64  `json:"snapshot_time"` // StartAt
+	Status           string `json:"status"`        // snapshot phase
+	Type             string `json:"type"`          // fully / incremental
+	Url              string `json:"url"`           // repo URL
+	CloudName        string `json:"cloud_name"`    // awss3 / tencentcloud(space）； awss3 / tencentcloud / filesystem
+	RegionId         string `json:"region_id"`     // regionId(space); extract from aws/cos URL
+	Bucket           string `json:"bucket"`        // bucket(space); extract from aws/cos URL
+	Prefix           string `json:"prefix"`        // prefix(space); extract from aws/cos URL
+	Message          string `json:"message"`       // message
 }
 
 type Response struct {
@@ -46,45 +49,74 @@ type Response struct {
 }
 
 func SendNewBackup(cloudApiUrl string, backup *Backup) error {
-	var url = fmt.Sprintf("%s%s", cloudApiUrl, SendBackupUrl)
-	var headers = make(map[string]string)
-	headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
-	var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupPath=%s&backupLocation=%s&status=%s",
-		backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupPath, backup.BackupLocation, backup.Status)
+	var backoff = wait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   2,
+		Jitter:   0.1,
+		Steps:    5,
+	}
 
-	log.Infof("send backup data: %s", data)
+	if err := retry.OnError(backoff, func(err error) bool {
+		return true
+	}, func() error {
+		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendBackupUrl)
+		var headers = make(map[string]string)
+		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
+		var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupPath=%s&backupLocation=%s",
+			backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupPath, backup.BackupLocation)
 
-	result, err := utils.Post[Response](url, headers, data)
-	if err != nil {
+		log.Infof("send backup data: %s", data)
+
+		result, err := utils.Post[Response](url, headers, data)
+		if err != nil {
+			return err
+		}
+
+		if result.Code != 200 {
+			return fmt.Errorf("send new backup record failed: %d, url: %s", result.Code, url)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 
-	if result.Code != 200 {
-		return fmt.Errorf("send new backup record failed: %d, url: %s", result.Code, url)
-	}
 	return nil
 }
 
-func SendNewSnapshot(cloudApiUrl string, snapshot *Snapshot) error {
-	var url = fmt.Sprintf("%s%s", cloudApiUrl, SendSnapshotUrl)
-	var headers = make(map[string]string)
-	headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
-
-	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
-		snapshot.SnapshotId, snapshot.Size, snapshot.Uint,
-		snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
-		snapshot.Url, snapshot.CloudName, snapshot.RegionId,
-		snapshot.Bucket, snapshot.Prefix, snapshot.Message)
-
-	log.Infof("send snapshot data: %s", data)
-
-	result, err := utils.Post[Response](url, headers, data)
-	if err != nil {
-		return err
+func PushSnapshot(cloudApiUrl string, snapshot *Snapshot) error {
+	var backoff = wait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   2,
+		Jitter:   0.1,
+		Steps:    5,
 	}
 
-	if result.Code != 200 {
-		return fmt.Errorf("send new snapshot record failed %s", result.Message)
+	if err := retry.OnError(backoff, func(err error) bool {
+		return true
+	}, func() error {
+		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendSnapshotUrl)
+		var headers = make(map[string]string)
+		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
+
+		var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
+			snapshot.SnapshotId, snapshot.ResticSnapshotId, snapshot.Size, snapshot.Unit,
+			snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
+			snapshot.Url, snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
+			snapshot.Message)
+
+		log.Infof("push snapshot data: %s", data)
+
+		result, err := utils.Post[Response](url, headers, data)
+		if err != nil {
+			return err
+		}
+
+		if result.Code != 200 {
+			return fmt.Errorf("push snapshot record failed %s", result.Message)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	return nil
 }

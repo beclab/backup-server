@@ -50,13 +50,12 @@ func (h *Handler) available(req *restful.Request, resp *restful.Response) {
 	response.SuccessNoData(resp)
 }
 
-func (h *Handler) list(req *restful.Request, resp *restful.Response) {
+func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	// p := req.QueryParameter("page")
 	// l := req.QueryParameter("limit")
 
-	// todo support page
 	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, 5)
 	if err != nil {
 		log.Errorf("get backups error %v", err)
@@ -317,6 +316,10 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 	response.Success(resp, parseResponseSpaceRegions(regions))
 }
 
+func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
+	response.SuccessNoData(resp)
+}
+
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -328,19 +331,19 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	ctx, id := req.Request.Context(), req.PathParameter("id")
+	ctx := req.Request.Context()
 	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	owner = "zhaoyu001"
 	_ = owner
 
-	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, id)
+	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, b.SnapshotId)
 	if err != nil {
-		response.HandleError(resp, errors.Errorf("failed to get snapshot %s: %v", id, err))
+		response.HandleError(resp, errors.Errorf("failed to get snapshot %s: %v", b.SnapshotId, err))
 		return
 	}
 
 	if snapshot == nil {
-		response.HandleError(resp, errors.Errorf("snapshot %s not exists", id))
+		response.HandleError(resp, errors.Errorf("snapshot %s not exists", b.SnapshotId))
 		return
 	}
 

@@ -3,14 +3,11 @@ package v1
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
-	"strings"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
-	utilstring "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"k8s.io/klog/v2"
 )
@@ -52,14 +49,16 @@ type RestoreCreate struct {
 }
 
 type ResponseBackupList struct {
-	Id                string `json:"id"`
-	Name              string `json:"name"`
-	SnapshotFrequency string `json:"snapshotFrequency"`
-	Location          string `json:"location"`
-	SnapshotId        string `json:"snapshotId"`
-	Status            string `json:"status"`
-	Size              string `json:"size"`
-	Path              string `json:"path"`
+	Id                  string `json:"id"`
+	Name                string `json:"name"`
+	SnapshotFrequency   string `json:"snapshotFrequency"`
+	Location            string `json:"location"`           // space, awss3, tencentcloud ...
+	LocationConfigName  string `json:"locationConfigName"` // olaresDid / cloudAccessKey
+	SnapshotId          string `json:"snapshotId"`
+	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
+	Status              string `json:"status"` // not started
+	Size                string `json:"size"`   // TODO total size
+	Path                string `json:"path"`
 }
 
 type ResponseBackupDetail struct {
@@ -285,7 +284,7 @@ func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interfa
 		var item = &ResponseSnapshotList{
 			Id:       snapshot.Name,
 			CreateAt: snapshot.Spec.StartAt,
-			Size:     parseSnapshotSize(snapshot.Spec.Size),
+			Size:     handlers.ParseSnapshotSize(snapshot.Spec.Size),
 			Status:   parseMessage(snapshot.Spec.Phase),
 		}
 		ss = append(ss, item)
@@ -299,8 +298,8 @@ func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interfa
 func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDetail {
 	return &ResponseSnapshotDetail{
 		Id:           snapshot.Name,
-		Size:         parseSnapshotSize(snapshot.Spec.Size),
-		SnapshotType: parseSnapshotType(snapshot.Spec.SnapshotType),
+		Size:         handlers.ParseSnapshotSize(snapshot.Spec.Size),
+		SnapshotType: handlers.ParseSnapshotTypeTitle(snapshot.Spec.SnapshotType),
 		Status:       parseMessage(snapshot.Spec.Phase),
 		Message:      parseMessage(snapshot.Spec.Message),
 	}
@@ -320,8 +319,8 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 		Id:             backup.Name,
 		Name:           backup.Spec.Name,
 		BackupPolicies: backup.Spec.BackupPolicy,
-		Path:           parseBackupTypePath(backup.Spec.BackupType),
-		Size:           parseSnapshotSize(backup.Spec.Size),
+		Path:           handlers.ParseBackupTypePath(backup.Spec.BackupType),
+		Size:           handlers.ParseSnapshotSize(backup.Spec.Size),
 	}
 }
 
@@ -342,17 +341,21 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 	}
 
 	for _, backup := range data.Items {
+		location, locationConfig, _ := handlers.GetBackupLocationConfig(&backup)
+		locationConfigName, _ := locationConfig["name"]
 		var r = &ResponseBackupList{
-			Id:                backup.Name,
-			Name:              backup.Spec.Name,
-			SnapshotFrequency: parseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
-			Location:          parseLocationConfig(backup.Spec.Location),
-			Path:              parseBackupTypePath(backup.Spec.BackupType),
+			Id:                  backup.Name,
+			Name:                backup.Spec.Name,
+			SnapshotFrequency:   handlers.ParseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
+			NextBackupTimestamp: handlers.GetNextBackupTime(*backup.Spec.BackupPolicy),
+			Location:            location,
+			LocationConfigName:  locationConfigName, // maybe is empty
+			Path:                handlers.ParseBackupTypePath(backup.Spec.BackupType),
 		}
 
 		if s, ok := bs[backup.Name]; ok {
 			r.SnapshotId = s.Name
-			r.Size = parseSnapshotSize(s.Spec.Size)
+			r.Size = handlers.ParseSnapshotSize(s.Spec.Size)
 			r.Status = *s.Spec.Phase
 		}
 
@@ -431,81 +434,9 @@ func toString(v interface{}) string {
 	return ""
 }
 
-func parseBackupTypePath(backupType map[string]string) string {
-	if backupType == nil {
-		return ""
-	}
-	var backupTypeValue map[string]string
-	for k, v := range backupType {
-		if k != "file" {
-			continue
-		}
-		if err := json.Unmarshal([]byte(v), &backupTypeValue); err != nil {
-			return ""
-		}
-		return backupTypeValue["path"]
-	}
-	return ""
-}
-
-func parseLocationConfig(locationConfig map[string]string) string {
-	var location string
-	if locationConfig == nil {
-		return parseBackupLocation(location)
-	}
-
-	for l, _ := range locationConfig {
-		location = l
-	}
-	return parseBackupLocation(location)
-}
-
-func parseSnapshotSize(size *uint64) string {
-	if size == nil {
-		return ""
-	}
-
-	return fmt.Sprintf("%d", *size)
-}
-
-func parseSnapshotType(snapshotType *int) string {
-	var t = constant.UnKnownBackup
-
-	if snapshotType == nil || (*snapshotType < 0 || *snapshotType > 1) {
-		return utilstring.Title(t)
-	}
-	if *snapshotType == 0 {
-		t = constant.FullyBackup
-	} else {
-		t = constant.IncrementalBackup
-	}
-
-	return utilstring.Title(t)
-}
-
 func parseMessage(msg *string) string {
 	if msg == nil {
 		return ""
 	}
 	return *msg
-}
-
-func parseBackupSnapshotFrequency(str string) string {
-	str = strings.ReplaceAll(str, "@", "")
-	return utilstring.Title(str)
-}
-
-func parseBackupLocation(l string) string {
-	switch l {
-	case constant.BackupLocationSpace.String():
-		return constant.BackupLocationSpaceAlias.String()
-	case constant.BackupLocationAwsS3.String():
-		return constant.BackupLocationAwsS3Alias.String()
-	case constant.BackupLocationTencentCloud.String():
-		return constant.BackupLocationCosAlias.String()
-	case constant.BackupLocationFileSystem.String():
-		return constant.BackupLocationFileSystemAlias.String()
-	default:
-		return constant.BackupLocationUnKnownAlias.String()
-	}
 }

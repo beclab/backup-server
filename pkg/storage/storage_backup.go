@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/options"
 	"bytetrade.io/web3os/backup-server/pkg/util"
@@ -13,19 +14,35 @@ import (
 	backupssdkoptions "bytetrade.io/web3os/backups-sdk/pkg/options"
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
 	backupssdkstorage "bytetrade.io/web3os/backups-sdk/pkg/storage"
+	backupssdkmodel "bytetrade.io/web3os/backups-sdk/pkg/storage/model"
 	"github.com/pkg/errors"
 )
 
-func (s *storage) Backup(ctx context.Context, opt options.Option, token integration.IntegrationToken, tokenService *integration.Integration) (backupOutput *backupssdkrestic.SummaryOutput, backupRepo string, backupError error) {
+func (s *storage) Backup(ctx context.Context, backup *sysv1.Backup, snapshot *sysv1.Snapshot, opt options.Option) (backupOutput *backupssdkrestic.SummaryOutput, storageInfo *backupssdkmodel.StorageInfo, backupError error) {
 	var isSpaceBackup bool
 	var logger = log.GetLogger()
+	var backupName = backup.Spec.Name
+	var snapshotId = snapshot.Name
 
+	log.Infof("Backup %s-%s location %s prepare: %s", backupName, snapshotId, opt.GetLocation(), opt.String())
+
+	var tokenService = &integration.Integration{
+		Factory:  s.factory,
+		Owner:    s.owner,
+		Location: opt.GetLocation(),
+		Name:     opt.GetLocationConfigName(),
+	}
+	token, err := tokenService.GetIntegrationToken()
+	if err != nil {
+		backupError = fmt.Errorf("get token error %v", err)
+		return
+	}
 	var backupService *backupssdkstorage.BackupService
 
 	switch opt.(type) {
 	case *options.SpaceBackupOptions:
 		isSpaceBackup = true
-		backupOutput, backupRepo, backupError = s.backupToSpace(ctx, opt, token, tokenService)
+		backupOutput, storageInfo, backupError = s.backupToSpace(ctx, backup, snapshot, opt, token, tokenService)
 	case *options.AwsS3BackupOptions:
 		o := opt.(*options.AwsS3BackupOptions)
 		t := token.(*integration.IntegrationCloud)
@@ -33,12 +50,11 @@ func (s *storage) Backup(ctx context.Context, opt options.Option, token integrat
 			Password: o.Password,
 			Logger:   logger,
 			Aws: &backupssdkoptions.AwsBackupOption{
-				RepoName:        o.RepoName,
+				RepoName:        backup.Name,
 				Path:            o.Path,
 				Endpoint:        t.Endpoint,
 				AccessKey:       t.AccessKey,
 				SecretAccessKey: t.SecretKey,
-				LimitUploadRate: "200",
 			},
 		})
 	case *options.TencentCloudBackupOptions:
@@ -48,7 +64,7 @@ func (s *storage) Backup(ctx context.Context, opt options.Option, token integrat
 			Password: o.Password,
 			Logger:   logger,
 			TencentCloud: &backupssdkoptions.TencentCloudBackupOption{
-				RepoName:        o.RepoName,
+				RepoName:        backup.Name,
 				Path:            o.Path,
 				Endpoint:        t.Endpoint,
 				AccessKey:       t.AccessKey,
@@ -61,7 +77,7 @@ func (s *storage) Backup(ctx context.Context, opt options.Option, token integrat
 			Password: o.Password,
 			Logger:   logger,
 			Filesystem: &backupssdkoptions.FilesystemBackupOption{
-				RepoName: o.RepoName,
+				RepoName: backup.Name,
 				Endpoint: o.Endpoint,
 				Path:     o.Path,
 			},
@@ -69,37 +85,42 @@ func (s *storage) Backup(ctx context.Context, opt options.Option, token integrat
 	}
 
 	if !isSpaceBackup {
-		backupOutput, backupRepo, backupError = backupService.Backup()
-	}
-
-	if backupError != nil {
-		return
+		backupOutput, storageInfo, backupError = backupService.Backup()
+		if backupError != nil {
+			log.Errorf("Backup %s-%s cloud error: %v", backupName, snapshotId, backupError)
+		} else {
+			log.Infof("Backup %s-%s cloud success", backupName, snapshotId)
+		}
 	}
 
 	return
 }
 
-func (s *storage) backupToSpace(ctx context.Context, opt options.Option, token integration.IntegrationToken, tokenService integration.IntegrationInterface) (output *backupssdkrestic.SummaryOutput, repo string, err error) {
+func (s *storage) backupToSpace(ctx context.Context, backup *sysv1.Backup,
+	snapshot *sysv1.Snapshot,
+	opt options.Option, token integration.IntegrationToken, tokenService integration.IntegrationInterface) (output *backupssdkrestic.SummaryOutput, storageInfo *backupssdkmodel.StorageInfo, err error) {
 	_ = ctx
 	var o = opt.(*options.SpaceBackupOptions)
+	var backupName = backup.Spec.Name
+	var snapshotId = snapshot.Name
 
 	for {
 		var spaceToken = token.(*integration.IntegrationSpace)
-		if util.IsTimestampExpired(spaceToken.ExpiresAt) {
-			err = errors.WithStack(fmt.Errorf("olares space access token expired %d", spaceToken.ExpiresAt))
+		if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
+			err = fmt.Errorf("Backup %s-%s space access token expired %d(%s)",
+				backupName, snapshotId, spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
 			break
 		}
 
 		var spaceBackupOption = &backupssdkoptions.SpaceBackupOption{
-			RepoName:        o.RepoName,
-			Path:            o.Path,
-			OlaresDid:       spaceToken.OlaresDid,
-			AccessToken:     spaceToken.AccessToken,
-			ClusterId:       o.ClusterId,
-			CloudName:       o.CloudName,
-			RegionId:        o.RegionId,
-			LimitUploadRate: "200",
-			CloudApiMirror:  o.CloudApiMirror,
+			RepoName:       backup.Name,
+			Path:           o.Path,
+			OlaresDid:      spaceToken.OlaresDid,
+			AccessToken:    spaceToken.AccessToken,
+			ClusterId:      o.ClusterId,
+			CloudName:      o.CloudName,
+			RegionId:       o.RegionId,
+			CloudApiMirror: o.CloudApiMirror,
 		}
 
 		var backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
@@ -108,22 +129,22 @@ func (s *storage) backupToSpace(ctx context.Context, opt options.Option, token i
 			Space:    spaceBackupOption,
 		})
 
-		output, repo, err = backupService.Backup() // todo ctx
+		output, storageInfo, err = backupService.Backup() // todo ctx
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
 				token, err = tokenService.GetIntegrationToken()
 				if err != nil {
-					err = fmt.Errorf("backup space get integration token error: %v", err)
+					err = fmt.Errorf("Backup %s-%s space get integration token error: %v", backupName, snapshotId, err)
 					break
 				}
 				continue
 			} else {
-				err = errors.WithStack(fmt.Errorf("backup-server backup to space error: %v", err))
+				err = errors.WithStack(fmt.Errorf("Backup %s-%s space error: %v", backupName, snapshotId, err))
 				break
 			}
 		}
-		log.Infof("backup-server backup to space %s success", o.RepoName)
+		log.Infof("Backup %s-%s space success", backupName, snapshotId)
 		break
 	}
 

@@ -7,16 +7,17 @@ import (
 
 const (
 	EnvSpaceUrl          string = "OLARES_SPACE_URL"
-	DefaultSyncServerURL string = "https://cloud-api.bttcdn.com"
+	DefaultSyncServerURL string = "https://cloud-dev-api.olares.xyz" // "https://cloud-api.bttcdn.com"
 
+	DefaultSnapshotSizeUnit  = "byte"
 	DefaultOwnerHeaderKey    = "X-Backup-Owner"
 	DefaultOsSystemNamespace = "os-system"
 
 	FullyBackup         string = "fully"
-	FullyBackupId       int    = 0
 	IncrementalBackup   string = "incremental"
-	IncrementalBackupId int    = 1
 	UnKnownBackup       string = "unknown"
+	FullyBackupId       int    = 0
+	IncrementalBackupId int    = 1
 	UnKnownBackupId     int    = 2
 
 	KindSnapshot string = "Snapshot"
@@ -101,6 +102,7 @@ func (s Phase) String() string {
 }
 
 const (
+	New       Phase = "New"
 	Pending   Phase = "Pending"
 	Running   Phase = "Running"
 	Failed    Phase = "Failed"
