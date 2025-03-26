@@ -86,6 +86,7 @@ func (o *BackupPlan) validate() error {
 		return err
 	}
 
+	// TODO remove?
 	if err := o.validPassword(); err != nil {
 		return err
 	}
@@ -100,13 +101,14 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		Name:       o.c.Name,
 		Owner:      o.owner,
 		BackupType: backupType,
-		Push:       false,
+		Notified:   false,
 		Extra:      map[string]string{},
 	}
 
 	if o.c.Location != "" && o.c.LocationConfig != nil {
 		var locationName = o.c.Location
 		var location = make(map[string]string)
+		// {"space": "..."}
 		location[locationName] = o.buildLocationConfig(o.c.Location, clusterId, o.c.LocationConfig)
 		bc.Location = location
 	}
@@ -137,7 +139,7 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 
 	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
-	backup, err := o.handler.GetBackupHandler().CreateBackup(ctx, o.owner, o.c.Name, backupSpec)
+	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, backupSpec)
 	if err != nil {
 		return err
 	}
@@ -216,8 +218,11 @@ func (o *BackupPlan) validLocation() error {
 	location := o.c.Location
 	locationConfig := o.c.LocationConfig
 
-	if ok := util.ListContains([]string{constant.BackupLocationSpace.String(),
-		constant.BackupLocationAwsS3.String(), constant.BackupLocationTencentCloud.String(),
+	if ok := util.ListContains([]string{
+		constant.BackupLocationSpace.String(),
+		constant.BackupLocationAwsS3.String(),
+		constant.BackupLocationTencentCloud.String(),
+		constant.BackupLocationFileSystem.String(),
 	}, location); !ok {
 		return errors.Errorf("backup %s location %s not support", o.c.Name, location)
 	}
@@ -226,11 +231,16 @@ func (o *BackupPlan) validLocation() error {
 		if locationConfig.CloudName == "" || locationConfig.RegionId == "" {
 			return errors.Errorf("backup %s location space invalid, cloudName: %s, regionId: %s", o.c.Name, locationConfig.CloudName, locationConfig.RegionId)
 		}
-	} else {
+	} else if location == constant.BackupLocationAwsS3.String() || location == constant.BackupLocationTencentCloud.String() {
 		if locationConfig.Name == "" {
 			return errors.Errorf("backup %s location %s invalid, please check name", o.c.Name, location)
 		}
+	} else if location == constant.BackupLocationFileSystem.String() {
+		if locationConfig.Path == "" {
+			return errors.Errorf("backup %s location %s path %s invalid, please check target path", o.c.Name, location, locationConfig.Path)
+		}
 	}
+
 	return nil
 }
 

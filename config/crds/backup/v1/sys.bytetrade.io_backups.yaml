@@ -82,10 +82,10 @@ spec:
                 type: object
               name:
                 type: string
+              notified:
+                type: boolean
               owner:
                 type: string
-              push:
-                type: boolean
               size:
                 format: int64
                 type: integer
@@ -93,8 +93,8 @@ spec:
             - backupType
             - location
             - name
+            - notified
             - owner
-            - push
             type: object
           status:
             description: BackupStatus defines the observed state of Backup.

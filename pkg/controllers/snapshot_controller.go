@@ -11,6 +11,8 @@ import (
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -76,10 +78,6 @@ func (r *SnapshotReconciler) handleDeleteBackup(name string, sb *sysapiv1.Backup
 	log.Debugf("successfully to delete backup %q", name)
 }
 
-func (r *SnapshotReconciler) setSnapshotPhase(backupName string, snapshot *v1.Snapshot, phase constant.Phase) error {
-	return r.handler.GetSnapshotHandler().SetSnapshotPhase(backupName, snapshot, phase)
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	_, err := ctrl.NewControllerManagedBy(mgr).
@@ -113,10 +111,15 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				case constant.Running.String():
 					// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
 					// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
-					if err := r.handler.GetSnapshotHandler().SetSnapshotPhase(backup.Name, snapshot, constant.Failed); err != nil {
-						log.Errorf("update backup %s snapshot %s phase running error %v", backup.Name, snapshot.Name, err)
+					if err := r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String()); err != nil {
+						log.Errorf("update backup %s snapshot %s phase Failed error %v", backup.Spec.Name, snapshot.Name, err)
 					}
 				case constant.Pending.String():
+					if err := r.notifySnapshot(backup, snapshot, constant.New.String()); err != nil {
+						log.Errorf("notify backup %s snapshot %s New error: %v", backup.Spec.Name, snapshot.Name, err)
+					} else {
+						log.Infof("notify backup %s snapshot %s New", backup.Spec.Name, snapshot.Name)
+					}
 					log.Infof("add to backup worker %s", snapshot.Name)
 					worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
 				}
@@ -146,10 +149,10 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				if r.isSnapshotRunning(oldSnapshot, newSnapshot) {
 					log.Info("snapshot push state changed: Running")
-					if err := r.handler.GetSnapshotHandler().PushSnapshotStateRunning(backup, newSnapshot); err != nil {
-						log.Errorf("snapshot %s push state error: %v", newSnapshot.Name, err)
+					if err := r.notifySnapshot(backup, newSnapshot, constant.Running.String()); err != nil {
+						log.Errorf("notify backup %s snapshot %s Running error: %v", backup.Spec.Name, newSnapshot.Name, err)
 					} else {
-						log.Infof("push snapshot Running state success: %s", newSnapshot.Name)
+						log.Infof("notify backup %s snapshot %s Running", backup.Spec.Name, newSnapshot.Name)
 					}
 
 					return false
@@ -158,18 +161,6 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				log.Infof("snapshot update event, id: %s, phase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
 
 				return false
-
-				// var backupName = backup.Spec.Name
-				// var snapshotCreateAt = r.handler.GetSnapshotHandler().ParseSnapshotName(newSnapshot.Spec.StartAt)
-
-				// if util.ListContains([]string{constant.Completed.String(), constant.Failed.String()}, *newSnapshot.Spec.Phase) {
-				// 	log.Infof("backup: %s, snapshot: %s, phase: %s", backupName, snapshotCreateAt, *newSnapshot.Spec.Phase)
-				// 	return false
-				// }
-
-				// log.Infof("run backup: %s, snapshot: %s", backupName, snapshotCreateAt)
-
-				// return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit snapshot delete event")
@@ -215,7 +206,7 @@ func (r *SnapshotReconciler) isSysSnapshot(obj client.Object) (*sysapiv1.Snapsho
 func (r *SnapshotReconciler) getBackup(backupId string) (*v1.Backup, error) {
 	var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	backup, err := r.handler.GetBackupHandler().GetBackupById(ctx, backupId)
+	backup, err := r.handler.GetBackupHandler().GetById(ctx, backupId)
 	if err != nil {
 		return nil, err
 	}
@@ -228,4 +219,35 @@ func (r *SnapshotReconciler) isSnapshotRunning(oldSnapshot *v1.Snapshot, newSnap
 		return true
 	}
 	return false
+}
+
+func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snapshot, status string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	integrationName := handlers.GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
+	if integrationName == "" {
+		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
+	}
+	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, integrationName)
+	if err != nil {
+		return err
+	}
+
+	var snapshotRecord = &notify.Snapshot{
+		UserId:       olaresSpaceToken.OlaresDid,
+		BackupId:     backup.Name,
+		SnapshotId:   snapshot.Name,
+		Size:         0,
+		Unit:         constant.DefaultSnapshotSizeUnit,
+		SnapshotTime: snapshot.Spec.StartAt,
+		Status:       status,
+		Type:         handlers.ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
+	}
+
+	if err := notify.NotifySnapshot(ctx, constant.DefaultSyncServerURL, snapshotRecord); err != nil {
+		return err
+	}
+
+	return nil
 }

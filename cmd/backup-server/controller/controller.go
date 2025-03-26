@@ -133,7 +133,7 @@ func run(factory client.Factory) error {
 		return pkgerrors.Errorf("unable to setup ready check: %v", err)
 	}
 
-	integration.NewIntegrationService(factory)
+	integration.NewIntegrationManager(factory)
 	var handler = handlers.NewHandler(factory)
 
 	workerManager := worker.NewWorkerManage(context.TODO(), handler)

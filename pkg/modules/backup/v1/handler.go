@@ -15,7 +15,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/pkg/errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 type Handler struct {
@@ -53,10 +52,11 @@ func (h *Handler) available(req *restful.Request, resp *restful.Response) {
 func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner = "zhaoyu001"
 	// p := req.QueryParameter("page")
 	// l := req.QueryParameter("limit")
 
-	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, 5)
+	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, 0)
 	if err != nil {
 		log.Errorf("get backups error %v", err)
 		response.HandleError(resp, err)
@@ -86,7 +86,7 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	owner := "zhaoyu001"
 	_ = owner
 
-	backup, err := h.handler.GetBackupHandler().GetBackupById(ctx, id)
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, id)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
 		return
@@ -123,7 +123,8 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	}
 
 	// if backup is exists
-	backup, err := h.handler.GetBackupHandler().GetBackup(ctx, owner, b.Name) // new plan
+	var getLabel = "name=" + util.MD5(b.Name) + ",owner=" + owner
+	backup, err := h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
 		return
@@ -153,36 +154,73 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	name, owner := req.PathParameter("name"), req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	backupId, owner := req.PathParameter("id"), req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	ctx := req.Request.Context()
-	b.Name = name
+	b.Name = backupId
 
 	log.Debugf("received backup update request: %s", util.PrettyJSON(b))
 
 	format := "failed to update backup plan %q"
 
-	backup, err := h.handler.GetBackupHandler().GetBackup(ctx, owner, name)
-	if err != nil && !apierrors.IsNotFound(err) {
-		response.HandleError(resp, errors.WithMessage(err, "failed to update backup"))
-		return
-	}
-
-	if backup == nil {
-		response.HandleError(resp, errors.Errorf(format+", not found", name))
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil {
+		response.HandleError(resp, errors.WithMessage(err, "get backup error"))
 		return
 	}
 
 	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.handler).Update(ctx, &b, backup); err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, format, name))
+		response.HandleError(resp, errors.WithMessagef(err, format, backupId))
 		return
 	}
 
-	r := &ResponseDescribeBackup{
-		Name:           name,
+	r := &ResponseDescribeBackup{ // TODO
+		Name:           backupId,
 		BackupPolicies: b.BackupPolicies,
 	}
 
 	response.Success(resp, r)
+}
+
+func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response) {
+	ctx, backupId := req.Request.Context(), req.PathParameter("id")
+
+	log.Debugf("delete backup %q", backupId)
+
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "get backup error"))
+		return
+	}
+
+	// TODO cancel backup snapshot
+
+	if err := h.handler.GetBackupHandler().Delete(ctx, backup); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "delete backup error"))
+		return
+	}
+
+	// todo notify
+
+	response.SuccessNoData(resp)
+}
+
+func (h *Handler) pauseBackupPlan(req *restful.Request, resp *restful.Response) {
+	ctx, backupId := req.Request.Context(), req.PathParameter("id")
+
+	log.Debugf("pause backup %q", backupId)
+
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "get backup error"))
+		return
+	}
+
+	if err := h.handler.GetBackupHandler().Pause(ctx, backup); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "pause backup error"))
+		return
+	}
+
+	response.SuccessNoData(resp)
 }
 
 func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
@@ -218,11 +256,11 @@ func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
 
 func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
-	id := req.PathParameter("id")
+	snapshotId := req.PathParameter("id")
 
-	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, id)
+	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, snapshotId)
 	if err != nil {
-		response.HandleError(resp, errors.Errorf("snapshot %s not found", id))
+		response.HandleError(resp, errors.Errorf("snapshot %s not found", snapshotId))
 		return
 	}
 
@@ -234,65 +272,15 @@ func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 	response.Success(resp, parseResponseSnapshotDetail(snapshot))
 }
 
-func (h *Handler) deleteSnapshot(req *restful.Request, resp *restful.Response) {
-	// 	ctx := req.Request.Context()
-	// 	name := req.PathParameter("name")
+// TODO
+func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
+	ctx, snapshotId := req.Request.Context(), req.PathParameter("id")
+	_ = ctx
 
-	// 	b, err := h.veleroBackupManager.GetSysBackup(ctx, name)
-	// 	if err != nil {
-	// 		response.HandleError(resp, err)
-	// 		return
-	// 	}
+	log.Debugf("cancel snapshot %q", snapshotId)
+	// TODO
 
-	// 	plan := req.PathParameter("plan_name")
-
-	// 	if bcName, ok := b.Labels[velero.LabelBackupConfig]; ok && bcName != "" && bcName == plan {
-	// 		sc, err := h.factory.Sysv1Client()
-	// 		if err != nil {
-	// 			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
-	// 			return
-	// 		}
-
-	// 		// to delete full backup, must delete all increment backup first
-	// 		refbackups, err := h.getAllIncrementBackups(ctx, b.Namespace, name, string(b.UID))
-	// 		if err != nil {
-	// 			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
-	// 			return
-	// 		}
-
-	// 		if len(refbackups) > 0 {
-	// 			response.HandleError(resp, errors.WithMessagef(errors.New("has more increment backups to be deleted"), "more increment backups refer to %q", name))
-	// 			return
-	// 		}
-
-	// 		err = sc.SysV1().Backups(b.Namespace).
-	// 			Delete(ctx, name, metav1.DeleteOptions{})
-	// 		if err != nil {
-	// 			response.HandleError(resp, errors.WithMessagef(err, "delete snapshot %q", name))
-	// 			return
-	// 		}
-	// 	}
-
-	// response.SuccessNoData(resp)
-}
-
-func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response) {
-	// 	ctx, name := req.Request.Context(), req.PathParameter("name")
-
-	// 	log.Debugf("delete backup %q", name)
-
-	// 	sc, err := h.factory.Sysv1Client()
-	// 	if err != nil {
-	// 		response.HandleError(resp, errors.WithMessagef(err, "new client"))
-	// 		return
-	// 	}
-	// 	ns := h.veleroBackupManager.Namespace()
-	// 	if err = sc.SysV1().BackupConfigs(ns).
-	// 		Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-	// 		log.Warnf("deleting bc %q, %v", name, err)
-	// 	}
-
-	// 	response.SuccessNoData(resp)
+	response.SuccessNoData(resp)
 }
 
 func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {
@@ -306,8 +294,10 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 		return
 	}
 
-	storage := storage.NewStorage(h.factory, owner)
-	regions, err := storage.GetRegions(ctx, olaresId)
+	var storageRegion = &storage.StorageRegion{
+		Handlers: h.handler,
+	}
+	regions, err := storageRegion.GetRegions(ctx, olaresId)
 	if err != nil {
 		response.HandleError(resp, err)
 		return
@@ -320,6 +310,7 @@ func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	response.SuccessNoData(resp)
 }
 
+// TODO support BackupUrl
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -336,7 +327,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	owner = "zhaoyu001"
 	_ = owner
 
-	snapshot, err := h.handler.GetSnapshotHandler().GetSnapshot(ctx, b.SnapshotId)
+	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, b.SnapshotId)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to get snapshot %s: %v", b.SnapshotId, err))
 		return
@@ -347,14 +338,9 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	backup, err := h.handler.GetBackupHandler().GetBackupById(ctx, snapshot.Spec.BackupId)
+	_, err = h.handler.GetBackupHandler().GetById(ctx, snapshot.Spec.BackupId)
 	if err != nil {
-		response.HandleError(resp, errors.Errorf("failed to get backup %s: %v", snapshot.Spec.BackupId, err))
-		return
-	}
-
-	if backup == nil {
-		response.HandleError(resp, errors.Errorf("backup %s not exists", snapshot.Spec.BackupId))
+		response.HandleError(resp, errors.Errorf("get backup error %v", err))
 		return
 	}
 
@@ -380,4 +366,21 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	// todo
 	response.SuccessNoData(resp)
 
+}
+
+func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
+	ctx, restoreId := req.Request.Context(), req.PathParameter("id")
+	// owner := req.HeaderParameter(velero.BackupOwnerHeaderKey)
+	owner := "zhaoyu001"
+	_ = owner
+
+	// TODO backupUrl
+
+	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)
+	if err != nil {
+		response.HandleError(resp, errors.WithMessage(err, "describe restore"))
+		return
+	}
+
+	response.Success(resp, parseResponseRestoreDetail(nil, nil, restore))
 }

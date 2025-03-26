@@ -8,15 +8,12 @@ import (
 
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-// var _ IntegrationInterface = &Integration{}
 
 var IntegrationService *Integration
 
@@ -28,30 +25,7 @@ type Integration struct {
 	OlaresTokens map[string]*SpaceToken
 }
 
-type SpaceToken struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	OlaresDid   string `json:"olares_did"`
-	AccessToken string `json:"access_token"`
-	ExpiresAt   int64  `json:"expires_at"`
-	Available   bool   `json:"available"`
-}
-
-func (s *SpaceToken) Expired() bool {
-	return util.IsTimestampNearingExpiration(s.ExpiresAt)
-}
-
-type IntegrationTokenX struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	AccessKey string `json:"access_key"`
-	SecretKey string `json:"secret_key"`
-	Endpoint  string `json:"endpoint"`
-	Bucket    string `json:"bucket"`
-	Available bool   `json:"available"`
-}
-
-func NewIntegrationService(factory client.Factory) {
+func NewIntegrationManager(factory client.Factory) {
 	IntegrationService = &Integration{
 		Factory:      factory,
 		OlaresTokens: make(map[string]*SpaceToken),
@@ -62,7 +36,7 @@ func IntegrationManager() *Integration {
 	return IntegrationService
 }
 
-func (i *Integration) GetIntegrationSpaceToken(olaresId string) (*SpaceToken, error) {
+func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, olaresId string) (*SpaceToken, error) {
 	token := i.OlaresTokens[olaresId]
 	if token != nil {
 		if !token.Expired() {
@@ -70,59 +44,28 @@ func (i *Integration) GetIntegrationSpaceToken(olaresId string) (*SpaceToken, er
 		}
 	}
 
-	data, err := i.query(constant.BackupLocationSpace.String(), olaresId)
+	data, err := i.query(ctx, constant.BackupLocationSpace.String(), olaresId)
 	if err != nil {
 		return nil, err
 	}
 
 	token = i.withSpaceToken(data)
+	i.OlaresTokens[olaresId] = token
+
 	if token.Expired() {
 		return nil, fmt.Errorf("olares space token expired")
 	}
 
-	i.OlaresTokens[olaresId] = token
 	return token, nil
 }
 
-func (i *Integration) GetIntegrationCloudToken(location, integrationName string) (*IntegrationTokenX, error) {
-	data, err := i.query(location, integrationName)
+func (i *Integration) GetIntegrationCloudToken(ctx context.Context, location, integrationName string) (*IntegrationToken, error) {
+	data, err := i.query(ctx, location, integrationName)
 	if err != nil {
 		return nil, err
 	}
 
 	return i.withCloudToken(data), nil
-}
-
-// --
-func (i *Integration) GetIntegrationSpaceToken() (IntegrationToken, error) {
-	data, err := i.query()
-	if err != nil {
-		return nil, nil
-	}
-
-	return i.withSpaceToken(data), nil
-}
-
-func (i *Integration) GetIntegrationCloudToken() (IntegrationToken, error) {
-	data, err := i.query()
-	if err != nil {
-		return nil, nil
-	}
-
-	return i.withSpaceToken(data), nil
-}
-
-func (i *Integration) GetIntegrationToken() (IntegrationToken, error) {
-	data, err := i.query()
-	if err != nil {
-		return nil, nil
-	}
-
-	switch i.Location {
-	case constant.BackupLocationSpace.String():
-		return i.withSpaceToken(data), nil
-	}
-	return i.withCloudToken(data), nil // TODO filesystem
 }
 
 func (i *Integration) withSpaceToken(data *accountResponseData) *SpaceToken {
@@ -136,8 +79,8 @@ func (i *Integration) withSpaceToken(data *accountResponseData) *SpaceToken {
 	}
 }
 
-func (i *Integration) withCloudToken(data *accountResponseData) IntegrationToken {
-	return &IntegrationCloud{
+func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToken {
+	return &IntegrationToken{
 		Name:      data.Name,
 		Type:      data.Type,
 		AccessKey: data.Name,
@@ -145,17 +88,16 @@ func (i *Integration) withCloudToken(data *accountResponseData) IntegrationToken
 		Endpoint:  data.RawData.Endpoint,
 		Bucket:    data.RawData.Bucket,
 		Available: data.RawData.Available,
-		Location:  i.Location,
 	}
 }
 
-func (i *Integration) query(integrationLocation, integrationAccountName string) (*accountResponseData, error) {
-	ip, err := i.getSettingsIP()
+func (i *Integration) query(ctx context.Context, integrationLocation, integrationAccountName string) (*accountResponseData, error) {
+	ip, err := i.getSettingsIP(ctx)
 	if err != nil {
 		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v", err))
 	}
 
-	headerNonce, err := i.getAppKey()
+	headerNonce, err := i.getAppKey(ctx)
 	if err != nil {
 		return nil, errors.WithStack(fmt.Errorf("get header nonce error: %v", err))
 	}
@@ -166,7 +108,7 @@ func (i *Integration) query(integrationLocation, integrationAccountName string) 
 	var data = make(map[string]string)
 	data["name"] = i.formatUrl(integrationLocation, integrationAccountName)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
-	resp, err := client.R().SetDebug(true).
+	resp, err := client.R().SetDebug(true).SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
 		SetHeader("Terminus-Nonce", headerNonce).
 		SetBody(data).
@@ -197,20 +139,20 @@ func (i *Integration) query(integrationLocation, integrationAccountName string) 
 		return nil, err
 	}
 
-	accountResp.Data.RawData.ExpiresAt = 1742978678000
+	accountResp.Data.RawData.ExpiresAt = 1742978678000 // TODO debug
 	return accountResp.Data, nil
 }
 
-func (i *Integration) getSettingsIP() (ip string, err error) {
+func (i *Integration) getSettingsIP(ctx context.Context) (ip string, err error) {
 	kubeClient, err := i.Factory.KubeClient()
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", i.Owner)).List(ctx, metav1.ListOptions{
+	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", i.Owner)).List(getCtx, metav1.ListOptions{
 		LabelSelector: "app=systemserver",
 	})
 	if err != nil {
@@ -230,16 +172,16 @@ func (i *Integration) getSettingsIP() (ip string, err error) {
 	return podIp, nil
 }
 
-func (i *Integration) getAppKey() (string, error) {
+func (i *Integration) getAppKey(ctx context.Context) (string, error) {
 	kubeClient, err := i.Factory.KubeClient()
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	secret, err := kubeClient.CoreV1().Secrets("os-system").Get(ctx, "app-key", metav1.GetOptions{})
+	secret, err := kubeClient.CoreV1().Secrets("os-system").Get(getCtx, "app-key", metav1.GetOptions{})
 	if err != nil {
 		return "", errors.WithStack(err)
 	}

@@ -4,27 +4,29 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 
-	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 )
 
-func (s *storage) GetRegions(ctx context.Context, olaresId string) (string, error) {
-	var tokenService = &integration.Integration{
-		Factory:  s.factory,
-		Owner:    s.owner,
-		Location: constant.BackupLocationSpace.String(),
-		Name:     olaresId,
-	}
+type StorageRegion struct {
+	Handlers handlers.Interface
+}
 
-	token, err := tokenService.GetIntegrationToken()
+func (s *StorageRegion) GetRegions(ctx context.Context, olaresId string) (string, error) {
+	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, olaresId)
 	if err != nil {
+		err = fmt.Errorf("get space token error %v", err)
 		return "", err
 	}
-
-	spaceToken := token.(*integration.IntegrationSpace)
+	if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
+		err = fmt.Errorf("space access token expired %d(%s)", spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
+		return "", err
+	}
 
 	var parms = []string{"region", "space",
 		"--olares-did", spaceToken.OlaresDid,

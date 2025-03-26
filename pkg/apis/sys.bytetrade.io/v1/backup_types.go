@@ -42,7 +42,8 @@ type BackupSpec struct {
 	BackupPolicy *BackupPolicy     `json:"backupPolicy,omitempty"`
 	BackupType   map[string]string `json:"backupType"`
 	Size         *uint64           `json:"size,omitempty"`
-	Push         bool              `json:"push"`
+	Notified     bool              `json:"notified"`
+	Deleted      bool              `json:"deleted"`
 	Extra        map[string]string `json:"extra,omitempty"`
 }
 

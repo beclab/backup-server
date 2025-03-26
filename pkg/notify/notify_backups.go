@@ -1,11 +1,12 @@
 package notify
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"bytetrade.io/web3os/backup-server/pkg/util/http"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backups-sdk/pkg/utils"
 	"github.com/emicklei/go-restful/v3"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
@@ -48,7 +49,11 @@ type Response struct {
 	Message string `json:"message"`
 }
 
-func SendNewBackup(cloudApiUrl string, backup *Backup) error {
+func NotifyDeleteBackup() error {
+	return nil
+}
+
+func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error {
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
 		Factor:   2,
@@ -67,7 +72,7 @@ func SendNewBackup(cloudApiUrl string, backup *Backup) error {
 
 		log.Infof("send backup data: %s", data)
 
-		result, err := utils.Post[Response](url, headers, data)
+		result, err := http.Post[Response](ctx, url, headers, data)
 		if err != nil {
 			return err
 		}
@@ -83,7 +88,7 @@ func SendNewBackup(cloudApiUrl string, backup *Backup) error {
 	return nil
 }
 
-func PushSnapshot(cloudApiUrl string, snapshot *Snapshot) error {
+func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot) error {
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
 		Factor:   2,
@@ -106,7 +111,7 @@ func PushSnapshot(cloudApiUrl string, snapshot *Snapshot) error {
 
 		log.Infof("push snapshot data: %s", data)
 
-		result, err := utils.Post[Response](url, headers, data)
+		result, err := http.Post[Response](ctx, url, headers, data)
 		if err != nil {
 			return err
 		}

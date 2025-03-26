@@ -2,12 +2,16 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/velero"
@@ -65,21 +69,20 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, errors.WithStack(err)
 	}
 
-	backup, err := c.SysV1().Backups(req.Namespace).
-		Get(ctx, req.Name, metav1.GetOptions{})
+	backup, err := c.SysV1().Backups(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{}) // TODO ctx
 	if err != nil && apierrors.IsNotFound(err) {
 		return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Second}, nil
 	} else if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
-	if !isNotified(backup) {
-		err = r.handler.GetBackupHandler().NotifyToSpace(backup)
+	if !r.isNotified(backup) {
+		err = r.notify(backup)
 		if err != nil {
-			log.Errorf("push backup %s id %s error %v", backup.Spec.Name, backup.Name, err)
+			log.Errorf("notify backup %s id %s error: %v", backup.Spec.Name, backup.Name, err)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 		}
-		log.Infof("push backup %s backupid %s record success", backup.Spec.Name, backup.Name)
+		log.Infof("notify backup %s backupid %s record success", backup.Spec.Name, backup.Name)
 	}
 
 	if backup.Spec.BackupPolicy.Enabled {
@@ -113,8 +116,8 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					log.Info("backup not changed")
 					return false
 				}
-				if isPushStateChanged(bc1, bc2) {
-					log.Info("backup push state changed: Pushed")
+				if isNotifiedStateChanged(bc1, bc2) {
+					log.Info("backup notify state changed: Notified")
 					return false
 				}
 
@@ -136,12 +139,12 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return nil
 }
 
-func isNotified(backup *sysv1.Backup) bool {
-	return backup.Spec.Push
+func (r *BackupReconciler) isNotified(backup *sysv1.Backup) bool {
+	return backup.Spec.Notified
 }
 
-func isPushStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bool {
-	if oldBackup.Spec.Push != newBackup.Spec.Push {
+func isNotifiedStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bool {
+	if oldBackup.Spec.Notified != newBackup.Spec.Notified {
 		return true
 	}
 	return false
@@ -151,7 +154,7 @@ func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 	ctx := context.Background()
 	if backup.Spec.BackupPolicy != nil {
 		cron, _ := util.ParseToCron(backup.Spec.BackupPolicy.SnapshotFrequency, backup.Spec.BackupPolicy.TimesOfDay, backup.Spec.BackupPolicy.DayOfWeek)
-		err := r.handler.GetSnapshotHandler().CreateSnapshotSchedule(ctx, backup, cron, !backup.Spec.BackupPolicy.Enabled)
+		err := r.handler.GetSnapshotHandler().CreateSchedule(ctx, backup, cron, !backup.Spec.BackupPolicy.Enabled)
 		if err != nil {
 			return err
 		}
@@ -207,4 +210,42 @@ func (r *BackupReconciler) deleteBackupConfig(name string, namespace string) {
 	// } else {
 	// 	log.Errorf("get backups of config error, %+v, %s", err, name)
 	// }
+}
+
+func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	integrationName := handlers.GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
+	if integrationName == "" {
+		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
+	}
+	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, integrationName)
+	if err != nil {
+		return err
+	}
+
+	locationConfig, err := handlers.GetBackupLocationConfig(backup)
+	if err != nil {
+		return fmt.Errorf("get backup location config error %v", err)
+	}
+	if locationConfig == nil {
+		return fmt.Errorf("backup location config not exists")
+	}
+	var location = locationConfig["location"]
+
+	var notifyBackupObj = &notify.Backup{
+		UserId:         olaresSpaceToken.OlaresDid,
+		Token:          olaresSpaceToken.AccessToken,
+		BackupId:       backup.Name,
+		Name:           backup.Spec.Name,
+		BackupPath:     handlers.GetBackupPath(backup),
+		BackupLocation: location,
+	}
+
+	if err := notify.NotifyBackup(ctx, constant.DefaultSyncServerURL, notifyBackupObj); err != nil {
+		return fmt.Errorf("notify backup obj error %v", err)
+	}
+
+	return r.handler.GetBackupHandler().UpdateNotifyState(ctx, backup.Name, true)
 }

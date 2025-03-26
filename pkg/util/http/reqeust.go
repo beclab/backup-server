@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -68,7 +69,7 @@ func RequestJSON(method, url string, headers map[string]string, body, to any) (s
 	return resp.StatusCode, nil
 }
 
-func Post[T any](url string, headers map[string]string, data interface{}) (*T, error) {
+func Post[T any](ctx context.Context, url string, headers map[string]string, data interface{}) (*T, error) {
 	var result T
 	client := resty.New().SetTimeout(10 * time.Second).
 		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).R().SetDebug(true)
@@ -77,7 +78,7 @@ func Post[T any](url string, headers map[string]string, data interface{}) (*T, e
 		client.SetHeaders(headers)
 	}
 
-	resp, err := client.
+	resp, err := client.SetContext(ctx).
 		SetBody(data).
 		SetResult(&result).
 		Post(url)

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sort"
 	"time"
 
@@ -10,11 +11,11 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/converter"
-	"bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
+	"github.com/emicklei/go-restful/v3"
+	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,61 +34,82 @@ func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 	}
 }
 
-func (o *BackupHandler) NotifyToSpace(backup *sysv1.Backup) error {
-	integrationName := GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
-	if integrationName == "" {
-		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
+func (o *BackupHandler) GetBackupPassword(ctx context.Context, backup *sysv1.Backup) (password string, err error) {
+	password = "123"
+	return
+
+	var owner = backup.Spec.Owner
+	var backupName = backup.Spec.Name
+
+	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
+	client := resty.New().SetTimeout(5 * time.Second).SetDebug(true)
+
+	req := &proxyRequest{
+		Op:       "getAccount",
+		DataType: "backupPassword",
+		Version:  "v1",
+		Group:    "service.settings",
+		Data:     backupName,
 	}
-	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(integrationName)
+
+	terminusNonce, err := util.GenTerminusNonce("")
 	if err != nil {
-		return err
+		err = fmt.Errorf("generate nonce error, ", err)
+		return
 	}
 
-	location, _, _ := GetBackupLocationConfig(backup)
-	var notifyBackupObj = &notify.Backup{
-		UserId:         olaresSpaceToken.OlaresDid,
-		Token:          olaresSpaceToken.AccessToken,
-		BackupId:       backup.Name,
-		Name:           backup.Spec.Name,
-		BackupPath:     GetBackupPath(backup),
-		BackupLocation: location,
+	log.Info("fetch password from settings, ", settingsUrl)
+	resp, err := client.R().SetContext(ctx).
+		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
+		SetHeader("Terminus-Nonce", terminusNonce).
+		SetBody(req).
+		SetResult(&passwordResponse{}).
+		Post(settingsUrl)
+
+	if err != nil {
+		err = fmt.Errorf("request settings password api error, ", err)
+		return
 	}
 
-	if err := notify.SendNewBackup(constant.DefaultSyncServerURL, notifyBackupObj); err != nil {
-		return fmt.Errorf("notify backup obj error %v", err)
+	if resp.StatusCode() != http.StatusOK {
+		err = fmt.Errorf("request settings password api response not ok, status: %d, msg: %s", resp.StatusCode(), string(resp.Body()))
+		return
 	}
 
-	return o.UpdatePushState(context.Background(), backup.Name, true)
+	pwdResp := resp.Result().(*passwordResponse)
+	if pwdResp.Code != 0 {
+		err = fmt.Errorf("request settings password api response error, code: %d, msg: %s", pwdResp.Code, pwdResp.Message)
+		return
+	}
+
+	if pwdResp.Data == nil {
+		err = fmt.Errorf("request settings password api response error, code: %d, msg: %s", pwdResp.Code, pwdResp.Message)
+		return
+	}
+
+	password = pwdResp.Data.Value
+	return
 }
 
-func (o *BackupHandler) UpdatePushState(ctx context.Context, backupId string, pushState bool) error {
-	var ctx1, cancel = context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+func (o *BackupHandler) Delete(ctx context.Context, backup *sysv1.Backup) error {
+	backup.Spec.Deleted = true
+	return o.update(ctx, backup)
+}
 
-	sc, err := o.factory.Sysv1Client()
+func (o *BackupHandler) Pause(ctx context.Context, backup *sysv1.Backup) error {
+	backup.Spec.BackupPolicy.Enabled = false
+	return o.update(ctx, backup)
+}
+
+func (o *BackupHandler) UpdateNotifyState(ctx context.Context, backupId string, notified bool) error {
+	backup, err := o.GetById(ctx, backupId)
 	if err != nil {
 		return err
 	}
+	backup.Spec.Notified = notified
 
-	b, err := o.GetBackupById(ctx1, backupId)
-	if err != nil {
-		return err
-	}
-	b.Spec.Push = pushState
+	return o.update(ctx, backup)
 
-RETRY:
-	_, err = sc.SysV1().Backups(constant.DefaultOsSystemNamespace).Update(ctx, b, metav1.UpdateOptions{
-		FieldManager: constant.BackupController,
-	})
-
-	if err != nil && apierrors.IsConflict(err) {
-		log.Warnf("update backup %s spec retry", b.Spec.Name)
-		goto RETRY
-	} else if err != nil {
-		return errors.WithStack(fmt.Errorf("update backup error: %v", err))
-	}
-
-	return nil
 }
 
 func (o *BackupHandler) ListBackups(ctx context.Context, owner string, page int64, limit int64) (*sysv1.BackupList, error) {
@@ -113,33 +135,35 @@ func (o *BackupHandler) ListBackups(ctx context.Context, owner string, page int6
 	return backups, nil
 }
 
-func (o *BackupHandler) GetBackupById(ctx context.Context, backupId string) (*sysv1.Backup, error) {
+func (o *BackupHandler) GetById(ctx context.Context, id string) (*sysv1.Backup, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, backupId, metav1.GetOptions{})
+	backup, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
 
 	if err != nil {
 		return nil, err
 	}
 
-	if backups == nil {
-		return nil, nil
+	if backup == nil {
+		return nil, fmt.Errorf("backup not found")
 	}
 
-	return backups, nil
+	return backup, nil
 }
 
-func (o *BackupHandler) GetBackup(ctx context.Context, owner string, backupName string) (*sysv1.Backup, error) {
+func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Backup, error) {
+	var getCtx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
-
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "name=" + util.MD5(backupName) + ",owner=" + owner,
+	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(getCtx, metav1.ListOptions{
+		LabelSelector: label,
 	})
 
 	if err != nil {
@@ -147,13 +171,13 @@ func (o *BackupHandler) GetBackup(ctx context.Context, owner string, backupName 
 	}
 
 	if backups == nil || backups.Items == nil || len(backups.Items) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("backup not found")
 	}
 
 	return &backups.Items[0], nil
 }
 
-func (o *BackupHandler) CreateBackup(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
 	var backupId = uuid.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
@@ -204,4 +228,28 @@ func (o *BackupHandler) GetBackupIdForLabels(backups *sysv1.BackupList) []string
 		labels = append(labels, fmt.Sprintf("backup-id=%s", backup.Name))
 	}
 	return labels
+}
+
+func (o *BackupHandler) update(ctx context.Context, backup *sysv1.Backup) error {
+	sc, err := o.factory.Sysv1Client()
+	if err != nil {
+		return err
+	}
+
+	var getCtx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+RETRY:
+	_, err = sc.SysV1().Backups(constant.DefaultOsSystemNamespace).Update(getCtx, backup, metav1.UpdateOptions{
+		FieldManager: constant.BackupController,
+	})
+
+	if err != nil && apierrors.IsConflict(err) {
+		log.Warnf("update backup %s spec retry", backup.Spec.Name)
+		goto RETRY
+	} else if err != nil {
+		return errors.WithStack(fmt.Errorf("update backup error: %v", err))
+	}
+
+	return nil
 }

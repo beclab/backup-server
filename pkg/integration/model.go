@@ -1,26 +1,24 @@
 package integration
 
-import "bytetrade.io/web3os/backup-server/pkg/apiserver/response"
+import (
+	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
+	"bytetrade.io/web3os/backup-server/pkg/util"
+)
 
-var _ IntegrationToken = &IntegrationSpace{}
-
-type IntegrationSpace struct {
+type SpaceToken struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
 	OlaresDid   string `json:"olares_did"`
 	AccessToken string `json:"access_token"`
 	ExpiresAt   int64  `json:"expires_at"`
 	Available   bool   `json:"available"`
-	Location    string `json:"location"`
 }
 
-func (i *IntegrationSpace) GetType() string {
-	return i.Type
+func (s *SpaceToken) Expired() bool {
+	return util.IsTimestampNearingExpiration(s.ExpiresAt)
 }
 
-var _ IntegrationToken = &IntegrationCloud{}
-
-type IntegrationCloud struct {
+type IntegrationToken struct {
 	Name      string `json:"name"`
 	Type      string `json:"type"`
 	AccessKey string `json:"access_key"`
@@ -28,14 +26,7 @@ type IntegrationCloud struct {
 	Endpoint  string `json:"endpoint"`
 	Bucket    string `json:"bucket"`
 	Available bool   `json:"available"`
-	Location  string `json:"location"`
 }
-
-func (i *IntegrationCloud) GetType() string {
-	return i.Type
-}
-
-//
 
 type accountResponse struct {
 	response.Header

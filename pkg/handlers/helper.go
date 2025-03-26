@@ -154,21 +154,32 @@ func GetRestorePath(restore *sysv1.Restore) string {
 	return p
 }
 
-func GetBackupLocationConfig(backup *sysv1.Backup) (location string, locationConfig map[string]string, err error) {
+func GetBackupLocationConfig(backup *sysv1.Backup) (map[string]string, error) {
+	var locationConfig map[string]string
+	var err error
 	for k, v := range backup.Spec.Location {
 		if err = json.Unmarshal([]byte(v), &locationConfig); err != nil {
-			return
+			return nil, err
 		}
 		_, ok := locationConfig["name"]
-		if !ok {
-			return location, nil, fmt.Errorf("location %s config name not exsits, config: %s", k, v)
+		if util.ListContains([]string{
+			constant.BackupLocationSpace.String(),
+			constant.BackupLocationAwsS3.String(),
+			constant.BackupLocationTencentCloud.String(),
+		}, k) && !ok {
+			return nil, fmt.Errorf("location %s config name not exsits, config: %s", k, v)
 		}
 
-		location = k
-		return
+		_, ok = locationConfig["path"]
+		if k == constant.BackupLocationFileSystem.String() && !ok {
+			return nil, fmt.Errorf("location %s config path not exsits, config: %s", k, v)
+		}
+
+		locationConfig["location"] = k
+		break
 	}
 
-	return
+	return locationConfig, nil
 }
 
 func ParseBackupSnapshotFrequency(str string) string {
@@ -243,4 +254,9 @@ func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
 		res = midnight.Unix() + incr + prefix
 	}
 	return &res
+}
+
+func ParseSnapshotName(startAt int64) string {
+	t := time.UnixMilli(startAt)
+	return t.Format("2006-01-02 15:04")
 }

@@ -13,9 +13,10 @@ import (
 )
 
 type LocationConfig struct {
-	Name      string `json:"name"`
-	CloudName string `json:"cloudName,omitempty"`
-	RegionId  string `json:"regionId,omitempty"`
+	Name      string `json:"name"`                // olaresId or integrationCloudAccessKey
+	CloudName string `json:"cloudName,omitempty"` // olares space cloudName
+	RegionId  string `json:"regionId,omitempty"`  // olares space regionId
+	Path      string `json:"path"`                // filesystem target path
 }
 
 type BackupCreate struct {
@@ -80,6 +81,15 @@ type ResponseSnapshotDetail struct {
 	Id           string `json:"id"`
 	Size         string `json:"size"`
 	SnapshotType string `json:"snapshotType"`
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+}
+
+type ResponseRestoreDetail struct {
+	BackupName   string `json:"backupName"`
+	BackupPath   string `json:"backupPath"`
+	SnapshotName string `json:"snapshotName"`
+	RestorePath  string `json:"restorePath"`
 	Status       string `json:"status"`
 	Message      string `json:"message"`
 }
@@ -341,8 +351,15 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 	}
 
 	for _, backup := range data.Items {
-		location, locationConfig, _ := handlers.GetBackupLocationConfig(&backup)
-		locationConfigName, _ := locationConfig["name"]
+		locationConfig, err := handlers.GetBackupLocationConfig(&backup)
+		if err != nil || locationConfig == nil {
+			continue
+		}
+		if locationConfig["location"] == "filesystem" { // TODO
+			continue
+		}
+		location := locationConfig["location"]
+		locationConfigName := locationConfig["name"]
 		var r = &ResponseBackupList{
 			Id:                  backup.Name,
 			Name:                backup.Spec.Name,
@@ -379,6 +396,17 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 		BackupConfigName:       b.BackupConfigName,
 		//RefFullyBackupUid:            b.RefFullyBackupUid,
 		//RefFullyBackupName:           b.RefFullyBackupName,
+	}
+}
+
+func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) *ResponseRestoreDetail {
+	return &ResponseRestoreDetail{
+		BackupName:   backup.Spec.Name,
+		BackupPath:   handlers.GetBackupPath(backup),
+		SnapshotName: handlers.ParseSnapshotName(snapshot.Spec.StartAt),
+		RestorePath:  handlers.GetRestorePath(restore),
+		Status:       *restore.Spec.Phase,
+		Message:      *restore.Spec.Message,
 	}
 }
 

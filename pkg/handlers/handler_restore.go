@@ -9,13 +9,10 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/options"
-	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
-	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +30,17 @@ func NewRestoreHandler(f client.Factory, handlers Interface) *RestoreHandler {
 		factory:  f,
 		handlers: handlers,
 	}
+}
+
+func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phase string) error {
+	restore, err := o.GetRestore(ctx, restoreId)
+	if err != nil {
+		return err
+	}
+
+	restore.Spec.Phase = pointer.String(phase)
+
+	return o.Update(ctx, restoreId, &restore.Spec)
 }
 
 func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, page int64, limit int64) (*sysv1.RestoreList, error) {
@@ -99,150 +107,12 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 	return created, nil
 }
 
-// Restore
-
-type RestoreParams struct {
-	Path           string
-	Password       string
-	Location       string
-	LocationConfig map[string]string
-}
-
-func (o *RestoreHandler) prepareRestoreParams(ctx context.Context, backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) (*RestoreParams, error) {
-	var err error
-	params := &RestoreParams{
-		Path: GetRestorePath(restore),
-	}
-
-	params.Password, err = getBackupPassword(backup.Spec.Owner, backup.Spec.Name)
-	if err != nil {
-		return nil, errors.WithStack(fmt.Errorf("get restore password error: %v", err))
-	}
-
-	params.Location, params.LocationConfig, err = GetBackupLocationConfig(backup)
-	if err != nil {
-		return nil, err
-	}
-
-	return params, err
-}
-
-func (o *RestoreHandler) createRestoreOption(params *RestoreParams) options.Option {
-	switch params.Location {
-	case constant.BackupLocationSpace.String():
-		return &options.SpaceRestoreOptions{
-			Location:       params.Location,
-			OlaresId:       params.LocationConfig["name"],
-			ClusterId:      params.LocationConfig["clusterId"],
-			CloudName:      params.LocationConfig["cloudName"],
-			RegionId:       params.LocationConfig["regionId"],
-			Path:           params.Path,
-			Password:       params.Password,
-			CloudApiMirror: constant.DefaultSyncServerURL,
-		}
-	case constant.BackupLocationAwsS3.String():
-		return &options.AwsS3RestoreOptions{
-			Location:           params.Location,
-			LocationConfigName: params.LocationConfig["name"],
-			Path:               params.Path,
-			Password:           params.Password,
-		}
-	case constant.BackupLocationTencentCloud.String():
-		return &options.TencentCloudRestoreOptions{
-			Location:           params.Location,
-			LocationConfigName: params.LocationConfig["name"],
-			Path:               params.Path,
-			Password:           params.Password,
-		}
-		// todo
-		// case constant.BackupLocationFileSystem.String():
-	}
-
-	return nil
-}
-
-func (o *RestoreHandler) executeRestore(ctx context.Context,
-	backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore,
-	opt options.Option, params *RestoreParams) error {
-	storage := storage.NewStorage(o.factory, backup.Spec.Owner)
-	restoreOutput, restoreErr := storage.Restore(ctx, backup, snapshot, restore, opt)
-
-	if restoreErr != nil {
-		log.Errorf("restore %s snapshot %s error: %v", backup.Spec.Name, restore.Spec.SnapshotId, restoreErr)
-	} else {
-		log.Infof("restore %s snapshot %s completed", backup.Spec.Name, restore.Spec.SnapshotId)
-	}
-
-	err := o.updateRestoreFinishedStatus(restoreOutput, restoreErr, restore)
-
-	return err
-}
-
-// TODO 是不是需要检查下  snapshot 是否成功完成
-func (o *RestoreHandler) Restore(ctx context.Context, restoreId string) error {
-	var err error
-	restore, err := o.GetRestore(ctx, restoreId)
-	if err != nil {
-		return fmt.Errorf("get restore error: %v", err)
-	}
-
-	snapshot, err := o.handlers.GetSnapshotHandler().GetSnapshot(ctx, restore.Spec.SnapshotId)
-	if err != nil {
-		return fmt.Errorf("get snapshot error: %v", err)
-	}
-
-	backup, err := o.handlers.GetBackupHandler().GetBackupById(ctx, snapshot.Spec.BackupId)
-	if err != nil {
-		return fmt.Errorf("get backup error: %v", snapshot.Spec.BackupId, err)
-	}
-
-	params, err := o.prepareRestoreParams(ctx, backup, snapshot, restore)
-	if err != nil {
-		return errors.WithMessage(err, o.updateRestoreFailedStatus(err, restore).Error())
-	}
-
-	if err := o.updateRestoreToRunning(ctx, restore); err != nil {
-		return errors.WithMessage(err, o.updateRestoreFailedStatus(err, restore).Error())
-	}
-
-	opt := o.createRestoreOption(params)
-
-	return o.executeRestore(ctx, backup, snapshot, restore, opt, params)
-}
-
-func (o *RestoreHandler) updateRestoreToRunning(ctx context.Context, restore *sysv1.Restore) error {
-	restore.Spec.Phase = pointer.String(constant.Running.String())
-	return o.Update(ctx, restore.Name, &restore.Spec) // update running
-}
-
 func (o *RestoreHandler) updateRestoreFailedStatus(backupError error, restore *sysv1.Restore) error {
 	restore.Spec.Phase = pointer.String(constant.Failed.String())
 	restore.Spec.Message = pointer.String(backupError.Error())
 	restore.Spec.EndAt = time.Now().UnixMilli()
 
 	return o.Update(context.Background(), restore.Name, &restore.Spec) // update failed
-}
-
-func (o *RestoreHandler) updateRestoreFinishedStatus(
-	restoreOutput *backupssdkrestic.RestoreSummaryOutput,
-	restoreError error,
-	restore *sysv1.Restore) error {
-	// todo backupRepo
-
-	if restoreError != nil {
-		restore.Spec.Phase = pointer.String(constant.Failed.String())
-		restore.Spec.Message = pointer.String(restoreError.Error())
-		restore.Spec.ResticPhase = pointer.String(constant.Failed.String())
-	} else {
-		restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
-		restore.Spec.Phase = pointer.String(constant.Completed.String())
-		restore.Spec.ResticPhase = pointer.String(constant.Completed.String())
-		restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
-	}
-
-	restore.Spec.EndAt = time.Now().UnixMilli()
-
-	return o.Update(context.Background(), restore.Name, &restore.Spec) // update finished
 }
 
 func (o *RestoreHandler) Update(ctx context.Context, restoreId string, restoreSpec *sysv1.RestoreSpec) error {
@@ -270,6 +140,28 @@ RETRY:
 	}
 
 	return nil
+}
+
+func (o *RestoreHandler) GetById(ctx context.Context, restoreId string) (*sysv1.Restore, error) {
+	var ctxTimeout, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	c, err := o.factory.Sysv1Client()
+	if err != nil {
+		return nil, err
+	}
+
+	restore, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Get(ctxTimeout, restoreId, metav1.GetOptions{})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if restore == nil {
+		return nil, fmt.Errorf("restore not found")
+	}
+
+	return restore, nil
 }
 
 func (o *RestoreHandler) GetRestore(ctx context.Context, restoreId string) (*sysv1.Restore, error) {
