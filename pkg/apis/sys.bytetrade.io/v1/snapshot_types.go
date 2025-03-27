@@ -33,6 +33,7 @@ type SnapshotSpec struct {
 	SnapshotType  *int              `json:"snapshotType"`
 	SnapshotId    *string           `json:"snapshotId,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`
+	CreateAt      int64             `json:"createAt"`
 	StartAt       int64             `json:"startAt"`
 	EndAt         int64             `json:"endAt,omitempty"`
 	Phase         *string           `json:"phase"`

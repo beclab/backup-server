@@ -7,8 +7,8 @@ import (
 
 	"bytetrade.io/web3os/backup-server/cmd/s3/options"
 	"bytetrade.io/web3os/backup-server/pkg/signals"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 )
@@ -58,7 +58,7 @@ func NewS3DownloadCommand(o *options.Option) *cobra.Command {
 func downloadS3Object(o *options.Option, ctx context.Context) error {
 	bc := o.BackupConfigSpec()
 
-	client, err := velero.NewS3Client(bc)
+	client, err := util.NewS3Client(bc)
 	if err != nil {
 		return err
 	}

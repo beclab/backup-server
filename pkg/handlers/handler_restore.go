@@ -33,7 +33,7 @@ func NewRestoreHandler(f client.Factory, handlers Interface) *RestoreHandler {
 }
 
 func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phase string) error {
-	restore, err := o.GetRestore(ctx, restoreId)
+	restore, err := o.GetById(ctx, restoreId)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, page in
 	return restores, nil
 }
 
-func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName string, restoreType map[string]string) (*sysv1.Restore, error) {
+func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName string, restoreType *RestoreType) (*sysv1.Restore, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
@@ -85,17 +85,14 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      uuid.NewUUID(),
 			Namespace: constant.DefaultOsSystemNamespace,
-			Labels: map[string]string{
-				"snapshot-id": restoreType["snapshotId"],
-			},
 		},
 		Spec: sysv1.RestoreSpec{
-			SnapshotId: restoreType["snapshotId"],
 			RestoreType: map[string]string{
 				restoreTypeName: util.ToJSON(restoreType),
 			},
-			StartAt: startAt,
-			Phase:   &phase,
+			CreateAt: startAt,
+			StartAt:  startAt,
+			Phase:    &phase,
 		},
 	}
 
@@ -142,7 +139,7 @@ RETRY:
 	return nil
 }
 
-func (o *RestoreHandler) GetById(ctx context.Context, restoreId string) (*sysv1.Restore, error) {
+func (o *RestoreHandler) GetById(ctx context.Context, id string) (*sysv1.Restore, error) {
 	var ctxTimeout, cancel = context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -151,14 +148,14 @@ func (o *RestoreHandler) GetById(ctx context.Context, restoreId string) (*sysv1.
 		return nil, err
 	}
 
-	restore, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Get(ctxTimeout, restoreId, metav1.GetOptions{})
+	restore, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Get(ctxTimeout, id, metav1.GetOptions{})
 
 	if err != nil {
 		return nil, err
 	}
 
 	if restore == nil {
-		return nil, fmt.Errorf("restore not found")
+		return nil, apierrors.NewNotFound(sysv1.Resource("Restore"), id)
 	}
 
 	return restore, nil

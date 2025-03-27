@@ -46,6 +46,9 @@ func (s *StorageBackup) RunBackup() error {
 		return errors.WithStack(err)
 	}
 
+	var backupName = s.Backup.Spec.Name
+	var snapshotId = s.Snapshot.Name
+
 	var f = func() error {
 		var e error
 		if e = s.validateSnapshotPreconditions(); e != nil {
@@ -67,18 +70,18 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 	if err := f(); err != nil {
-		if e := s.updateBackupResult(nil, nil, err); e != nil {
-			return errors.WithStack(e)
-		}
 		if e := s.notifyBackupResult(nil, nil, err); e != nil {
+			log.Errorf("Backup %s-%s notify backup terminate error %v", backupName, snapshotId, err)
+		} else {
+			log.Infof("Backup %s-%s notify backup terminate success", backupName, snapshotId)
+		}
+
+		if e := s.updateBackupResult(nil, nil, err); e != nil {
 			return errors.WithStack(e)
 		}
 
 		return nil
 	}
-
-	var backupName = s.Backup.Spec.Name
-	var snapshotId = s.Snapshot.Name
 
 	backupResult, backupStorageObj, backupErr := s.execute()
 	if backupErr != nil {
@@ -88,11 +91,12 @@ func (s *StorageBackup) RunBackup() error {
 	}
 
 	// TODO err include "canceled" "error" "nil"
-	if err := s.updateBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
-		return errors.WithStack(err)
-	}
-
 	if err := s.notifyBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
+		log.Errorf("Backup %s-%s notify backup result error %v", backupName, snapshotId, err)
+	} else {
+		log.Infof("Backup %s-%s notify backup result success", backupName, snapshotId)
+	}
+	if err := s.updateBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
 		return errors.WithStack(err)
 	}
 
@@ -318,6 +322,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 		snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
 		snapshot.Spec.Phase = pointer.String(phase.String())
+		snapshot.Spec.Message = pointer.String(phase.String())
 		snapshot.Spec.ResticPhase = pointer.String(phase.String())
 		snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
 	}

@@ -28,8 +28,8 @@ type RestoreSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	SnapshotId    string            `json:"snapshotId"`
 	RestoreType   map[string]string `json:"restoreType"`
+	CreateAt      int64             `json:"createAt"`
 	StartAt       int64             `json:"startAt"`
 	EndAt         int64             `json:"endAt,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`

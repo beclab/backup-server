@@ -264,3 +264,35 @@ func ParseSnapshotName(startAt int64) string {
 	t := time.UnixMilli(startAt)
 	return t.Format("2006-01-02 15:04")
 }
+
+func ParseRestoreType(restore *sysv1.Restore) (*RestoreType, error) {
+	var m *RestoreType
+	var data = restore.Spec.RestoreType
+	v, ok := data[constant.BackupTypeFile]
+	if !ok {
+		return nil, fmt.Errorf("restore file type data not found")
+	}
+
+	if err := json.Unmarshal([]byte(v), &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// TODO
+func ParseRestoreBackupUrlDetail(u string) *RestoreBackupUrlDetail {
+	if u == "" {
+		return nil
+	}
+	// resticSnapshotId_cloudName_regionId_bucket_prefix
+	var s = strings.Split(u, "_")
+	var d = &RestoreBackupUrlDetail{
+		SnapshotId: s[0],
+		CloudName:  s[1],
+		RegionId:   s[2],
+		Bucket:     s[3],
+		Prefix:     s[4],
+	}
+
+	return d
+}

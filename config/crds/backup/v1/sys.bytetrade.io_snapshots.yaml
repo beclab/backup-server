@@ -54,6 +54,9 @@ spec:
               properties:
                 backupId:
                   type: string
+                createAt:
+                  format: int64
+                  type: integer
                 endAt:
                   format: int64
                   type: integer
@@ -83,6 +86,7 @@ spec:
                   type: integer
               required:
                 - backupId
+                - createAt
                 - location
                 - phase
                 - snapshotType

@@ -1,7 +1,9 @@
 package v1
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/config"
@@ -12,25 +14,23 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
+	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 type Handler struct {
-	cfg                 *config.Config
-	factory             client.Factory
-	veleroBackupManager velero.Manager
-	handler             handlers.Interface
+	cfg     *config.Config
+	factory client.Factory
+	handler handlers.Interface
 }
 
 func New(cfg *config.Config, factory client.Factory, handler handlers.Interface) *Handler {
 	return &Handler{
-		cfg:                 cfg,
-		factory:             factory,
-		veleroBackupManager: velero.NewManager(factory),
-		handler:             handlers.NewHandler(factory),
+		cfg:     cfg,
+		factory: factory,
+		handler: handlers.NewHandler(factory),
 	}
 }
 
@@ -54,10 +54,9 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	owner = "zhaoyu001"
-	// p := req.QueryParameter("page")
-	// l := req.QueryParameter("limit")
+	l := req.QueryParameter("limit")
 
-	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, 0)
+	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, util.ParseToInt64(l))
 	if err != nil {
 		log.Errorf("get backups error %v", err)
 		response.HandleError(resp, err)
@@ -118,26 +117,37 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if b.BackupPolicies == nil {
+	if b.BackupPolicies == nil || b.BackupPolicies.SnapshotFrequency == "" || b.BackupPolicies.TimesOfDay == "" {
 		response.HandleError(resp, errors.New("backup policy is required"))
 		return
 	}
 
-	// if backup is exists
 	var getLabel = "name=" + util.MD5(b.Name) + ",owner=" + owner
 	backup, err := h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-
 	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
 		return
 	}
 
 	if backup != nil {
-		response.HandleError(resp, errors.New("the backup plan "+b.Name+" already exists"))
+		response.HandleError(resp, errors.New("backup plan "+b.Name+" already exists"))
 		return
 	}
 
-	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.handler).Apply(ctx, &b); err != nil {
+	var policy = fmt.Sprintf("%s_%s_%d_%d", b.BackupPolicies.SnapshotFrequency, b.BackupPolicies.TimesOfDay, b.BackupPolicies.DayOfWeek, b.BackupPolicies.DateOfMonth)
+	getLabel = "owner=" + owner + ",policy=" + util.MD5(policy)
+	backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
+	if err != nil && !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
+		return
+	}
+
+	if backup != nil {
+		response.HandleError(resp, errors.New("there are other backup tasks at the same time"))
+		return
+	}
+
+	if err = NewBackupPlan(owner, h.factory, h.handler).Apply(ctx, &b); err != nil {
 		response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
 		return
 	}
@@ -170,7 +180,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err = NewBackupPlan(owner, h.factory, h.veleroBackupManager, h.handler).Update(ctx, &b, backup); err != nil {
+	if err = NewBackupPlan(owner, h.factory, h.handler).Update(ctx, &b, backup); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, format, backupId))
 		return
 	}
@@ -206,19 +216,39 @@ func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response)
 	response.SuccessNoData(resp)
 }
 
-func (h *Handler) pauseBackupPlan(req *restful.Request, resp *restful.Response) {
-	ctx, backupId := req.Request.Context(), req.PathParameter("id")
+func (h *Handler) enabledBackupPlan(req *restful.Request, resp *restful.Response) {
+	var (
+		err error
+		b   BackupEnabled
+	)
 
-	log.Debugf("pause backup %q", backupId)
-
-	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
-	if err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "get backup error"))
+	if err = req.ReadEntity(&b); err != nil {
+		response.HandleError(resp, errors.WithStack(err))
 		return
 	}
 
-	if err := h.handler.GetBackupHandler().Pause(ctx, backup); err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "pause backup error"))
+	if !util.ListContains([]string{constant.BackupPause, constant.BackupResume}, strings.ToLower(b.Event)) {
+		response.HandleError(resp, errors.WithMessagef(err, "backup event invalid %s", b.Event))
+		return
+	}
+
+	ctx, backupId := req.Request.Context(), req.PathParameter("id")
+
+	log.Debugf("backup: %s, event: %s", backupId, b.Event)
+
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil || !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessagef(err, "get backup %s error", backupId))
+		return
+	}
+
+	if backup != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "backup %s not exists", backupId))
+		return
+	}
+
+	if err := h.handler.GetBackupHandler().Enabled(ctx, backup, strings.ToLower(b.Event)); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "enabled backup %s error", backupId))
 		return
 	}
 
@@ -276,11 +306,68 @@ func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 
 // TODO
 func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
-	ctx, snapshotId := req.Request.Context(), req.PathParameter("id")
+	var (
+		err error
+		b   SnapshotCancel
+	)
+
+	if err = req.ReadEntity(&b); err != nil {
+		response.HandleError(resp, errors.WithStack(err))
+		return
+	}
+
+	if b.Event != "cancel" {
+		response.HandleError(resp, errors.WithMessagef(err, "snapshot event invalid %s", b.Event))
+		return
+	}
+
+	ctx := req.Request.Context()
+	backupId := req.PathParameter("id")
+	snapshotId := req.PathParameter("snapshotId")
 	_ = ctx
 
-	log.Debugf("cancel snapshot %q", snapshotId)
-	// TODO
+	log.Debugf("snapshot: %s, event: %s", snapshotId, b.Event)
+
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil || !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessagef(err, "get backup %s error", backupId))
+		return
+	}
+
+	if backup == nil {
+		response.HandleError(resp, errors.WithMessagef(err, "backup %s not exists", backupId))
+		return
+	}
+
+	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, snapshotId)
+	if err != nil || !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessagef(err, "get snapshot %s error", snapshotId))
+		return
+	}
+
+	if snapshot == nil {
+		response.HandleError(resp, errors.WithMessagef(err, "snapshot %s not exists", snapshotId))
+		return
+	}
+
+	// Failed
+	var phase = *snapshot.Spec.Phase
+	if util.ListContains([]string{
+		constant.Failed.String(), constant.Completed.String()}, phase) {
+		log.Infof("snapshot %s phase %s no need to Cancel", snapshotId, phase)
+		response.SuccessNoData(resp)
+		return
+	}
+
+	if err := worker.Worker.CancelBackup(snapshotId); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "remove snapshot %s from backupQueue error", snapshotId))
+		return
+	}
+
+	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String()); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "update snapshot %s Canceled error", snapshotId))
+		return
+	}
 
 	response.SuccessNoData(resp)
 }
@@ -308,11 +395,11 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 	response.Success(resp, parseResponseSpaceRegions(regions))
 }
 
+// todo
 func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	response.SuccessNoData(resp)
 }
 
-// TODO support BackupUrl
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -329,34 +416,34 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	owner = "zhaoyu001"
 	_ = owner
 
-	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, b.SnapshotId)
-	if err != nil {
-		response.HandleError(resp, errors.Errorf("failed to get snapshot %s: %v", b.SnapshotId, err))
+	if !b.verify() {
+		response.HandleError(resp, errors.Errorf("restore params invalid"))
 		return
 	}
 
-	if snapshot == nil {
-		response.HandleError(resp, errors.Errorf("snapshot %s not exists", b.SnapshotId))
-		return
-	}
-
-	_, err = h.handler.GetBackupHandler().GetById(ctx, snapshot.Spec.BackupId)
-	if err != nil {
-		response.HandleError(resp, errors.Errorf("get backup error %v", err))
-		return
-	}
-
-	var restoreType = make(map[string]string)
-	restoreType["path"] = b.Path
+	var restoreTypeName = constant.RestoreTypeUrl
 
 	if b.SnapshotId != "" {
-		restoreType["snapshotId"] = b.SnapshotId
-	} else if b.BackupUrl != "" {
-		restoreType["backupUrl"] = b.BackupUrl
-	} else {
-		response.HandleError(resp, errors.Errorf("restore type invalid, snapshotId: %s, backupUrl: %s",
-			b.SnapshotId, b.BackupUrl))
-		return
+		restoreTypeName = constant.RestoreTypeSnapshot
+		snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, b.SnapshotId)
+		if err != nil {
+			response.HandleError(resp, errors.Errorf("get snapshot %s error: %v", b.SnapshotId, err))
+			return
+		}
+
+		_, err = h.handler.GetBackupHandler().GetById(ctx, snapshot.Spec.BackupId)
+		if err != nil {
+			response.HandleError(resp, errors.Errorf("get backup %s error: %v", snapshot.Spec.BackupId, err))
+			return
+		}
+	}
+
+	var restoreType = &handlers.RestoreType{
+		Type:       restoreTypeName,
+		Path:       strings.TrimSpace(b.Path),
+		BackupUrl:  handlers.ParseRestoreBackupUrlDetail(b.BackupUrl),
+		Password:   util.Base64encode([]byte(strings.TrimSpace(b.Password))),
+		SnapshotId: b.SnapshotId,
 	}
 
 	_, err = h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
@@ -365,9 +452,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	// todo
 	response.SuccessNoData(resp)
-
 }
 
 func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
@@ -376,8 +461,6 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 	owner := "zhaoyu001"
 	_ = owner
 
-	// TODO backupUrl
-
 	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, "describe restore"))
@@ -385,4 +468,58 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	response.Success(resp, parseResponseRestoreDetail(nil, nil, restore))
+}
+
+func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
+	var (
+		err error
+		b   RestoreCancel
+	)
+
+	if err = req.ReadEntity(&b); err != nil {
+		response.HandleError(resp, errors.WithStack(err))
+		return
+	}
+
+	if b.Event != "cancel" {
+		response.HandleError(resp, errors.WithMessagef(err, "restore event invalid %s", b.Event))
+		return
+	}
+
+	ctx := req.Request.Context()
+	restoreId := req.PathParameter("id")
+	_ = ctx
+
+	log.Debugf("restore: %s, event: %s", restoreId, b.Event)
+
+	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)
+	if err != nil || !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessagef(err, "get restore %s error", restoreId))
+		return
+	}
+
+	if restore == nil {
+		response.HandleError(resp, errors.WithMessagef(err, "restore %s not exists", restoreId))
+		return
+	}
+
+	var phase = *restore.Spec.Phase
+	if util.ListContains([]string{
+		constant.Failed.String(), constant.Completed.String()}, phase) {
+		log.Infof("restore %s phase %s no need to Cancel", restoreId, phase)
+		response.SuccessNoData(resp)
+		return
+	}
+
+	if err := worker.Worker.CancelRestore(restoreId); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "remove restore %s from restoreQueue error", restoreId))
+		return
+	}
+
+	if err := h.handler.GetRestoreHandler().UpdatePhase(ctx, restoreId, constant.Canceled.String()); err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "update restore %s Canceled error", restoreId))
+		return
+	}
+
+	response.SuccessNoData(resp)
 }

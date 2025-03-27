@@ -9,7 +9,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -21,18 +20,16 @@ import (
 
 type RestoreReconciler struct {
 	client.Client
-	factory   bclient.Factory
-	bcManager velero.Manager
-	scheme    *runtime.Scheme
-	handler   handlers.Interface
+	factory bclient.Factory
+	scheme  *runtime.Scheme
+	handler handlers.Interface
 }
 
-func NewRestoreController(c client.Client, factory bclient.Factory, bcm velero.Manager, schema *runtime.Scheme, handler handlers.Interface) *RestoreReconciler {
+func NewRestoreController(c client.Client, factory bclient.Factory, schema *runtime.Scheme, handler handlers.Interface) *RestoreReconciler {
 	return &RestoreReconciler{Client: c,
-		factory:   factory,
-		bcManager: bcm,
-		scheme:    schema,
-		handler:   handler,
+		factory: factory,
+		scheme:  schema,
+		handler: handler,
 	}
 }
 
@@ -67,7 +64,13 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				log.Infof("hit restore create event %s %s", restore.Name, *restore.Spec.Phase)
+				restoreType, err := handlers.ParseRestoreType(restore)
+				if err != nil {
+					log.Errorf("restore %s type %v invalid", restore.Name, restore.Spec.RestoreType)
+					return false
+				}
+
+				log.Infof("hit restore create event %s, %s, %s", restore.Name, *restore.Spec.Phase, restoreType.Type)
 
 				var phase = *restore.Spec.Phase
 				switch phase {
@@ -75,7 +78,7 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					log.Infof("add to restore worker %s", restore.Name)
 					worker.Worker.AppendRestoreTask(restore.Name)
 				default:
-					// todo update Failed
+					// TODO other phase?
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
 					}

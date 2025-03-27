@@ -15,6 +15,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	backupssdk "bytetrade.io/web3os/backups-sdk"
 	"github.com/pkg/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	backupssdkoptions "bytetrade.io/web3os/backups-sdk/pkg/options"
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
@@ -27,9 +28,10 @@ type StorageRestore struct {
 	Ctx       context.Context
 	Cancel    context.CancelFunc
 
-	Backup   *sysv1.Backup
-	Snapshot *sysv1.Snapshot
-	Restore  *sysv1.Restore
+	Backup      *sysv1.Backup
+	Snapshot    *sysv1.Snapshot
+	Restore     *sysv1.Restore
+	RestoreType *handlers.RestoreType
 
 	Params *RestoreParameters
 }
@@ -54,14 +56,11 @@ func (s *StorageRestore) RunRestore() error {
 		return errors.WithStack(err)
 	}
 
-	var backupName = s.Backup.Spec.Name
-	var snapshotId = s.Snapshot.Name
-
 	restoreResult, restoreErr := s.execute()
 	if restoreErr != nil {
-		log.Errorf("Restore %s-%s error %v", backupName, snapshotId, restoreErr)
+		log.Errorf("Restore %s error %v", s.RestoreId, restoreErr)
 	} else {
-		log.Infof("Restore %s-%s success", backupName, snapshotId)
+		log.Infof("Restore %s success", s.RestoreId)
 	}
 
 	if err := s.updateRestoreResult(restoreResult, restoreErr); err != nil {
@@ -72,45 +71,64 @@ func (s *StorageRestore) RunRestore() error {
 }
 
 func (s *StorageRestore) checkRestoreExists() error {
-	restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
-	if err != nil {
-		return fmt.Errorf("restore not found: %v", err)
+	restore, err := s.Handlers.GetRestoreHandler().GetById(s.Ctx, s.RestoreId)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("get restore %s error: %v", s.RestoreId, err)
 	}
 
-	snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, restore.Spec.SnapshotId)
-	if err != nil {
-		return fmt.Errorf("snapshot not found: %v", err)
-	}
-	backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, snapshot.Spec.BackupId)
-	if err != nil {
-		return fmt.Errorf("backup not found: %v", err)
+	if restore == nil {
+		return fmt.Errorf("restore %s not exists", s.RestoreId)
 	}
 
-	s.Backup = backup
-	s.Snapshot = snapshot
+	restoreType, err := handlers.ParseRestoreType(restore)
+	if err != nil {
+		return fmt.Errorf("restore %s type %v invalid", s.RestoreId, restore.Spec.RestoreType)
+	}
+
+	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
+		snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, restoreType.SnapshotId)
+		if err != nil {
+			return fmt.Errorf("snapshot not found: %v", err)
+		}
+		backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, snapshot.Spec.BackupId)
+		if err != nil {
+			return fmt.Errorf("backup not found: %v", err)
+		}
+
+		s.Backup = backup
+		s.Snapshot = snapshot
+	}
+
 	s.Restore = restore
+	s.RestoreType = restoreType
 
 	return nil
 }
 
 func (s *StorageRestore) prepareRestoreParams() error {
-	var backupName = s.Backup.Spec.Name
-	var snapshotId = s.Snapshot.Name
-	password, err := s.Handlers.GetBackupHandler().GetBackupPassword(s.Ctx, s.Backup)
-	if err != nil {
-		return fmt.Errorf("Restore %s-%s get password error %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
-	}
+	var password string
+	var locationConfig map[string]string
+	var err error
 
-	locationConfig, err := handlers.GetBackupLocationConfig(s.Backup) // TODO
-	if err != nil {
-		return fmt.Errorf("Backup %s-%s get location config error %v", backupName, snapshotId, err)
-	}
-	if locationConfig == nil {
-		return fmt.Errorf("Backup %s-%s location config not found", backupName, snapshotId)
+	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
+		password, err = s.Handlers.GetBackupHandler().GetBackupPassword(s.Ctx, s.Backup)
+		if err != nil {
+			return fmt.Errorf("Restore %s get password error %v", s.RestoreId, err)
+		}
+
+		locationConfig, err = handlers.GetBackupLocationConfig(s.Backup)
+		if err != nil {
+			return fmt.Errorf("Restore %s get location config error %v", s.RestoreId, err)
+		}
+		if locationConfig == nil {
+			return fmt.Errorf("Restore %s location config not found", s.RestoreId)
+		}
+	} else {
+		password = s.RestoreType.Password
 	}
 
 	s.Params = &RestoreParameters{
-		Path:     handlers.GetRestorePath(s.Restore),
+		Path:     s.RestoreType.Path,
 		Password: password,
 		Location: locationConfig,
 	}
@@ -126,12 +144,10 @@ func (s *StorageRestore) prepareForRun() error {
 func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
 	var isSpaceRestore bool
 	var logger = log.GetLogger()
-	var backupName = s.Backup.Spec.Name
-	var snapshotId = s.Restore.Spec.SnapshotId
 	var resticSnapshotId = *s.Snapshot.Spec.SnapshotId
 	var location = s.Params.Location["location"] // todo review
 
-	log.Infof("Restore %s-%s prepare: %s", backupName, snapshotId)
+	log.Infof("Restore %s prepare: %s", s.RestoreId, s.RestoreType.Type)
 
 	var restoreService *backupssdkstorage.RestoreService
 

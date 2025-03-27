@@ -15,7 +15,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,15 +28,13 @@ import (
 type SnapshotReconciler struct {
 	client.Client
 	factory k8sclient.Factory
-	manager velero.Manager
 	scheme  *runtime.Scheme
 	handler handlers.Interface
 }
 
-func NewSnapshotController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, handler handlers.Interface) *SnapshotReconciler {
+func NewSnapshotController(c client.Client, factory k8sclient.Factory, schema *runtime.Scheme, handler handlers.Interface) *SnapshotReconciler {
 	return &SnapshotReconciler{Client: c,
 		factory: factory,
-		manager: bcm,
 		scheme:  schema,
 		handler: handler,
 	}
@@ -93,7 +90,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				log.Infof("hit snapshot create event %s %s", snapshot.Name, *snapshot.Spec.Phase)
+				log.Infof("hit snapshot create event %s, %s", snapshot.Name, *snapshot.Spec.Phase)
 				backup, err := r.getBackup(snapshot.Spec.BackupId)
 				if err != nil {
 					log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
@@ -106,7 +103,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				var phase = *snapshot.Spec.Phase
 
 				switch phase {
-				case constant.Completed.String(), constant.Failed.String():
+				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
 					return false
 				case constant.Running.String():
 					// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
@@ -120,7 +117,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 						log.Infof("notify backup %s snapshot %s Failed", backup.Spec.Name, snapshot.Name)
 					}
 				case constant.Pending.String():
-					if err := r.notifySnapshot(backup, snapshot, constant.New.String()); err != nil {
+					if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
 						log.Errorf("notify backup %s snapshot %s New error: %v", backup.Spec.Name, snapshot.Name, err)
 					} else {
 						log.Infof("notify backup %s snapshot %s New", backup.Spec.Name, snapshot.Name)
@@ -144,36 +141,42 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				log.Infof("snapshot update event old: %s, new: %s", util.ToJSON(oldSnapshot), util.ToJSON(newSnapshot))
-
 				backup, err := r.getBackup(newSnapshot.Spec.BackupId)
 				if err != nil {
 					log.Errorf("get backup error %v", err)
 					return false
 				}
 
-				if r.isSnapshotRunning(oldSnapshot, newSnapshot) {
-					log.Info("snapshot push state changed: Running")
-					if err := r.notifySnapshot(backup, newSnapshot, constant.Running.String()); err != nil {
-						log.Errorf("notify backup %s snapshot %s Running error: %v", backup.Spec.Name, newSnapshot.Name, err)
-					} else {
-						log.Infof("notify backup %s snapshot %s Running", backup.Spec.Name, newSnapshot.Name)
-					}
+				log.Infof("snapshot update event, id: %s, phase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
+				log.Infof("snapshot update event old: %s, new: %s", util.ToJSON(oldSnapshot), util.ToJSON(newSnapshot))
 
+				if constant.Failed.String() == *newSnapshot.Spec.Phase {
 					return false
 				}
 
-				log.Infof("snapshot update event, id: %s, phase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
+				var notifyState string
+				if r.isRunning(oldSnapshot, newSnapshot) {
+					notifyState = constant.Running.String()
+				} else if r.isCanceled(newSnapshot) {
+					notifyState = constant.Canceled.String()
+				}
+
+				if notifyState == "" {
+					log.Infof("snapshot state is %s, skip notify", *newSnapshot.Spec.Phase)
+					return false
+				}
+
+				log.Infof("snapshot notify state changed: %s", notifyState)
+				if err := r.notifySnapshot(backup, newSnapshot, notifyState); err != nil {
+					log.Errorf("notify backup %s snapshot %s %s error: %v", backup.Spec.Name, newSnapshot.Name, notifyState, err)
+				} else {
+					log.Infof("notify backup %s snapshot %s %s", backup.Spec.Name, newSnapshot.Name, notifyState)
+				}
 
 				return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit snapshot delete event")
-				// sb, ok := r.isSysBackup(e.Object)
-				// if !ok {
-				// 	return false
-				// }
-				// r.handleDeleteBackup(sb.Name, sb)
 				return false
 			},
 		})).Build(r)
@@ -189,21 +192,6 @@ func (r *SnapshotReconciler) isSysSnapshot(obj client.Object) (*sysapiv1.Snapsho
 	if !ok || b == nil {
 		return nil, false
 	}
-	// if b.Namespace != velero.DefaultVeleroNamespace {
-	// 	return nil, false
-	// }
-	// // if b.Spec.Owner == nil || b.Spec.Phase == nil || b.Spec.Extra == nil {
-	// // 	return nil, false
-	// // }
-	// if _, ok = b.Spec.Extra[velero.ExtraBackupType]; !ok {
-	// 	return nil, false
-	// }
-	// if _, ok = b.Spec.Extra[velero.ExtraBackupStorageLocation]; !ok {
-	// 	return nil, false
-	// }
-	// if _, ok = b.Spec.Extra[velero.ExtraRetainDays]; !ok {
-	// 	return nil, false
-	// }
 
 	return b, true
 }
@@ -219,11 +207,16 @@ func (r *SnapshotReconciler) getBackup(backupId string) (*v1.Backup, error) {
 	return backup, nil
 }
 
-func (r *SnapshotReconciler) isSnapshotRunning(oldSnapshot *v1.Snapshot, newSnapshot *v1.Snapshot) bool {
+func (r *SnapshotReconciler) isRunning(oldSnapshot *v1.Snapshot, newSnapshot *v1.Snapshot) bool {
 	if *oldSnapshot.Spec.Phase == constant.Pending.String() && *newSnapshot.Spec.Phase == constant.Running.String() {
 		return true
 	}
 	return false
+}
+
+func (r *SnapshotReconciler) isCanceled(newSnapshot *v1.Snapshot) bool {
+	newPhase := *newSnapshot.Spec.Phase
+	return newPhase == constant.Canceled.String()
 }
 
 func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snapshot, status string) error {

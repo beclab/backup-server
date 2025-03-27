@@ -96,17 +96,21 @@ func (w *WorkerManage) RunRestore(ctx context.Context) {
 	}
 
 	var ctxTask, cancelTask = context.WithCancel(ctx)
-	w.activeRestore = &activeRestore{
-		ctx:       ctxTask,
-		cancel:    cancelTask,
-		restoreId: restoreId,
-	}
-	log.Infof("[worker] run restore %s", restoreId)
 
-	var storageRestore = &storage.StorageRestore{ // TODO ctx cancel
+	var storageRestore = &storage.StorageRestore{
+		Ctx:       ctxTask,
 		Handlers:  w.handlers,
 		RestoreId: restoreId,
 	}
+
+	w.activeRestore = &activeRestore{
+		ctx:       ctx,
+		cancel:    cancelTask,
+		restoreId: restoreId,
+		restore:   storageRestore,
+	}
+	log.Infof("[worker] run restore %s", restoreId)
+
 	if err := storageRestore.RunRestore(); err != nil {
 		log.Errorf("[worker] restore %s error: %v", restoreId, err)
 	}
@@ -127,14 +131,14 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 
 	var ctxTask, cancelTask = context.WithCancel(ctx)
 
-	var storageBackup = &storage.StorageBackup{ // TODO ctx cancel
-		Ctx:        ctx,
+	var storageBackup = &storage.StorageBackup{
+		Ctx:        ctxTask,
 		Handlers:   w.handlers,
 		SnapshotId: snapshotId,
 	}
 
 	w.activeBackup = &activeBackup{
-		ctx:        ctxTask,
+		ctx:        ctx,
 		cancel:     cancelTask,
 		snapshotId: snapshotId,
 		backup:     storageBackup,
@@ -168,9 +172,6 @@ func (w *WorkerManage) CancelBackup(snapshotId string) error {
 	}
 
 	w.activeBackup.cancel()
-	// TODO update snapshot Phase
-	// TODO Notify
-	// TODO if Completed or Failed, skip
 
 	w.clearActiveBackup()
 
@@ -211,7 +212,7 @@ func (w *WorkerManage) AppendBackupTask(id string) {
 	w.backupQueue = append(w.backupQueue, id)
 }
 
-func (w *WorkerManage) AppendRestoreTask(restoreId string) { // TODO backupid_snapshotid
+func (w *WorkerManage) AppendRestoreTask(restoreId string) {
 	w.queueMutex.Lock()
 	defer w.queueMutex.Unlock()
 

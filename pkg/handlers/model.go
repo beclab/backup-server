@@ -2,6 +2,22 @@ package handlers
 
 import "bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 
+type RestoreType struct {
+	Type       string                  `json:"type"` // snapshot or url
+	Path       string                  `json:"path"`
+	BackupUrl  *RestoreBackupUrlDetail `json:"backupUrl"`
+	Password   string                  `json:"-"`
+	SnapshotId string                  `json:"snapshotId"`
+}
+
+type RestoreBackupUrlDetail struct {
+	SnapshotId string `json:"snapshotId"`
+	CloudName  string `json:"cloudName"`
+	RegionId   string `json:"regionId"`
+	Bucket     string `json:"bucket"`
+	Prefix     string `json:"prefix"`
+}
+
 type proxyRequest struct {
 	Op       string      `json:"op"`
 	DataType string      `json:"datatype"`

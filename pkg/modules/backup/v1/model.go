@@ -1,14 +1,12 @@
 package v1
 
 import (
-	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"k8s.io/klog/v2"
 )
 
@@ -29,6 +27,10 @@ type BackupCreate struct {
 	ConfirmPassword string              `json:"confirmPassword,omitempty"`
 }
 
+type BackupEnabled struct {
+	Event string `json:"event"`
+}
+
 type Snapshot struct {
 	Name string `json:"name,omitempty"`
 
@@ -42,11 +44,40 @@ type Snapshot struct {
 	FailedMessage string `json:"failedMessage,omitempty"`
 }
 
+type SnapshotCancel struct {
+	Event string `json:"event"`
+}
+
 type RestoreCreate struct {
 	BackupUrl  string `json:"backupUrl"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
 	Password   string `json:"password"`
+}
+
+func (r *RestoreCreate) verify() bool {
+	var path = strings.TrimSpace(r.Path)
+	var backupUrl = strings.TrimSpace(r.BackupUrl)
+	var snapshotId = strings.TrimSpace(r.SnapshotId)
+	var password = strings.TrimSpace(r.Password)
+
+	if path == "" {
+		return false
+	}
+
+	if (backupUrl == "") == (snapshotId == "") {
+		return false
+	}
+
+	if backupUrl != "" && password == "" {
+		return false
+	}
+
+	return true
+}
+
+type RestoreCancel struct {
+	Event string `json:"event"`
 }
 
 type ResponseBackupList struct {
@@ -206,79 +237,6 @@ type SyncBackup struct {
 }
 
 type SyncBackupList []*SyncBackup
-
-func parseBackup(ctx context.Context, m velero.Manager, bc *sysv1.BackupConfig, sb *sysv1.Backup) (b *SyncBackup) {
-	b = &SyncBackup{
-		UID:               string(sb.UID),
-		CreationTimestamp: sb.CreationTimestamp.Unix(),
-		Name:              sb.Name,
-		Namespace:         sb.Namespace,
-		// Phase:             sb.Spec.ResticPhase,
-		// Owner:             sb.Spec.Owner,
-		// TerminusVersion:   sb.Spec.TerminusVersion,
-		// Size:              sb.Spec.Size,
-		BackupConfigName: bc.Name,
-		// S3Config: &Config{
-		// 	Provider: bc.Spec.Provider,
-		// 	Region:   bc.Spec.Region,
-		// 	Bucket:   bc.Spec.Bucket,
-		// 	Prefix:   strings.Split(bc.Spec.Prefix, "/")[0],
-		// 	S3Url:    bc.Spec.S3Url,
-		// },
-	}
-
-	if sb.Spec.Extra != nil {
-		extra := sb.Spec.Extra
-		if backupType, ok := extra[velero.ExtraBackupType]; ok {
-			b.BackupType = backupType
-		}
-		if snapshotId, ok := extra[velero.ExtraSnapshotId]; ok {
-			b.SnapshotId = snapshotId
-		}
-		if repo, ok := extra[velero.ExtraS3Repository]; ok {
-			b.S3Repository = repo
-		}
-		if hashSum, ok := extra[velero.ExtraRepositoryPasswordHash]; ok {
-			b.RepositoryPasswordHash = hashSum
-		}
-		if refUid, ok := extra[velero.ExtraRefFullyBackupUid]; ok {
-			b.RefFullyBackupUid = pointer.String(refUid)
-		}
-		if refName, ok := extra[velero.ExtraRefFullyBackupName]; ok {
-			b.RefFullyBackupName = pointer.String(refName)
-		}
-	}
-
-	// if sb.Spec.FailedMessage != nil && *sb.Spec.FailedMessage != "" {
-	// 	b.FailedMessage = *sb.Spec.FailedMessage
-	// 	return
-	// }
-
-	// vb, err := m.GetVeleroBackup(ctx, bc.Name)
-	// if err == nil && vb != nil {
-	// 	if vb.Status.Expiration != nil {
-	// 		b.Expiration = pointer.Int64(vb.Status.Expiration.Unix())
-	// 	}
-
-	// 	if vb.Status.CompletionTimestamp != nil {
-	// 		b.CompletionTimestamp = pointer.Int64(vb.Status.CompletionTimestamp.Unix())
-	// 	}
-	// }
-
-	// var ok bool
-
-	// ok, phase, err := m.BackupStatus(ctx, sb.Name)
-	// if err != nil {
-	// 	b.FailedMessage = err.Error()
-	// }
-	// if ok {
-	// 	b.Phase = pointer.String(velero.Succeed)
-	// } else if phase != "" {
-	// 	b.Phase = pointer.String(phase)
-	// }
-
-	return
-}
 
 func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interface{} {
 	var data = make(map[string]interface{})

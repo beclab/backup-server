@@ -48,11 +48,17 @@ func NewSnapshotHandler(f client.Factory, handlers Interface) *SnapshotHandler {
 
 func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, phase string) error {
 	snapshot, err := o.GetById(ctx, snapshotId)
-	if err != nil || !apierrors.IsNotFound(err) {
+	if err != nil {
 		return err
 	}
 
+	var t = time.Now().UnixMilli()
 	snapshot.Spec.Phase = pointer.String(phase)
+	if phase == constant.Running.String() {
+		snapshot.Spec.StartAt = t
+	} else {
+		snapshot.Spec.EndAt = t
+	}
 
 	return o.update(ctx, snapshot) // updatePhase
 }
@@ -152,6 +158,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			BackupId:     backup.Name,
 			Location:     location,
 			SnapshotType: parseSnapshotType,
+			CreateAt:     startAt,
 			StartAt:      startAt,
 			Phase:        &phase,
 			Extra:        map[string]string{},

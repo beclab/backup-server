@@ -57,7 +57,7 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
 		Factor:   2,
-		Jitter:   0.1,
+		Jitter:   0.5,
 		Steps:    5,
 	}
 
@@ -96,20 +96,20 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		Steps:    5,
 	}
 
+	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
+		snapshot.SnapshotId, snapshot.ResticSnapshotId, snapshot.Size, snapshot.Unit,
+		snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
+		snapshot.Url, snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
+		snapshot.Message)
+
+	log.Infof("push snapshot data: %s", data)
+
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
 	}, func() error {
 		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendSnapshotUrl)
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
-
-		var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
-			snapshot.SnapshotId, snapshot.ResticSnapshotId, snapshot.Size, snapshot.Unit,
-			snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
-			snapshot.Url, snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
-			snapshot.Message)
-
-		log.Infof("push snapshot data: %s", data)
 
 		result, err := http.Post[Response](ctx, url, headers, data, false)
 		if err != nil {

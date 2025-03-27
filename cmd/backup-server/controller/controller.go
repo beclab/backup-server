@@ -5,13 +5,10 @@ import (
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/common"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/lithammer/dedent"
 	pkgerrors "github.com/pkg/errors"
@@ -61,7 +58,6 @@ func NewControllerCommand() *cobra.Command {
 
 	fs := cmd.PersistentFlags()
 	addFlags(fs)
-	common.AddFlags(fs)
 
 	return &cmd
 }
@@ -72,14 +68,9 @@ func addFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	fs.StringVar(&velero.DefaultBackupBucket, "backup-bucket",
-		util.EnvOrDefault("VELERO_BACKUP_BUCKET", velero.DefaultBackupBucket), "terminus backup bucket")
-	fs.StringVar(&velero.DefaultBackupKeyPrefix, "backup-key-prefix",
-		util.EnvOrDefault("VELERO_BACKUP_KEY_PREFIX", velero.DefaultBackupKeyPrefix), "terminus backup key prefix")
 
 	// fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.xyz", "cloud API mirror")
 	fs.StringVarP(&logLevel, "log-level", "l", "debug", "log level")
-	fs.Int64Var(&velero.DefaultBackupTTL, "backup-retain-days", velero.DefaultBackupTTL, "backup ttl, retain for days")
 
 }
 
@@ -90,9 +81,6 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-
-	// print flag values
-	common.PrintFlagAndValues()
 
 	return run(f)
 }
@@ -140,8 +128,6 @@ func run(factory client.Factory) error {
 	workerManager.StartBackupWorker()
 	workerManager.StartRestoreWorker()
 
-	manager := velero.NewManager(factory)
-
 	enabledControllers := map[string]struct{}{
 		controllers.BackupController:   {},
 		controllers.SnapshotController: {},
@@ -149,21 +135,21 @@ func run(factory client.Factory) error {
 	}
 
 	if _, ok := enabledControllers[controllers.BackupController]; ok {
-		if err = controllers.NewBackupController(mgr.GetClient(), factory, manager, mgr.GetScheme(), handler).
+		if err = controllers.NewBackupController(mgr.GetClient(), factory, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backupConfig controller: %v", err)
 		}
 	}
 
 	if _, ok := enabledControllers[controllers.SnapshotController]; ok {
-		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, manager, mgr.GetScheme(), handler).
+		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create backup controller: %v", err)
 		}
 	}
 
 	if _, ok := enabledControllers[controllers.RestoreController]; ok {
-		if err = controllers.NewRestoreController(mgr.GetClient(), factory, manager, mgr.GetScheme(), handler).
+		if err = controllers.NewRestoreController(mgr.GetClient(), factory, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
 			return pkgerrors.Errorf("unable to create restore controller: %v", err)
 		}

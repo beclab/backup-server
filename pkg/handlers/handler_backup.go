@@ -96,8 +96,14 @@ func (o *BackupHandler) Delete(ctx context.Context, backup *sysv1.Backup) error 
 	return o.update(ctx, backup)
 }
 
-func (o *BackupHandler) Pause(ctx context.Context, backup *sysv1.Backup) error {
-	backup.Spec.BackupPolicy.Enabled = false
+func (o *BackupHandler) Enabled(ctx context.Context, backup *sysv1.Backup, data string) error {
+	var enabled bool
+	if data == constant.BackupResume {
+		enabled = true
+	} else {
+		enabled = false
+	}
+	backup.Spec.BackupPolicy.Enabled = enabled
 	return o.update(ctx, backup)
 }
 
@@ -148,7 +154,7 @@ func (o *BackupHandler) GetById(ctx context.Context, id string) (*sysv1.Backup, 
 	}
 
 	if backup == nil {
-		return nil, fmt.Errorf("backup not found")
+		return nil, apierrors.NewNotFound(sysv1.Resource("Backup"), id)
 	}
 
 	return backup, nil
@@ -178,6 +184,7 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 }
 
 func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+	var policy = fmt.Sprintf("%s_%s_%d_%d", backupSpec.BackupPolicy.SnapshotFrequency, backupSpec.BackupPolicy.TimesOfDay, backupSpec.BackupPolicy.DayOfWeek, backupSpec.BackupPolicy.DateOfMonth)
 	var backupId = uuid.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
@@ -185,8 +192,9 @@ RETRY:
 			Name:      backupId,
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
-				"owner": owner,
-				"name":  util.MD5(backupName),
+				"owner":  owner,
+				"name":   util.MD5(backupName),
+				"policy": util.MD5(policy),
 			},
 		},
 		TypeMeta: metav1.TypeMeta{

@@ -29,6 +29,12 @@ const (
 	RestoreController  string = "restore-controller"
 
 	BackupTypeFile string = "file"
+
+	BackupPause  string = "pause"
+	BackupResume string = "resume"
+
+	RestoreTypeSnapshot string = "snapshot"
+	RestoreTypeUrl      string = "url"
 )
 
 type BackupLocation string

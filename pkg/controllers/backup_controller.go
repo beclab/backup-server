@@ -14,12 +14,10 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/gengo/examples/set-gen/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,21 +28,17 @@ import (
 // BackupReconciler reconciles a Backup object
 type BackupReconciler struct {
 	client.Client
-	manager   velero.Manager
-	factory   k8sclient.Factory
-	bcManager velero.Manager
-	scheme    *runtime.Scheme
-	handler   handlers.Interface
+	factory k8sclient.Factory
+	scheme  *runtime.Scheme
+	handler handlers.Interface
 }
 
-func NewBackupController(c client.Client, factory k8sclient.Factory, bcm velero.Manager, schema *runtime.Scheme, handler handlers.Interface) *BackupReconciler {
+func NewBackupController(c client.Client, factory k8sclient.Factory, schema *runtime.Scheme, handler handlers.Interface) *BackupReconciler {
 	return &BackupReconciler{
-		Client:    c,
-		manager:   bcm,
-		factory:   factory,
-		bcManager: bcm,
-		scheme:    schema,
-		handler:   handler,
+		Client:  c,
+		factory: factory,
+		scheme:  schema,
+		handler: handler,
 	}
 }
 
@@ -69,7 +63,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, errors.WithStack(err)
 	}
 
-	backup, err := c.SysV1().Backups(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{}) // TODO ctx
+	backup, err := c.SysV1().Backups(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
 		return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Second}, nil
 	} else if err != nil {
@@ -85,7 +79,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Infof("notify backup %s backupid %s record success", backup.Spec.Name, backup.Name)
 	}
 
-	if backup.Spec.BackupPolicy.Enabled {
+	if !backup.Spec.Deleted && backup.Spec.BackupPolicy.Enabled {
 		err = r.reconcileBackupPolicies(backup)
 		if err != nil {
 			return ctrl.Result{}, errors.WithStack(err)
@@ -107,9 +101,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			},
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				log.Info("hit backup update event")
-				if !isTrue(e.ObjectOld, e.ObjectNew) {
-					return false
-				}
+
 				bc1, ok1 := e.ObjectOld.(*sysv1.Backup)
 				bc2, ok2 := e.ObjectNew.(*sysv1.Backup)
 				if !(ok1 || ok2) || reflect.DeepEqual(bc1.Spec, bc2.Spec) {
@@ -161,55 +153,6 @@ func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 		log.Debugf("schedule %q created: %q", backup.Spec.Name, cron)
 	}
 	return nil
-}
-
-func isTrue(objects ...client.Object) bool {
-	fs := sets.NewByte()
-
-	for _, o := range objects {
-		_, ok := o.GetLabels()["component"]
-		if o.GetNamespace() == velero.DefaultVeleroNamespace &&
-			ok {
-			fs.Insert('y')
-		} else {
-			fs.Insert('n')
-		}
-	}
-	return fs.HasAll('y')
-}
-
-func (r *BackupReconciler) deleteBackupConfig(name string, namespace string) {
-	// sc, err := r.factory.Sysv1Client()
-	// if err != nil {
-	// 	log.Warnf("failed to new sys client: %v", err)
-	// 	return
-	// }
-
-	// log.Infof("delete backup tasks of config %s", name)
-	// var labelSelector = fmt.Sprintf("%s=%s", velero.LabelBackupConfig, name)
-
-	// ctx := context.Background()
-
-	// if backups, err := sc.SysV1().Backups(namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector}); err == nil {
-	// 	if len(backups.Items) > 0 {
-	// 		for i := len(backups.Items) - 1; i >= 0; i-- {
-	// 			b := backups.Items[i]
-	// 			// if config, ok := b.Annotations[velero.LabelBackupConfig]; ok && config == name {
-	// 			log.Infof("deleteing backup [%s] of config, %s", b.Name, b.Spec.Extra[velero.ExtraBackupType])
-	// 			if err = sc.SysV1().Backups(namespace).Delete(ctx, b.Name, metav1.DeleteOptions{}); err != nil {
-	// 				log.Errorf("delete backups of config error, %+v, %s", err, b.Name)
-	// 			}
-	// 			// }
-	// 		}
-	// 	}
-
-	// 	if err = r.manager.DeleteVeleroBackup(ctx, namespace, name); err != nil {
-	// 		log.Warnf("delete velero backup error, %+v, %s", err, name)
-	// 	}
-	// 	log.Infof("successfully delete bc %q", name)
-	// } else {
-	// 	log.Errorf("get backups of config error, %+v, %s", err, name)
-	// }
 }
 
 func (r *BackupReconciler) notify(backup *sysv1.Backup) error {

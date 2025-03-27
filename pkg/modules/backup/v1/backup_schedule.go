@@ -12,7 +12,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -30,15 +29,13 @@ type BackupPlan struct {
 	owner   string
 	c       *BackupCreate
 	factory client.Factory
-	manager velero.Manager
 	handler handlers.Interface
 }
 
-func NewBackupPlan(owner string, factory client.Factory, manager velero.Manager, handler handlers.Interface) *BackupPlan {
+func NewBackupPlan(owner string, factory client.Factory, handler handlers.Interface) *BackupPlan {
 	return &BackupPlan{
 		owner:   owner,
 		factory: factory,
-		manager: manager,
 		handler: handler,
 	}
 }
