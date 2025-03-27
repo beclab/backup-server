@@ -19,7 +19,6 @@ var IntegrationService *Integration
 
 type Integration struct {
 	Factory      client.Factory
-	Owner        string
 	Location     string
 	Name         string
 	OlaresTokens map[string]*SpaceToken
@@ -36,21 +35,21 @@ func IntegrationManager() *Integration {
 	return IntegrationService
 }
 
-func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, olaresId string) (*SpaceToken, error) {
-	token := i.OlaresTokens[olaresId]
+func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, owner string, integrationName string) (*SpaceToken, error) {
+	token := i.OlaresTokens[integrationName]
 	if token != nil {
 		if !token.Expired() {
 			return token, nil
 		}
 	}
 
-	data, err := i.query(ctx, constant.BackupLocationSpace.String(), olaresId)
+	data, err := i.query(ctx, owner, constant.BackupLocationSpace.String(), integrationName)
 	if err != nil {
 		return nil, err
 	}
 
 	token = i.withSpaceToken(data)
-	i.OlaresTokens[olaresId] = token
+	i.OlaresTokens[integrationName] = token
 
 	if token.Expired() {
 		return nil, fmt.Errorf("olares space token expired")
@@ -59,8 +58,8 @@ func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, olaresId str
 	return token, nil
 }
 
-func (i *Integration) GetIntegrationCloudToken(ctx context.Context, location, integrationName string) (*IntegrationToken, error) {
-	data, err := i.query(ctx, location, integrationName)
+func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, location, integrationName string) (*IntegrationToken, error) {
+	data, err := i.query(ctx, owner, location, integrationName)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +72,7 @@ func (i *Integration) withSpaceToken(data *accountResponseData) *SpaceToken {
 		Name:        data.Name,
 		Type:        data.Type,
 		OlaresDid:   "did:key:z6MkiwBrVUoVizE94HcMxxqXE47s4SswMyQkJzdMtUBJ4PfJ", // data.RawData.UserId,
-		AccessToken: "d1b40d78955348458f94213a9a8900f1",                         //data.RawData.AccessToken,
+		AccessToken: "1846f60995f541ccae68d94fca877264",                         //data.RawData.AccessToken,
 		ExpiresAt:   data.RawData.ExpiresAt,
 		Available:   data.RawData.Available,
 	}
@@ -91,10 +90,10 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 	}
 }
 
-func (i *Integration) query(ctx context.Context, integrationLocation, integrationAccountName string) (*accountResponseData, error) {
-	ip, err := i.getSettingsIP(ctx)
+func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
+	ip, err := i.getSettingsIP(ctx, owner)
 	if err != nil {
-		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v", err))
+		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v, location: %s, name: %s", err, integrationLocation, integrationName))
 	}
 
 	headerNonce, err := i.getAppKey(ctx)
@@ -106,7 +105,7 @@ func (i *Integration) query(ctx context.Context, integrationLocation, integratio
 
 	client := resty.New().SetTimeout(10 * time.Second)
 	var data = make(map[string]string)
-	data["name"] = i.formatUrl(integrationLocation, integrationAccountName)
+	data["name"] = i.formatUrl(integrationLocation, integrationName)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
@@ -139,11 +138,11 @@ func (i *Integration) query(ctx context.Context, integrationLocation, integratio
 		return nil, err
 	}
 
-	accountResp.Data.RawData.ExpiresAt = 1742978678000 // TODO debug
+	accountResp.Data.RawData.ExpiresAt = 1743305816000 // TODO debug
 	return accountResp.Data, nil
 }
 
-func (i *Integration) getSettingsIP(ctx context.Context) (ip string, err error) {
+func (i *Integration) getSettingsIP(ctx context.Context, onwer string) (ip string, err error) {
 	kubeClient, err := i.Factory.KubeClient()
 	if err != nil {
 		return "", errors.WithStack(err)
@@ -152,7 +151,7 @@ func (i *Integration) getSettingsIP(ctx context.Context) (ip string, err error) 
 	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", i.Owner)).List(getCtx, metav1.ListOptions{
+	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", onwer)).List(getCtx, metav1.ListOptions{
 		LabelSelector: "app=systemserver",
 	})
 	if err != nil {

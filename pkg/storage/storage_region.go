@@ -17,8 +17,8 @@ type StorageRegion struct {
 	Handlers handlers.Interface
 }
 
-func (s *StorageRegion) GetRegions(ctx context.Context, olaresId string) (string, error) {
-	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, olaresId)
+func (s *StorageRegion) GetRegions(ctx context.Context, owner, olaresId string) (string, error) {
+	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, owner, olaresId)
 	if err != nil {
 		err = fmt.Errorf("get space token error %v", err)
 		return "", err

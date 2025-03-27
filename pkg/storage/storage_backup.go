@@ -28,9 +28,10 @@ type StorageBackup struct {
 	Ctx        context.Context
 	Cancel     context.CancelFunc
 
-	Backup   *sysv1.Backup
-	Snapshot *sysv1.Snapshot
-	Params   *BackupParameters
+	Backup       *sysv1.Backup
+	Snapshot     *sysv1.Snapshot
+	Params       *BackupParameters
+	SnapshotType *int
 }
 
 type BackupParameters struct {
@@ -48,6 +49,10 @@ func (s *StorageBackup) RunBackup() error {
 	var f = func() error {
 		var e error
 		if e = s.validateSnapshotPreconditions(); e != nil {
+			return errors.WithStack(e)
+		}
+
+		if e = s.checkSnapshotType(); e != nil {
 			return errors.WithStack(e)
 		}
 
@@ -120,6 +125,16 @@ func (s *StorageBackup) validateSnapshotPreconditions() error {
 	return nil
 }
 
+func (s *StorageBackup) checkSnapshotType() error {
+	snapshotType, err := s.Handlers.GetSnapshotHandler().GetSnapshotType(s.Ctx, s.Backup.Name)
+	if err != nil {
+		return fmt.Errorf("Backup %s-%s get snapshot type error %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
+	}
+
+	s.SnapshotType = handlers.ParseSnapshotType(snapshotType)
+	return nil
+}
+
 func (s *StorageBackup) prepareBackupParams() error {
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
@@ -137,16 +152,10 @@ func (s *StorageBackup) prepareBackupParams() error {
 		return fmt.Errorf("Backup %s-%s location config not exists", backupName, snapshotId)
 	}
 
-	snapshotType, err := s.Handlers.GetSnapshotHandler().GetSnapshotType(s.Ctx, s.Backup.Name)
-	if err != nil {
-		return fmt.Errorf("Backup %s-%s get snapshot type error %v", backupName, snapshotId, err)
-	}
-
 	s.Params = &BackupParameters{
-		Path:         handlers.GetBackupPath(s.Backup),
-		Password:     password,
-		Location:     location,
-		SnapshotType: snapshotType,
+		Path:     handlers.GetBackupPath(s.Backup),
+		Password: password,
+		Location: location,
 	}
 
 	return nil
@@ -232,7 +241,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	var olaresId = location["name"]
 
 	for {
-		var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, olaresId)
+		var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
 		if err != nil {
 			err = fmt.Errorf("get space token error %v", err)
 			break
@@ -264,7 +273,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
-				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, location["name"])
+				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
 				if err != nil {
 					err = fmt.Errorf("get space token error %v", err)
 					break
@@ -301,7 +310,11 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		snapshot.Spec.Phase = pointer.String(phase.String())
 		snapshot.Spec.Message = pointer.String(backupError.Error())
 		snapshot.Spec.ResticPhase = pointer.String(phase.String())
+		if s.SnapshotType != nil {
+			snapshot.Spec.SnapshotType = s.SnapshotType
+		}
 	} else {
+		snapshot.Spec.SnapshotType = s.SnapshotType
 		snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 		snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
 		snapshot.Spec.Phase = pointer.String(phase.String())
@@ -325,7 +338,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 
 func (s *StorageBackup) notifyBackupResult(backupOutput *backupssdkrestic.SummaryOutput,
 	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) error {
-	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Params.Location["name"])
+	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, s.Params.Location["name"])
 	if err != nil {
 		return fmt.Errorf("get space token error %v", err)
 	}
@@ -338,7 +351,7 @@ func (s *StorageBackup) notifyBackupResult(backupOutput *backupssdkrestic.Summar
 		SnapshotId:   s.Snapshot.Name,
 		Unit:         constant.DefaultSnapshotSizeUnit,
 		SnapshotTime: s.Snapshot.Spec.StartAt,
-		Type:         handlers.ParseSnapshotTypeText(s.Snapshot.Spec.SnapshotType),
+		Type:         handlers.ParseSnapshotTypeText(s.SnapshotType),
 	}
 
 	if backupStorageObj != nil {
@@ -376,5 +389,5 @@ func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, er
 	var l = s.Params.Location
 	var location = l["location"]
 	var locationIntegrationName = l["name"]
-	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, location, locationIntegrationName)
+	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
 }

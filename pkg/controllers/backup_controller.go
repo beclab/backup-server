@@ -220,7 +220,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	if integrationName == "" {
 		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
 	}
-	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, integrationName)
+	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
 	if err != nil {
 		return err
 	}

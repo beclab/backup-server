@@ -15,6 +15,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/pkg/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 type Handler struct {
@@ -125,7 +126,8 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	// if backup is exists
 	var getLabel = "name=" + util.MD5(b.Name) + ",owner=" + owner
 	backup, err := h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-	if err != nil {
+
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
 		return
 	}
@@ -297,7 +299,7 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 	var storageRegion = &storage.StorageRegion{
 		Handlers: h.handler,
 	}
-	regions, err := storageRegion.GetRegions(ctx, olaresId)
+	regions, err := storageRegion.GetRegions(ctx, owner, olaresId)
 	if err != nil {
 		response.HandleError(resp, err)
 		return

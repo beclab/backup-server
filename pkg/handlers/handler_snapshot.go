@@ -48,7 +48,7 @@ func NewSnapshotHandler(f client.Factory, handlers Interface) *SnapshotHandler {
 
 func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, phase string) error {
 	snapshot, err := o.GetById(ctx, snapshotId)
-	if err != nil {
+	if err != nil || !apierrors.IsNotFound(err) {
 		return err
 	}
 
@@ -133,7 +133,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 	var startAt = time.Now().UnixMilli()
 	var name = uuid.NewUUID()
 	var phase = constant.Pending.String()
-	var parseSnapshotType = parseSnapshotType(constant.UnKnownBackup)
+	var parseSnapshotType = ParseSnapshotType(constant.UnKnownBackup)
 
 	var snapshot = &sysv1.Snapshot{
 		TypeMeta: metav1.TypeMeta{
@@ -182,7 +182,7 @@ func (o *SnapshotHandler) GetById(ctx context.Context, snapshotId string) (*sysv
 	}
 
 	if snapshot == nil {
-		return nil, fmt.Errorf("snapshot not exists")
+		return nil, apierrors.NewNotFound(sysv1.Resource("Snapshot"), snapshotId)
 	}
 
 	return snapshot, nil

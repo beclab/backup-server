@@ -171,7 +171,7 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 	}
 
 	if backups == nil || backups.Items == nil || len(backups.Items) == 0 {
-		return nil, fmt.Errorf("backup not found")
+		return nil, apierrors.NewNotFound(sysv1.Resource("Backup"), label)
 	}
 
 	return &backups.Items[0], nil

@@ -70,9 +70,9 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 		var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupPath=%s&backupLocation=%s",
 			backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupPath, backup.BackupLocation)
 
-		log.Infof("send backup data: %s", data)
+		log.Infof("notify backup data: %s", data)
 
-		result, err := http.Post[Response](ctx, url, headers, data)
+		result, err := http.Post[Response](ctx, url, headers, data, false)
 		if err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 
 		log.Infof("push snapshot data: %s", data)
 
-		result, err := http.Post[Response](ctx, url, headers, data)
+		result, err := http.Post[Response](ctx, url, headers, data, false)
 		if err != nil {
 			return err
 		}

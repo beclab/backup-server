@@ -114,6 +114,11 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					if err := r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String()); err != nil {
 						log.Errorf("update backup %s snapshot %s phase Failed error %v", backup.Spec.Name, snapshot.Name, err)
 					}
+					if err := r.notifySnapshot(backup, snapshot, constant.Failed.String()); err != nil {
+						log.Errorf("notify backup %s snapshot %s Failed error: %v", backup.Spec.Name, snapshot.Name, err)
+					} else {
+						log.Infof("notify backup %s snapshot %s Failed", backup.Spec.Name, snapshot.Name)
+					}
 				case constant.Pending.String():
 					if err := r.notifySnapshot(backup, snapshot, constant.New.String()); err != nil {
 						log.Errorf("notify backup %s snapshot %s New error: %v", backup.Spec.Name, snapshot.Name, err)
@@ -229,7 +234,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 	if integrationName == "" {
 		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
 	}
-	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, integrationName)
+	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
 	if err != nil {
 		return err
 	}

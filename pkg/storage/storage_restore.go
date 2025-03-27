@@ -201,7 +201,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 	var location = s.Params.Location
 
 	for {
-		var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, location["name"])
+		var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
 		if err != nil {
 			err = fmt.Errorf("get space token error %v", err)
 			break
@@ -235,7 +235,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
-				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, location["name"])
+				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
 				if err != nil {
 					err = fmt.Errorf("get space token error %v", err)
 					break
@@ -278,5 +278,5 @@ func (s *StorageRestore) getIntegrationCloud() (*integration.IntegrationToken, e
 	var l = s.Params.Location
 	var location = l["location"]
 	var locationIntegrationName = l["name"]
-	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, location, locationIntegrationName)
+	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
 }

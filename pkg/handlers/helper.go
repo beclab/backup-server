@@ -79,7 +79,11 @@ func GetBackupIntegrationName(location string, locationConfig map[string]string)
 	if !ok {
 		return ""
 	}
-	return name
+	var config map[string]string
+	if err := json.Unmarshal([]byte(name), &config); err != nil {
+		return ""
+	}
+	return config["name"]
 }
 
 func ParseSnapshotTypeText(snapshotType *int) string {
@@ -94,7 +98,7 @@ func ParseSnapshotTypeText(snapshotType *int) string {
 	}
 }
 
-func parseSnapshotType(snapshotType string) *int {
+func ParseSnapshotType(snapshotType string) *int {
 	var r = constant.UnKnownBackupId
 	switch snapshotType {
 	case constant.FullyBackup:
