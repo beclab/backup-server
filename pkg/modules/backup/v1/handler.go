@@ -304,7 +304,6 @@ func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 	response.Success(resp, parseResponseSnapshotDetail(snapshot))
 }
 
-// TODO
 func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -316,7 +315,7 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if b.Event != "cancel" {
+	if b.Event != constant.BackupCancel {
 		response.HandleError(resp, errors.WithMessagef(err, "snapshot event invalid %s", b.Event))
 		return
 	}
@@ -395,7 +394,7 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 	response.Success(resp, parseResponseSpaceRegions(regions))
 }
 
-// todo
+// TODO
 func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	response.SuccessNoData(resp)
 }
@@ -422,8 +421,11 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	var restoreTypeName = constant.RestoreTypeUrl
+	var snapshotId, resticSnapshotId, location string
+	var backupUrlObj *handlers.RestoreBackupUrlDetail
 
 	if b.SnapshotId != "" {
+		snapshotId = b.SnapshotId
 		restoreTypeName = constant.RestoreTypeSnapshot
 		snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, b.SnapshotId)
 		if err != nil {
@@ -436,14 +438,34 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 			response.HandleError(resp, errors.Errorf("get backup %s error: %v", snapshot.Spec.BackupId, err))
 			return
 		}
+
+		resticSnapshotId = *snapshot.Spec.SnapshotId
+	} else {
+		// parse and split BackupURL
+		backupUrlObj, resticSnapshotId, location, err = handlers.ParseRestoreBackupUrlDetail(b.BackupUrl)
+		if err != nil {
+			log.Errorf("parse BackupURL error %v, url: %s", b.BackupUrl)
+			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
+			return
+		}
+	}
+
+	clusterId, err := handlers.GetClusterId()
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("get cluster id error: %v", err))
+		return
 	}
 
 	var restoreType = &handlers.RestoreType{
-		Type:       restoreTypeName,
-		Path:       strings.TrimSpace(b.Path),
-		BackupUrl:  handlers.ParseRestoreBackupUrlDetail(b.BackupUrl),
-		Password:   util.Base64encode([]byte(strings.TrimSpace(b.Password))),
-		SnapshotId: b.SnapshotId,
+		Owner:            owner,
+		Type:             restoreTypeName,
+		Path:             strings.TrimSpace(b.Path),
+		BackupUrl:        backupUrlObj, // if snapshot,it will be nil
+		Password:         util.Base64encode([]byte(strings.TrimSpace(b.Password))),
+		SnapshotId:       snapshotId,
+		ResticSnapshotId: resticSnapshotId,
+		ClusterId:        clusterId,
+		Location:         location, // TODO filesystem
 	}
 
 	_, err = h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
@@ -481,7 +503,7 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if b.Event != "cancel" {
+	if b.Event != constant.BackupCancel {
 		response.HandleError(resp, errors.WithMessagef(err, "restore event invalid %s", b.Event))
 		return
 	}

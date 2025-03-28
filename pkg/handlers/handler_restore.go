@@ -38,6 +38,9 @@ func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phas
 		return err
 	}
 
+	if phase == constant.Running.String() {
+		restore.Spec.StartAt = time.Now().UnixMilli()
+	}
 	restore.Spec.Phase = pointer.String(phase)
 
 	return o.Update(ctx, restoreId, &restore.Spec)

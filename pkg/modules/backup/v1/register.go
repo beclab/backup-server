@@ -122,7 +122,6 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("list restore plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
-	// + TODO backupURL
 	ws.Route(ws.POST("/plans/restore").
 		To(handler.addRestore).
 		Reads(RestoreCreate{}).

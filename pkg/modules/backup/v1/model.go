@@ -50,9 +50,9 @@ type SnapshotCancel struct {
 
 type RestoreCreate struct {
 	BackupUrl  string `json:"backupUrl"`
+	Password   string `json:"password"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
-	Password   string `json:"password"`
 }
 
 func (r *RestoreCreate) verify() bool {

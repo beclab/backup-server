@@ -34,7 +34,7 @@ func (s *StorageRegion) GetRegions(ctx context.Context, owner, olaresId string) 
 		"--cloud-api-mirror", "https://cloud-dev-api.olares.xyz", //constant.DefaultSyncServerURL,
 	}
 
-	cmd := exec.CommandContext(ctx, "/tmp/backup-cli", parms...)
+	cmd := exec.CommandContext(ctx, "/tmp/backup-cli", parms...) // TODO
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

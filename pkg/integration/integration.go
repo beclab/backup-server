@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/client"
@@ -67,12 +68,34 @@ func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, locat
 	return i.withCloudToken(data), nil
 }
 
+func (i *Integration) GetGetIntegrationNameByLocation(ctx context.Context, owner, location string) (string, error) {
+
+	accounts, err := i.queryIntegrationAccounts(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+
+	var name string
+	for _, account := range accounts {
+		if strings.Contains(location, account.Type) {
+			name = account.Name
+			break
+		}
+	}
+
+	if name == "" {
+		return "", fmt.Errorf("integration account name not found, owner: %s, location: %s", owner, location)
+	}
+
+	return name, nil
+}
+
 func (i *Integration) withSpaceToken(data *accountResponseData) *SpaceToken {
 	return &SpaceToken{
 		Name:        data.Name,
 		Type:        data.Type,
-		OlaresDid:   "did:key:z6MkiwBrVUoVizE94HcMxxqXE47s4SswMyQkJzdMtUBJ4PfJ", // data.RawData.UserId,
-		AccessToken: "1846f60995f541ccae68d94fca877264",                         //data.RawData.AccessToken,
+		OlaresDid:   data.RawData.UserId,
+		AccessToken: data.RawData.AccessToken,
 		ExpiresAt:   data.RawData.ExpiresAt,
 		Available:   data.RawData.Available,
 	}
@@ -88,6 +111,53 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 		Bucket:    data.RawData.Bucket,
 		Available: data.RawData.Available,
 	}
+}
+
+func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string) ([]*accountsResponseData, error) {
+	ip, err := i.getSettingsIP(ctx, owner)
+	if err != nil {
+		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v", err))
+	}
+
+	headerNonce, err := i.getAppKey(ctx)
+	if err != nil {
+		return nil, errors.WithStack(fmt.Errorf("get header nonce error: %v", err))
+	}
+
+	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/all", ip)
+
+	client := resty.New().SetTimeout(10 * time.Second)
+	log.Infof("fetch integration from settings: %s", settingsUrl)
+	resp, err := client.R().SetDebug(true).SetContext(ctx).
+		SetHeader("Terminus-Nonce", headerNonce).
+		SetResult(&accountsResponse{}).
+		Get(settingsUrl)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		err = errors.WithStack(fmt.Errorf("request account api response not ok, status: %d", resp.StatusCode()))
+		return nil, err
+	}
+
+	accountsResp := resp.Result().(*accountsResponse)
+
+	if accountsResp.Code == 1 && accountsResp.Message == "" {
+		err = errors.WithStack(fmt.Errorf("integration accounts not exists"))
+		return nil, err
+	} else if accountsResp.Code != 0 {
+		err = errors.WithStack(fmt.Errorf("request accounts api response error, status: %d, message: %s", accountsResp.Code, accountsResp.Message))
+		return nil, err
+	}
+
+	if accountsResp.Data == nil || len(accountsResp.Data) == 0 {
+		err = errors.WithStack(fmt.Errorf("request accounts api response data is nil, status: %d, message: %s", accountsResp.Code, accountsResp.Message))
+		return nil, err
+	}
+
+	return accountsResp.Data, nil
 }
 
 func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
@@ -138,6 +208,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 		return nil, err
 	}
 
+	accountResp.Data.RawData.AccessToken = "d17d57e52bd04ea7957a74bc583f2e1d"
 	accountResp.Data.RawData.ExpiresAt = 1743305816000 // TODO debug
 	return accountResp.Data, nil
 }

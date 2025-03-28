@@ -71,9 +71,9 @@ func (s *StorageBackup) RunBackup() error {
 	}
 	if err := f(); err != nil {
 		if e := s.notifyBackupResult(nil, nil, err); e != nil {
-			log.Errorf("Backup %s-%s notify backup terminate error %v", backupName, snapshotId, err)
+			log.Errorf("Backup %s,%s, notify backup terminate error: %v", backupName, snapshotId, err)
 		} else {
-			log.Infof("Backup %s-%s notify backup terminate success", backupName, snapshotId)
+			log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
 		}
 
 		if e := s.updateBackupResult(nil, nil, err); e != nil {
@@ -83,18 +83,19 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 
+	log.Infof("backup %s,%s, locationConfig: %s", backupName, snapshotId, util.ToJSON(s.Params.Location))
 	backupResult, backupStorageObj, backupErr := s.execute()
 	if backupErr != nil {
-		log.Errorf("Backup %s-%s error %v", backupName, snapshotId, backupErr)
+		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
 	} else {
-		log.Infof("Backup %s-%s success", backupName, snapshotId)
+		log.Infof("Backup %s,%s, success", backupName, snapshotId)
 	}
 
 	// TODO err include "canceled" "error" "nil"
 	if err := s.notifyBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
-		log.Errorf("Backup %s-%s notify backup result error %v", backupName, snapshotId, err)
+		log.Errorf("Backup %s,%s notify backup result error: %v", backupName, snapshotId, err)
 	} else {
-		log.Infof("Backup %s-%s notify backup result success", backupName, snapshotId)
+		log.Infof("Backup %s,%s notify backup result success", backupName, snapshotId)
 	}
 	if err := s.updateBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
 		return errors.WithStack(err)
@@ -124,7 +125,7 @@ func (s *StorageBackup) validateSnapshotPreconditions() error {
 	var snapshotId = s.Snapshot.Name
 	var phase = *s.Snapshot.Spec.Phase
 	if phase != constant.Pending.String() { // other phase ?
-		return fmt.Errorf("Backup %s-%s snapshot phase %s invalid", backupName, snapshotId, phase)
+		return fmt.Errorf("Backup %s,%s, snapshot phase %s invalid", backupName, snapshotId, phase)
 	}
 	return nil
 }
@@ -132,7 +133,7 @@ func (s *StorageBackup) validateSnapshotPreconditions() error {
 func (s *StorageBackup) checkSnapshotType() error {
 	snapshotType, err := s.Handlers.GetSnapshotHandler().GetSnapshotType(s.Ctx, s.Backup.Name)
 	if err != nil {
-		return fmt.Errorf("Backup %s-%s get snapshot type error %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
+		return fmt.Errorf("Backup %s,%s, get snapshot type error: %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
 	}
 
 	s.SnapshotType = handlers.ParseSnapshotType(snapshotType)
@@ -144,16 +145,16 @@ func (s *StorageBackup) prepareBackupParams() error {
 	var snapshotId = s.Snapshot.Name
 	password, err := s.Handlers.GetBackupHandler().GetBackupPassword(s.Ctx, s.Backup)
 	if err != nil {
-		return fmt.Errorf("Backup %s-%s get password error %v", backupName, snapshotId, err)
+		return fmt.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
 	}
 
 	location, err := handlers.GetBackupLocationConfig(s.Backup)
 	if err != nil {
-		return fmt.Errorf("Backup %s-%s get location config error %v", backupName, snapshotId, err)
+		return fmt.Errorf("Backup %s,%s, get location config error: %v", backupName, snapshotId, err)
 	}
 
 	if location == nil {
-		return fmt.Errorf("Backup %s-%s location config not exists", backupName, snapshotId)
+		return fmt.Errorf("Backup %s,%s, location config not exists", backupName, snapshotId)
 	}
 
 	s.Params = &BackupParameters{
@@ -178,7 +179,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	var snapshotId = s.Snapshot.Name
 	var location = s.Params.Location["location"]
 
-	log.Infof("Backup %s-%s location %s prepare: %s", backupName, snapshotId, location)
+	log.Infof("Backup %s,%s, location %s prepare", backupName, snapshotId, location)
 
 	var backupService *backupssdkstorage.BackupService
 
@@ -189,11 +190,13 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	case constant.BackupLocationAwsS3.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
-			backupError = fmt.Errorf("get %s token error %v", token.Type, err)
+			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
+			Ctx:      s.Ctx,
 			Logger:   logger,
 			Aws: &backupssdkoptions.AwsBackupOption{
 				RepoName:        backupId,
@@ -206,11 +209,13 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
-			backupError = fmt.Errorf("get %s token error %v", token.Type, err)
+			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
+			Ctx:      s.Ctx,
 			Logger:   logger,
 			TencentCloud: &backupssdkoptions.TencentCloudBackupOption{
 				RepoName:        backupId,
@@ -223,6 +228,8 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	case constant.BackupLocationFileSystem.String():
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
+			Ctx:      s.Ctx,
 			Logger:   logger,
 			Filesystem: &backupssdkoptions.FilesystemBackupOption{
 				RepoName: backupId,
@@ -244,10 +251,12 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	var location = s.Params.Location
 	var olaresId = location["name"]
 
+	var spaceToken *integration.SpaceToken
+
 	for {
-		var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
+		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
 		if err != nil {
-			err = fmt.Errorf("get space token error %v", err)
+			err = fmt.Errorf("get space token error: %v", err)
 			break
 		}
 		if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
@@ -268,6 +277,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 		var backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
 			Ctx:      s.Ctx,
 			Logger:   log.GetLogger(),
 			Space:    spaceBackupOption,
@@ -279,12 +289,12 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			if strings.Contains(err.Error(), "refresh-token error") {
 				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
 				if err != nil {
-					err = fmt.Errorf("get space token error %v", err)
+					err = fmt.Errorf("get space token error: %v", err)
 					break
 				}
 				continue
 			} else {
-				err = fmt.Errorf("space backup error %v", err)
+				err = fmt.Errorf("space backup error: %v", err)
 				break
 			}
 		}
@@ -345,7 +355,7 @@ func (s *StorageBackup) notifyBackupResult(backupOutput *backupssdkrestic.Summar
 	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) error {
 	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, s.Params.Location["name"])
 	if err != nil {
-		return fmt.Errorf("get space token error %v", err)
+		return fmt.Errorf("get space token error: %v", err)
 	}
 
 	var status constant.Phase = constant.Completed

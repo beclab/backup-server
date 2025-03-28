@@ -210,3 +210,11 @@ func ParseUnixMilliToDate(targetTimestamp int64) string {
 	t := time.UnixMilli(targetTimestamp)
 	return t.Format("2006-01-02 15:04:05")
 }
+
+func GetSuffix(c string, s string) (string, error) {
+	var r = strings.Split(c, s)
+	if len(r) != 2 {
+		return "", fmt.Errorf("get suffix invalid, context: %s", c)
+	}
+	return r[1], nil
+}

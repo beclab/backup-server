@@ -48,19 +48,30 @@ func (s *StorageRestore) RunRestore() error {
 	}
 
 	// todo update failed phase
-	if err := s.prepareRestoreParams(); err != nil {
-		return errors.WithStack(err)
+	var f = func() error {
+		var e error
+		if e = s.prepareRestoreParams(); e != nil {
+			return errors.WithStack(e)
+		}
+
+		if e = s.prepareForRun(); e != nil {
+			return errors.WithStack(e)
+		}
+		return nil
 	}
 
-	if err := s.prepareForRun(); err != nil {
-		return errors.WithStack(err)
+	if err := f(); err != nil {
+		if err := s.updateRestoreResult(nil, err); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	restoreResult, restoreErr := s.execute()
 	if restoreErr != nil {
 		log.Errorf("Restore %s error %v", s.RestoreId, restoreErr)
 	} else {
-		log.Infof("Restore %s success", s.RestoreId)
+		log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
 	}
 
 	if err := s.updateRestoreResult(restoreResult, restoreErr); err != nil {
@@ -85,7 +96,8 @@ func (s *StorageRestore) checkRestoreExists() error {
 		return fmt.Errorf("restore %s type %v invalid", s.RestoreId, restore.Spec.RestoreType)
 	}
 
-	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
+	log.Infof("restore %s, data: %s", s.RestoreId, util.ToJSON(restoreType))
+	if restoreType.Type == constant.RestoreTypeSnapshot {
 		snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, restoreType.SnapshotId)
 		if err != nil {
 			return fmt.Errorf("snapshot not found: %v", err)
@@ -107,7 +119,7 @@ func (s *StorageRestore) checkRestoreExists() error {
 
 func (s *StorageRestore) prepareRestoreParams() error {
 	var password string
-	var locationConfig map[string]string
+	var locationConfig = make(map[string]string)
 	var err error
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
@@ -124,9 +136,24 @@ func (s *StorageRestore) prepareRestoreParams() error {
 			return fmt.Errorf("Restore %s location config not found", s.RestoreId)
 		}
 	} else {
-		password = s.RestoreType.Password
+		// backupUrl
+		integrationName, err := integration.IntegrationManager().GetGetIntegrationNameByLocation(s.Ctx, s.RestoreType.Owner, s.RestoreType.Location)
+		if err != nil {
+			return err
+		}
+
+		locationConfig["location"] = s.RestoreType.Location
+		locationConfig["name"] = integrationName
+		locationConfig["cloudName"] = s.RestoreType.BackupUrl.CloudName
+		locationConfig["regionId"] = s.RestoreType.BackupUrl.RegionId
+		locationConfig["clusterId"] = s.RestoreType.ClusterId
+		locationConfig["suffix"] = s.RestoreType.BackupUrl.TerminusSuffix
+
+		p, _ := util.Base64decode(s.RestoreType.Password)
+		password = string(p)
 	}
 
+	log.Infof("restore: %s, locationConfig: %v", s.RestoreId, util.ToJSON(locationConfig))
 	s.Params = &RestoreParameters{
 		Path:     s.RestoreType.Path,
 		Password: password,
@@ -144,7 +171,7 @@ func (s *StorageRestore) prepareForRun() error {
 func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
 	var isSpaceRestore bool
 	var logger = log.GetLogger()
-	var resticSnapshotId = *s.Snapshot.Spec.SnapshotId
+	var resticSnapshotId = s.RestoreType.ResticSnapshotId
 	var location = s.Params.Location["location"] // todo review
 
 	log.Infof("Restore %s prepare: %s", s.RestoreId, s.RestoreType.Type)
@@ -152,10 +179,10 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	var restoreService *backupssdkstorage.RestoreService
 
 	switch location {
-	case "space":
+	case constant.BackupLocationSpace.String():
 		isSpaceRestore = true
 		restoreOutput, restoreError = s.restoreFromSpace()
-	case "awss3":
+	case constant.BackupLocationAwsS3.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
 			restoreError = fmt.Errorf("get %s token error %v", token.Type, err)
@@ -163,6 +190,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 		}
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
 			Logger:   logger,
 			Aws: &backupssdkoptions.AwsRestoreOption{
 				RepoName:        s.Backup.Name,
@@ -173,7 +201,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 				SecretAccessKey: token.SecretKey,
 			},
 		})
-	case "tencentcloud":
+	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
 			restoreError = fmt.Errorf("get %s token error %v", token.Type, err)
@@ -181,6 +209,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 		}
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
 			Logger:   logger,
 			TencentCloud: &backupssdkoptions.TencentCloudRestoreOption{
 				RepoName:        s.Backup.Name,
@@ -191,14 +220,15 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 				SecretAccessKey: token.SecretKey,
 			},
 		})
-	case "filesystem":
+	case constant.BackupLocationFileSystem.String():
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
 			Logger:   logger,
 			Filesystem: &backupssdkoptions.FilesystemRestoreOption{
 				RepoName:   s.Backup.Name,
 				SnapshotId: resticSnapshotId,
-				Endpoint:   "", // TODO
+				Endpoint:   s.Params.Path, // TODO
 				Path:       s.Params.Path,
 			},
 		})
@@ -212,12 +242,22 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 }
 
 func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, err error) {
-	var backupId = s.Backup.Name
-	var resticSnapshotId = *s.Snapshot.Spec.SnapshotId
+	var backupId string
+	var terminusSuffix string
+	var owner = s.RestoreType.Owner
+	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
+		backupId = s.Backup.Name
+	} else {
+		backupId = s.RestoreType.BackupUrl.BackupId
+		terminusSuffix = s.RestoreType.BackupUrl.TerminusSuffix
+	}
+
+	var spaceToken *integration.SpaceToken
+	var resticSnapshotId = s.RestoreType.ResticSnapshotId
 	var location = s.Params.Location
 
 	for {
-		var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
+		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, owner, location["name"])
 		if err != nil {
 			err = fmt.Errorf("get space token error %v", err)
 			break
@@ -230,6 +270,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 
 		var spaceRestoreOption = &backupssdkoptions.SpaceRestoreOption{
 			RepoName:       backupId,
+			RepoSuffix:     terminusSuffix, // only used for backupUrl
 			SnapshotId:     resticSnapshotId,
 			Path:           s.Params.Path,
 			OlaresDid:      spaceToken.OlaresDid,
@@ -242,6 +283,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 
 		var restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
+			Operator: constant.StorageOperatorApp,
 			Ctx:      s.Ctx,
 			Logger:   log.GetLogger(),
 			Space:    spaceRestoreOption,
@@ -251,7 +293,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
-				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
+				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, owner, location["name"])
 				if err != nil {
 					err = fmt.Errorf("get space token error %v", err)
 					break

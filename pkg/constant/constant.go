@@ -7,7 +7,7 @@ import (
 
 const (
 	EnvSpaceUrl          string = "OLARES_SPACE_URL"
-	DefaultSyncServerURL string = "https://cloud-dev-api.olares.xyz" // "https://cloud-api.bttcdn.com"
+	DefaultSyncServerURL string = "https://cloud-api.bttcdn.com"
 
 	DefaultSnapshotSizeUnit  = "byte"
 	DefaultOwnerHeaderKey    = "X-Backup-Owner"
@@ -32,9 +32,13 @@ const (
 
 	BackupPause  string = "pause"
 	BackupResume string = "resume"
+	BackupCancel string = "cancel"
 
 	RestoreTypeSnapshot string = "snapshot"
 	RestoreTypeUrl      string = "url"
+
+	StorageOperatorCli string = "cli"
+	StorageOperatorApp string = "app"
 )
 
 type BackupLocation string

@@ -50,3 +50,16 @@ type accountResponseRawData struct {
 	Available    bool   `json:"available"`
 	CreateAt     int64  `json:"create_at"`
 }
+
+type accountsResponse struct {
+	response.Header
+	Data []*accountsResponseData `json:"data,omitempty"`
+}
+
+type accountsResponseData struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	ExpiresAt int64  `json:"expires_at"`
+	Available bool   `json:"available"`
+	CreateAt  int64  `json:"create_at"`
+}

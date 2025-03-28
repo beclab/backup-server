@@ -54,7 +54,7 @@ func (o *BackupHandler) GetBackupPassword(ctx context.Context, backup *sysv1.Bac
 
 	terminusNonce, err := util.GenTerminusNonce("")
 	if err != nil {
-		err = fmt.Errorf("generate nonce error, ", err)
+		err = fmt.Errorf("generate nonce error: %v", err)
 		return
 	}
 
@@ -67,7 +67,7 @@ func (o *BackupHandler) GetBackupPassword(ctx context.Context, backup *sysv1.Bac
 		Post(settingsUrl)
 
 	if err != nil {
-		err = fmt.Errorf("request settings password api error, ", err)
+		err = fmt.Errorf("request settings password api error: %v", err)
 		return
 	}
 
