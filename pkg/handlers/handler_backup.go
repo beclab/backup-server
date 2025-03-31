@@ -35,9 +35,6 @@ func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 }
 
 func (o *BackupHandler) GetBackupPassword(ctx context.Context, backup *sysv1.Backup) (password string, err error) {
-	password = "123"
-	return
-
 	var owner = backup.Spec.Owner
 	var backupName = backup.Spec.Name
 

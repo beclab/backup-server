@@ -221,7 +221,7 @@ func (h *Handler) enabledBackupPlan(req *restful.Request, resp *restful.Response
 	}
 
 	if !util.ListContains([]string{constant.BackupPause, constant.BackupResume}, strings.ToLower(b.Event)) {
-		response.HandleError(resp, errors.WithMessagef(err, "backup event invalid %s, event: %s", b.Event))
+		response.HandleError(resp, errors.WithMessagef(err, "backup event invalid, event: %s", b.Event))
 		return
 	}
 
@@ -581,7 +581,7 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	if b.Event != constant.BackupCancel {
-		response.HandleError(resp, errors.WithMessagef(err, "restore event invalid %s, event: %s", b.Event))
+		response.HandleError(resp, errors.WithMessagef(err, "restore event invalid, event: %s", b.Event))
 		return
 	}
 
