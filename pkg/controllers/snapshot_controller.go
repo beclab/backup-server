@@ -16,6 +16,9 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
+	"github.com/pkg/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -54,25 +57,34 @@ func NewSnapshotController(c client.Client, factory k8sclient.Factory, schema *r
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log.Infof("received snapshot request, namespace: %q, name: %q", req.Namespace, req.Name)
+
+	c, err := r.factory.Sysv1Client()
+	if err != nil {
+		return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, errors.WithStack(err)
+	}
+
+	snapshot, err := c.SysV1().Snapshots(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
+	if err != nil && apierrors.IsNotFound(err) {
+		return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Second}, nil
+	} else if err != nil {
+		return ctrl.Result{}, errors.WithStack(err)
+	}
+
+	var phase = *snapshot.Spec.Phase
+
+	switch phase {
+	case constant.Pending.String():
+		if err := r.addToWorkerManager(snapshot); err != nil {
+			return ctrl.Result{}, errors.WithStack(err)
+		}
+	case constant.Running.String():
+		if err := r.updateRunningPhase(snapshot); err != nil {
+			return ctrl.Result{}, errors.WithStack(err)
+		}
+	}
+
 	return ctrl.Result{}, nil
-}
-
-func (r *SnapshotReconciler) handleDeleteBackup(name string, sb *sysapiv1.Backup) {
-	var (
-	// ctx = context.Background()
-	)
-
-	var backupType string
-
-	log.Debugf("deleting backup %q, type: %s", name, backupType)
-
-	// delete backup
-	// if err := r.manager.DeleteBackup(ctx, name, sb); err != nil && !apierrors.IsNotFound(err) {
-	// 	log.Errorf("failed to delete backup %q: %v", name, err)
-	// 	return
-	// }
-
-	log.Debugf("successfully to delete backup %q", name)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -82,7 +94,6 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			GenericFunc: func(genericEvent event.GenericEvent) bool { return false },
 			CreateFunc: func(e event.CreateEvent) bool {
 				log.Info("hit snapshot create event")
-				// Pending,Running Failed Complete
 
 				snapshot, ok := r.isSysSnapshot(e.Object)
 				if !ok {
@@ -90,48 +101,19 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				log.Infof("hit snapshot create event %s, %s", snapshot.Name, *snapshot.Spec.Phase)
-				backup, err := r.getBackup(snapshot.Spec.BackupId)
-				if err != nil {
-					log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
-					return false
-				}
-
-				// If the computer restarts and causes the snapshot to remain incomplete, its status will be changed from "Running" to "Failed."
-				// This prevents a large number of "Running" tasks from triggering backup actions after the computer restarts.
+				log.Infof("hit snapshot create event, snapshotId: %s, snapshotPhase: %s", snapshot.Name, *snapshot.Spec.Phase)
 
 				var phase = *snapshot.Spec.Phase
 
 				switch phase {
 				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
 					return false
-				case constant.Running.String():
-					// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
-					// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
-					if err := r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String()); err != nil {
-						log.Errorf("update backup %s snapshot %s phase Failed error %v", backup.Spec.Name, snapshot.Name, err)
-					}
-					if err := r.notifySnapshot(backup, snapshot, constant.Failed.String()); err != nil {
-						log.Errorf("notify backup %s snapshot %s Failed error: %v", backup.Spec.Name, snapshot.Name, err)
-					} else {
-						log.Infof("notify backup %s snapshot %s Failed", backup.Spec.Name, snapshot.Name)
-					}
-				case constant.Pending.String():
-					if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
-						log.Errorf("notify backup %s snapshot %s New error: %v", backup.Spec.Name, snapshot.Name, err)
-					} else {
-						log.Infof("notify backup %s snapshot %s New", backup.Spec.Name, snapshot.Name)
-					}
-					log.Infof("add to backup worker %s", snapshot.Name)
-					worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
+				default:
+					return true
 				}
-
-				return false
 			},
 			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 				log.Info("hit snapshot update event")
-
-				// todo need update backup.spec.Size
 
 				oldObj, newObj := updateEvent.ObjectOld, updateEvent.ObjectNew
 				oldSnapshot, ok1 := r.isSysSnapshot(oldObj)
@@ -143,12 +125,11 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				backup, err := r.getBackup(newSnapshot.Spec.BackupId)
 				if err != nil {
-					log.Errorf("get backup error %v", err)
+					log.Errorf("get backup error: %v, backupId: %s, spanshotId: %s", err, newSnapshot.Spec.BackupId, newSnapshot.Name)
 					return false
 				}
 
-				log.Infof("snapshot update event, id: %s, phase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
-				log.Infof("snapshot update event old: %s, new: %s", util.ToJSON(oldSnapshot), util.ToJSON(newSnapshot))
+				log.Infof("snapshot update event, snapshotId: %s, snapshotPhase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
 
 				if constant.Failed.String() == *newSnapshot.Spec.Phase {
 					return false
@@ -168,9 +149,9 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				log.Infof("snapshot notify state changed: %s", notifyState)
 				if err := r.notifySnapshot(backup, newSnapshot, notifyState); err != nil {
-					log.Errorf("notify backup %s snapshot %s %s error: %v", backup.Spec.Name, newSnapshot.Name, notifyState, err)
+					log.Errorf("notify backupName: %s, snapshotId: %s, snapshotPhase: %s, error: %v", backup.Spec.Name, newSnapshot.Name, notifyState, err)
 				} else {
-					log.Infof("notify backup %s snapshot %s %s", backup.Spec.Name, newSnapshot.Name, notifyState)
+					log.Infof("notify backupName: %s, snapshotId: %s, snapshotPhase: %s", backup.Spec.Name, newSnapshot.Name, notifyState)
 				}
 
 				return false
@@ -245,6 +226,43 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 
 	if err := notify.NotifySnapshot(ctx, constant.DefaultSyncServerURL, snapshotRecord); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (r *SnapshotReconciler) addToWorkerManager(snapshot *sysapiv1.Snapshot) error {
+	backup, err := r.getBackup(snapshot.Spec.BackupId)
+	if err != nil {
+		log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
+		return err
+	}
+	if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
+		log.Errorf("notify backupName: %s, snapshotId: %s, phase: New, error: %v", backup.Spec.Name, snapshot.Name, err)
+	} else {
+		log.Infof("notify backupName: %s, snapshotId: %s, phase: New", backup.Spec.Name, snapshot.Name)
+	}
+	log.Infof("add to backup worker, snapshotId: %s", snapshot.Name)
+	worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
+
+	return nil
+}
+
+func (r *SnapshotReconciler) updateRunningPhase(snapshot *sysapiv1.Snapshot) error {
+	backup, err := r.getBackup(snapshot.Spec.BackupId)
+	if err != nil {
+		log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
+		return err
+	}
+	// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
+	// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
+	if err := r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String()); err != nil {
+		log.Errorf("update backupName: %s, snapshotId: %s, phase Failed, error %v", backup.Spec.Name, snapshot.Name, err)
+	}
+	if err := r.notifySnapshot(backup, snapshot, constant.Failed.String()); err != nil {
+		log.Errorf("notify backupName: %s, snapshotId: %s, phase: Failed, error: %v", backup.Spec.Name, snapshot.Name, err)
+	} else {
+		log.Infof("notify backupName: %s, snapshotId: %s, phase: Failed", backup.Spec.Name, snapshot.Name)
 	}
 
 	return nil

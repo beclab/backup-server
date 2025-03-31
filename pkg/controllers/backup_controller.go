@@ -14,6 +14,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -73,10 +74,10 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if !r.isNotified(backup) {
 		err = r.notify(backup)
 		if err != nil {
-			log.Errorf("notify backup %s id %s error: %v", backup.Spec.Name, backup.Name, err)
+			log.Errorf("notify backupName: %s, backupId: %s, error: %v", backup.Spec.Name, backup.Name, err)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 		}
-		log.Infof("notify backup %s backupid %s record success", backup.Spec.Name, backup.Name)
+		log.Infof("notify backupName: %s, backupId: %s, record success", backup.Spec.Name, backup.Name)
 	}
 
 	if !backup.Spec.Deleted && backup.Spec.BackupPolicy.Enabled {
@@ -108,8 +109,13 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					log.Info("backup not changed")
 					return false
 				}
+
 				if isNotifiedStateChanged(bc1, bc2) {
 					log.Info("backup notify state changed: Notified")
+					return false
+				}
+
+				if isDeleted(bc2) {
 					return false
 				}
 
@@ -117,10 +123,17 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit backup delete event")
-				// if !isTrue(e.Object) {
-				// 	return false
-				// }
-				// r.deleteBackupConfig(e.Object.GetName(), e.Object.GetNamespace())
+
+				backup, ok := e.Object.(*sysv1.Backup)
+				if !ok {
+					log.Errorf("delete backup error, not a backup resource")
+					return false
+				}
+
+				if err := worker.Worker.CancelBackup(backup.Name, ""); err != nil {
+					log.Errorf("cancel backup %s error: %v", backup.Name, err)
+				}
+
 				return false
 			}})).
 		Build(r)
@@ -140,6 +153,10 @@ func isNotifiedStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bo
 		return true
 	}
 	return false
+}
+
+func isDeleted(newBackup *sysv1.Backup) bool {
+	return newBackup.Spec.Deleted
 }
 
 func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
@@ -170,7 +187,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 
 	locationConfig, err := handlers.GetBackupLocationConfig(backup)
 	if err != nil {
-		return fmt.Errorf("get backup location config error %v", err)
+		return fmt.Errorf("get backup location config error: %v", err)
 	}
 	if locationConfig == nil {
 		return fmt.Errorf("backup location config not exists")
@@ -187,7 +204,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	}
 
 	if err := notify.NotifyBackup(ctx, constant.DefaultSyncServerURL, notifyBackupObj); err != nil {
-		return fmt.Errorf("notify backup obj error %v", err)
+		return fmt.Errorf("notify backup obj error: %v", err)
 	}
 
 	return r.handler.GetBackupHandler().UpdateNotifyState(ctx, backup.Name, true)

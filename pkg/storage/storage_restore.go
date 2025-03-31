@@ -42,7 +42,7 @@ type RestoreParameters struct {
 	Location map[string]string
 }
 
-func (s *StorageRestore) RunRestore() error {
+func (s *StorageRestore) RunRestore(progressCallback func(percentDone float64)) error {
 	if err := s.checkRestoreExists(); err != nil {
 		return errors.WithStack(err)
 	}
@@ -67,9 +67,10 @@ func (s *StorageRestore) RunRestore() error {
 		return nil
 	}
 
-	restoreResult, restoreErr := s.execute()
+	restoreResult, restoreErr := s.execute(progressCallback)
+
 	if restoreErr != nil {
-		log.Errorf("Restore %s error %v", s.RestoreId, restoreErr)
+		log.Errorf("Restore %s error: %v", s.RestoreId, restoreErr)
 	} else {
 		log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
 	}
@@ -167,8 +168,7 @@ func (s *StorageRestore) prepareForRun() error {
 	return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
 }
 
-// --
-func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
+func (s *StorageRestore) execute(progressCallback func(percentDone float64)) (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
 	var isSpaceRestore bool
 	var logger = log.GetLogger()
 	var resticSnapshotId = s.RestoreType.ResticSnapshotId
@@ -181,11 +181,11 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	switch location {
 	case constant.BackupLocationSpace.String():
 		isSpaceRestore = true
-		restoreOutput, restoreError = s.restoreFromSpace()
+		restoreOutput, restoreError = s.restoreFromSpace(progressCallback)
 	case constant.BackupLocationAwsS3.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
-			restoreError = fmt.Errorf("get %s token error %v", token.Type, err)
+			restoreError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
 		}
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
@@ -204,7 +204,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
-			restoreError = fmt.Errorf("get %s token error %v", token.Type, err)
+			restoreError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
 		}
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
@@ -235,13 +235,13 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	}
 
 	if !isSpaceRestore {
-		restoreOutput, restoreError = restoreService.Restore()
+		restoreOutput, restoreError = restoreService.Restore(progressCallback)
 	}
 
 	return
 }
 
-func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, err error) {
+func (s *StorageRestore) restoreFromSpace(progressCallback func(percentDone float64)) (restoreOutput *backupssdkrestic.RestoreSummaryOutput, err error) {
 	var backupId string
 	var terminusSuffix string
 	var owner = s.RestoreType.Owner
@@ -289,7 +289,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 			Space:    spaceRestoreOption,
 		})
 
-		restoreOutput, err = restoreService.Restore()
+		restoreOutput, err = restoreService.Restore(progressCallback)
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {

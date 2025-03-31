@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -48,6 +47,10 @@ type SnapshotCancel struct {
 	Event string `json:"event"`
 }
 
+type CreateSnapshot struct {
+	Event string `json:"event"`
+}
+
 type RestoreCreate struct {
 	BackupUrl  string `json:"backupUrl"`
 	Password   string `json:"password"`
@@ -88,8 +91,8 @@ type ResponseBackupList struct {
 	LocationConfigName  string `json:"locationConfigName"` // olaresDid / cloudAccessKey
 	SnapshotId          string `json:"snapshotId"`
 	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
-	Status              string `json:"status"` // not started
-	Size                string `json:"size"`   // TODO total size
+	Status              string `json:"status"`
+	Size                string `json:"size"`
 	Path                string `json:"path"`
 }
 
@@ -117,12 +120,23 @@ type ResponseSnapshotDetail struct {
 }
 
 type ResponseRestoreDetail struct {
-	BackupName   string `json:"backupName"`
-	BackupPath   string `json:"backupPath"`
-	SnapshotName string `json:"snapshotName"`
-	RestorePath  string `json:"restorePath"`
-	Status       string `json:"status"`
-	Message      string `json:"message"`
+	BackupName   string  `json:"backupName"`
+	BackupPath   string  `json:"backupPath"`
+	SnapshotName string  `json:"snapshotName"`
+	RestorePath  string  `json:"restorePath"`
+	Status       string  `json:"status"`
+	Message      string  `json:"message"`
+	Progress     float64 `json:"progress,omitempty"`
+}
+
+type ResponseRestoreList struct {
+	Id         string  `json:"id"`
+	BackupName string  `json:"backupName"`
+	Path       string  `json:"path"`
+	CreateAt   int64   `json:"createAt"`
+	EndAt      int64   `json:"endAt"`
+	Status     string  `json:"status"`
+	Progress   float64 `json:"progress,omitempty"`
 }
 
 type SnapshotDetails struct {
@@ -273,15 +287,6 @@ func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDeta
 	}
 }
 
-func parseResponseSpaceRegions(data string) []map[string]string {
-	var result []map[string]string
-	if err := json.Unmarshal([]byte(data), &result); err != nil {
-		return nil
-	}
-
-	return result
-}
-
 func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	return &ResponseBackupDetail{
 		Id:             backup.Name,
@@ -357,7 +362,7 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 	}
 }
 
-func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) *ResponseRestoreDetail {
+func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore, progress float64) *ResponseRestoreDetail {
 	return &ResponseRestoreDetail{
 		BackupName:   backup.Spec.Name,
 		BackupPath:   handlers.GetBackupPath(backup),
@@ -365,7 +370,34 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 		RestorePath:  handlers.GetRestorePath(restore),
 		Status:       *restore.Spec.Phase,
 		Message:      *restore.Spec.Message,
+		Progress:     progress,
 	}
+}
+
+func parseResponseRestoreList(data *sysv1.RestoreList) []*ResponseRestoreList {
+	if data == nil || data.Items == nil || len(data.Items) == 0 {
+		return nil
+	}
+
+	var result []*ResponseRestoreList
+	for _, restore := range data.Items {
+		d, err := handlers.ParseRestoreType(&restore)
+		if err != nil {
+			continue
+		}
+		var r = &ResponseRestoreList{
+			Id:         restore.Name,
+			BackupName: d.BackupName,
+			Path:       d.Path,
+			CreateAt:   restore.Spec.CreateAt,
+			EndAt:      restore.Spec.EndAt,
+			Status:     *restore.Spec.Phase,
+		}
+		result = append(result, r)
+	}
+
+	return result
+
 }
 
 func (s *SyncBackup) FormData() (map[string]string, error) {

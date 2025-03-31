@@ -66,7 +66,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans/backup").
 		To(handler.listBackup).
-		Param(ws.QueryParameter("limit", "page size of plans").Required(false)).
+		Param(ws.QueryParameter("limit", "page size of backup plans").Required(false)).
 		Doc("list backup plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
@@ -82,7 +82,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		To(handler.deleteBackupPlan).
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
 		Doc("delete backup").Metadata(restfulspec.KeyOpenAPITags, tags).
-		Returns(http.StatusOK, "", "success")) // TODO notify
+		Returns(http.StatusOK, "", "success"))
 
 	ws.Route(ws.POST("/plans/backup/{id}").
 		To(handler.enabledBackupPlan).
@@ -92,6 +92,12 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Returns(http.StatusOK, "", "success"))
 
 	// ~ snapshots
+	ws.Route(ws.POST("/plans/backup/{id}/snapshots").
+		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
+		To(handler.addSnapshot).
+		Reads(BackupEnabled{}).
+		Doc("snapshot Now").Metadata(restfulspec.KeyOpenAPITags, tags).
+		Returns(http.StatusOK, "", ""))
 
 	ws.Route(ws.GET("/plans/backup/{id}/snapshots").
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
@@ -118,7 +124,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans/restore").
 		To(handler.listRestore).
-		Param(ws.QueryParameter("limit", "page size of plans").Required(false)).
+		Param(ws.QueryParameter("limit", "page size of restore plans").Required(false)).
 		Doc("list restore plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 

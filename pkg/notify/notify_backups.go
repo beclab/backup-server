@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	SendBackupUrl   = "/v1/resource/backup/save"
-	SendSnapshotUrl = "/v1/resource/snapshot/save"
+	SendBackupUrl       = "/v1/resource/backup/save"
+	SendSnapshotUrl     = "/v1/resource/snapshot/save"
+	SendDeleteBackupUrl = "/v1/resource/backup/delete"
 )
 
 type Backup struct {
@@ -49,7 +50,38 @@ type Response struct {
 	Message string `json:"message"`
 }
 
-func NotifyDeleteBackup() error {
+func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, backupId string) error {
+	var backoff = wait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   2,
+		Jitter:   0.1,
+		Steps:    5,
+	}
+
+	var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s", userId, token, backupId)
+
+	log.Infof("push delete backup data: %s", data)
+
+	if err := retry.OnError(backoff, func(err error) bool {
+		return true
+	}, func() error {
+		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendDeleteBackupUrl)
+		var headers = make(map[string]string)
+		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
+
+		result, err := http.Post[Response](ctx, url, headers, data, false)
+		if err != nil {
+			return err
+		}
+
+		if result.Code != 200 {
+			return fmt.Errorf("push delete backup record failed %s", result.Message)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }
 

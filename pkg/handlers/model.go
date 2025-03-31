@@ -6,6 +6,7 @@ type RestoreType struct {
 	Owner            string                  `json:"owner"`
 	Type             string                  `json:"type"` // snapshot or url
 	Path             string                  `json:"path"`
+	BackupName       string                  `json:"backupName"`
 	BackupUrl        *RestoreBackupUrlDetail `json:"backupUrl"`
 	Password         string                  `json:"p"`
 	SnapshotId       string                  `json:"snapshotId"`

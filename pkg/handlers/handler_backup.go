@@ -261,3 +261,25 @@ RETRY:
 
 	return nil
 }
+
+func (o *BackupHandler) delete(ctx context.Context, backup *sysv1.Backup) error {
+	sc, err := o.factory.Sysv1Client()
+	if err != nil {
+		return err
+	}
+
+	var getCtx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+RETRY:
+	err = sc.SysV1().Backups(constant.DefaultOsSystemNamespace).Delete(getCtx, backup.Name, metav1.DeleteOptions{})
+
+	if err != nil && apierrors.IsConflict(err) {
+		log.Warnf("delete backup %s spec retry", backup.Spec.Name)
+		goto RETRY
+	} else if err != nil {
+		return errors.WithStack(fmt.Errorf("delete backup error: %v", err))
+	}
+
+	return nil
+}

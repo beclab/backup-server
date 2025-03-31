@@ -46,6 +46,21 @@ func NewSnapshotHandler(f client.Factory, handlers Interface) *SnapshotHandler {
 	}
 }
 
+func (o *SnapshotHandler) DeleteSnapshots(ctx context.Context, backupId string) error {
+	var getCtx, cancel = context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var labelSelector = fmt.Sprintf("backup-id=%s", backupId)
+
+	c, err := o.factory.Sysv1Client()
+	if err != nil {
+		return err
+	}
+
+	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+}
+
 func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, phase string) error {
 	snapshot, err := o.GetById(ctx, snapshotId)
 	if err != nil {

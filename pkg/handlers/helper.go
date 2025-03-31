@@ -333,35 +333,60 @@ func ParseRestoreType(restore *sysv1.Restore) (*RestoreType, error) {
 	return m, nil
 }
 
+func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
+	if restore == nil || restore.Spec.RestoreType == nil {
+		return ""
+	}
+
+	data, ok := restore.Spec.RestoreType[constant.BackupTypeFile]
+	if !ok {
+		return ""
+	}
+
+	var r *RestoreType
+	if err := json.Unmarshal([]byte(data), &r); err != nil {
+		return ""
+	}
+	return r.BackupName
+}
+
 /**
  * extract only cloudName and regionId from Space's BackupURL. Do not parse the user's own BackupURL.
  * The agreed format for BackupURL is:
- * app    space: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>?snapshotId={resticSnapshotId}
+ * app    space: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>?backupName={backupName}&snapshotId={resticSnapshotId}
  *       prefix: did:key:xxx-yyy
- * app   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?snapshotId={resticSnapshotId}
+ * app   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?backupName={backupName}&snapshotId={resticSnapshotId}
  *       prefix: from user's s3|cos endpoint
  *
- * cli    space: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>?snapshotId={resticSnapshotId}
+ * cli    space: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>?backupName={backupName}&snapshotId={resticSnapshotId}
  *       prefix: did:key:xxx-yyy
- * cli   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?snapshotId={resticSnapshotId}
+ * cli   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?backupName={backupname}&snapshotId={resticSnapshotId}
  *       prefix: from user's s3|cos endpoint
  */
-func ParseRestoreBackupUrlDetail(u string) (*RestoreBackupUrlDetail, string, string, error) {
+func ParseRestoreBackupUrlDetail(u string) (*RestoreBackupUrlDetail, string, string, string, error) {
+	// backupUrlObj, backupName,resticSnapshotId, location, err
 	if u == "" {
-		return nil, "", "", fmt.Errorf("backupUrl is empty")
+		return nil, "", "", "", fmt.Errorf("backupUrl is empty")
 	}
 
 	var err error
 	var storage *RestoreBackupUrlDetail
 
 	var location string = constant.BackupLocationSpace.String()
+
+	var backupNamePos = strings.Index(u, "?backupName=")
+	var backupName = u[backupNamePos+len("?backupName="):]
+	if backupName == "" {
+		return nil, "", "", "", fmt.Errorf("backupName is empty")
+	}
+
 	var resticSnapshotIdPos = strings.Index(u, "?snapshotId=")
 	var resticSnapshotId = u[resticSnapshotIdPos+len("?snapshotId="):]
 	if resticSnapshotId == "" {
-		return nil, "", "", fmt.Errorf("snapshotId is empty")
+		return nil, "", "", "", fmt.Errorf("snapshotId is empty")
 	}
 
-	url := u[:resticSnapshotIdPos]
+	url := u[:backupNamePos]
 	url = strings.ReplaceAll(strings.ReplaceAll(url, "https://", ""), "http://", "")
 
 	if !strings.Contains(url, "did:key") {
@@ -380,10 +405,10 @@ func ParseRestoreBackupUrlDetail(u string) (*RestoreBackupUrlDetail, string, str
 	}
 
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", "", err
 	}
 
-	return storage, resticSnapshotId, location, nil
+	return storage, backupName, resticSnapshotId, location, nil
 }
 
 func splitAwsS3Repository(u string) (*RestoreBackupUrlDetail, error) {

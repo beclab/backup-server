@@ -78,7 +78,6 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					log.Infof("add to restore worker %s", restore.Name)
 					worker.Worker.AppendRestoreTask(restore.Name)
 				default:
-					// TODO other phase?
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
 					}

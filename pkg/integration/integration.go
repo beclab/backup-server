@@ -208,8 +208,6 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 		return nil, err
 	}
 
-	accountResp.Data.RawData.AccessToken = "d17d57e52bd04ea7957a74bc583f2e1d"
-	accountResp.Data.RawData.ExpiresAt = 1743305816000 // TODO debug
 	return accountResp.Data, nil
 }
 
@@ -275,7 +273,7 @@ func (i *Integration) formatUrl(location, name string) string {
 	case "aws":
 		l = "awss3"
 	case "tencentcloud":
-		l = "tencentcloud" // TODO debug
+		l = "tencentcloud" // todo test
 	}
 	return fmt.Sprintf("integration-account:%s:%s", l, name)
 }

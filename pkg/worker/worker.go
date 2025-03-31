@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -20,7 +21,7 @@ type WorkerManage struct {
 	handlers handlers.Interface
 
 	backupQueue  []string // owner_backupid_snapshotid
-	restoreQueue []string // owner_backupid_snapshotid
+	restoreQueue []string // restoreId
 
 	activeBackup  *activeBackup
 	activeRestore *activeRestore
@@ -31,6 +32,7 @@ type WorkerManage struct {
 type activeBackup struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
+	backupId   string
 	snapshotId string
 	backup     *storage.StorageBackup
 }
@@ -40,6 +42,7 @@ type activeRestore struct {
 	cancel    context.CancelFunc
 	restoreId string
 	restore   *storage.StorageRestore
+	progress  float64
 }
 
 func NewWorkerManage(ctx context.Context, handlers handlers.Interface) *WorkerManage {
@@ -108,14 +111,23 @@ func (w *WorkerManage) RunRestore(ctx context.Context) {
 		cancel:    cancelTask,
 		restoreId: restoreId,
 		restore:   storageRestore,
+		progress:  0.0,
 	}
 	log.Infof("[worker] run restore %s", restoreId)
 
-	if err := storageRestore.RunRestore(); err != nil {
+	if err := w.activeRestore.restore.RunRestore(w.callbackRestoreProgress); err != nil {
 		log.Errorf("[worker] restore %s error: %v", restoreId, err)
 	}
 
 	w.clearActiveRestore()
+}
+
+func (w *WorkerManage) callbackRestoreProgress(percentDone float64) {
+	if w.activeRestore == nil {
+		return
+	}
+
+	w.activeRestore.progress = percentDone
 }
 
 func (w *WorkerManage) RunBackup(ctx context.Context) {
@@ -140,6 +152,7 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 	w.activeBackup = &activeBackup{
 		ctx:        ctx,
 		cancel:     cancelTask,
+		backupId:   backupId,
 		snapshotId: snapshotId,
 		backup:     storageBackup,
 	}
@@ -153,7 +166,7 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 	w.clearActiveBackup()
 }
 
-func (w *WorkerManage) CancelBackup(snapshotId string) error {
+func (w *WorkerManage) CancelBackup(backupId, snapshotId string) error {
 	if w.activeBackup == nil {
 		return fmt.Errorf("no snapshot is running")
 	}
@@ -162,14 +175,32 @@ func (w *WorkerManage) CancelBackup(snapshotId string) error {
 		return fmt.Errorf("backupQueue is empty")
 	}
 
-	if w.activeBackup.snapshotId != snapshotId {
-		if ok := w.removeSnapshotIdFromBackupQueue(snapshotId); !ok {
-			log.Infof("snapshot %s not in backupQueue", snapshotId)
-		} else {
-			log.Infof("snapshot %s removed from backupQueue", snapshotId)
-		}
+	if w.activeBackup.backupId != backupId {
 		return nil
 	}
+
+	if snapshotId != "" {
+		if w.activeBackup.snapshotId != snapshotId {
+			if ok := w.removeSnapshotIdFromBackupQueue(snapshotId); !ok {
+				log.Infof("snapshot %s not in backupQueue", snapshotId)
+			} else {
+				log.Infof("snapshot %s removed from backupQueue", snapshotId)
+			}
+			return nil
+		}
+
+		w.activeBackup.cancel()
+
+		w.clearActiveBackup()
+
+		return nil
+	}
+
+	if w.activeBackup.backupId != backupId {
+		return nil
+	}
+
+	w.removeBackupSnapshotsFromBackupQueue(backupId)
 
 	w.activeBackup.cancel()
 
@@ -228,6 +259,17 @@ func (w *WorkerManage) StopBackup(snapshotId string) {
 	log.Infof("stop backup %s", snapshotId)
 	w.activeBackup.cancel()
 	w.activeBackup = nil
+}
+
+func (w *WorkerManage) GetRestoreProgress(restoreId string) (float64, error) {
+	if w.activeRestore == nil {
+		return 0.0, errors.New("[worker] no active restore")
+	}
+	if w.activeRestore.restoreId != restoreId {
+		return 0.0, fmt.Errorf("[worker] restore id not match, runId: %s", w.activeRestore.restoreId)
+	}
+
+	return w.activeRestore.progress, nil
 }
 
 func (w *WorkerManage) clearActiveBackup() {
@@ -292,6 +334,30 @@ func (w *WorkerManage) isRestoreQueueEmpty() bool {
 	return len(w.restoreQueue) == 0
 }
 
+func (w *WorkerManage) removeBackupSnapshotsFromBackupQueue(backupId string) bool {
+	w.queueMutex.Lock()
+	defer w.queueMutex.Unlock()
+
+	if len(w.backupQueue) == 0 {
+		return false
+	}
+
+	var slice []string
+	for _, v := range w.backupQueue {
+		vs := strings.Split(v, "_")
+		if len(vs) != 3 {
+			continue
+		}
+
+		if vs[1] != backupId {
+			slice = append(slice, v)
+		}
+	}
+
+	w.backupQueue = slice
+	return true
+}
+
 func (w *WorkerManage) removeSnapshotIdFromBackupQueue(snapshotId string) bool {
 	w.queueMutex.Lock()
 	defer w.queueMutex.Unlock()
@@ -303,7 +369,11 @@ func (w *WorkerManage) removeSnapshotIdFromBackupQueue(snapshotId string) bool {
 	var found bool
 	var slice []string
 	for i, v := range w.backupQueue {
-		if v == snapshotId {
+		vs := strings.Split(v, "_")
+		if len(vs) != 3 {
+			continue
+		}
+		if vs[2] == snapshotId {
 			slice = w.backupQueue[:i]
 			slice = append(slice, w.backupQueue[i+1:]...)
 			found = true
