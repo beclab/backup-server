@@ -25,8 +25,6 @@ import (
 
 // TODO debug
 func getBackupPassword(owner string, backupName string) (string, error) {
-	return "123", nil
-
 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
 	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
 
