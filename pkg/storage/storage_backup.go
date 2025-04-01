@@ -10,7 +10,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -70,11 +69,11 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 	if err := f(); err != nil {
-		if e := s.notifyBackupResult(nil, nil, err); e != nil {
-			log.Errorf("Backup %s,%s, notify backup terminate error: %v", backupName, snapshotId, err)
-		} else {
-			log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
-		}
+		// if e := s.notifyBackupResult(nil, nil, err); e != nil {
+		// 	log.Errorf("Backup %s,%s, notify backup terminate error: %v", backupName, snapshotId, err)
+		// } else {
+		// 	log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
+		// }
 
 		if e := s.updateBackupResult(nil, nil, err); e != nil {
 			return errors.WithStack(e)
@@ -91,12 +90,11 @@ func (s *StorageBackup) RunBackup() error {
 		log.Infof("Backup %s,%s, success", backupName, snapshotId)
 	}
 
-	// TODO err include "canceled" "error" "nil"
-	if err := s.notifyBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
-		log.Errorf("Backup %s,%s notify backup result error: %v", backupName, snapshotId, err)
-	} else {
-		log.Infof("Backup %s,%s notify backup result success", backupName, snapshotId)
-	}
+	// if err := s.notifyBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
+	// 	log.Errorf("Backup %s,%s notify backup result error: %v", backupName, snapshotId, err)
+	// } else {
+	// 	log.Infof("Backup %s,%s notify backup result success", backupName, snapshotId)
+	// }
 	if err := s.updateBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
 		return errors.WithStack(err)
 	}

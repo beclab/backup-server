@@ -166,7 +166,7 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 	w.clearActiveBackup()
 }
 
-func (w *WorkerManage) CancelBackup(backupId, snapshotId string) error {
+func (w *WorkerManage) CancelBackup(backupId string) error {
 	if w.activeBackup == nil {
 		return fmt.Errorf("no snapshot is running")
 	}
@@ -179,28 +179,36 @@ func (w *WorkerManage) CancelBackup(backupId, snapshotId string) error {
 		return nil
 	}
 
-	if snapshotId != "" {
-		if w.activeBackup.snapshotId != snapshotId {
-			if ok := w.removeSnapshotIdFromBackupQueue(snapshotId); !ok {
-				log.Infof("snapshot %s not in backupQueue", snapshotId)
-			} else {
-				log.Infof("snapshot %s removed from backupQueue", snapshotId)
-			}
-			return nil
-		}
-
-		w.activeBackup.cancel()
-
-		w.clearActiveBackup()
-
-		return nil
-	}
-
 	if w.activeBackup.backupId != backupId {
 		return nil
 	}
 
 	w.removeBackupSnapshotsFromBackupQueue(backupId)
+
+	w.activeBackup.cancel()
+
+	w.clearActiveBackup()
+
+	return nil
+}
+
+func (w *WorkerManage) CancelSnapshot(snapshotId string) error {
+	if w.activeBackup == nil {
+		return fmt.Errorf("no snapshot is running")
+	}
+
+	if w.isBackupQueueEmpty() {
+		return fmt.Errorf("backupQueue is empty")
+	}
+
+	if w.activeBackup.snapshotId != snapshotId {
+		if ok := w.removeSnapshotIdFromBackupQueue(snapshotId); !ok {
+			log.Infof("snapshot %s not in backupQueue", snapshotId)
+		} else {
+			log.Infof("snapshot %s removed from backupQueue", snapshotId)
+		}
+		return nil
+	}
 
 	w.activeBackup.cancel()
 

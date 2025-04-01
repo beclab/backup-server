@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
+	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
+	backupssdkmodel "bytetrade.io/web3os/backups-sdk/pkg/storage/model"
 	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -59,6 +62,28 @@ func (o *SnapshotHandler) DeleteSnapshots(ctx context.Context, backupId string) 
 	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
+}
+
+func (o *SnapshotHandler) UpdateNotifyResultState(ctx context.Context, snapshot *sysv1.Snapshot) error {
+	extra := snapshot.Spec.Extra
+	if extra == nil {
+		return fmt.Errorf("snapshot %s extra is nil", snapshot.Name)
+	}
+
+	notifyState, ok := snapshot.Spec.Extra["push"]
+	if !ok {
+		return fmt.Errorf("snapshot %s extra push is nil", snapshot.Name)
+	}
+
+	var s *SnapshotNotifyState
+	if err := json.Unmarshal([]byte(notifyState), &s); err != nil {
+		return err
+	}
+
+	s.Result = true
+	snapshot.Spec.Extra["push"] = util.ToJSON(s)
+
+	return o.update(ctx, snapshot)
 }
 
 func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, phase string) error {
@@ -155,6 +180,11 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 	var name = uuid.NewUUID()
 	var phase = constant.Pending.String()
 	var parseSnapshotType = ParseSnapshotType(constant.UnKnownBackup)
+	var pushState = &SnapshotNotifyState{
+		Prepare:  false,
+		Progress: false,
+		Result:   false,
+	}
 
 	var snapshot = &sysv1.Snapshot{
 		TypeMeta: metav1.TypeMeta{
@@ -176,7 +206,9 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			CreateAt:     startAt,
 			StartAt:      startAt,
 			Phase:        &phase,
-			Extra:        map[string]string{},
+			Extra: map[string]string{
+				"push": util.ToJSON(pushState),
+			},
 		},
 	}
 
@@ -320,4 +352,21 @@ func (o *SnapshotHandler) GetOlaresId(owner string) (string, error) {
 	}
 
 	return olaresName, nil
+}
+
+func (o *SnapshotHandler) ParseSnapshotInfo(snapshot *sysv1.Snapshot) (*backupssdkmodel.StorageInfo, *backupssdkrestic.SummaryOutput) {
+	var storageInfo *backupssdkmodel.StorageInfo
+	if snapshot.Spec.Extra != nil {
+		storage, ok := snapshot.Spec.Extra["storage"]
+		if ok && len(storage) > 0 {
+			json.Unmarshal([]byte(storage), &storageInfo)
+		}
+	}
+
+	var backupOutput *backupssdkrestic.SummaryOutput
+	if snapshot.Spec.ResticMessage != nil && *snapshot.Spec.ResticMessage != "" {
+		json.Unmarshal([]byte(*snapshot.Spec.ResticMessage), &backupOutput)
+	}
+
+	return storageInfo, backupOutput
 }

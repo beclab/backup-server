@@ -402,7 +402,7 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err := worker.Worker.CancelBackup(snapshot.Spec.BackupId, snapshotId); err != nil {
+	if err := worker.Worker.CancelSnapshot(snapshotId); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "remove snapshot %s from backupQueue error", snapshotId))
 		return
 	}

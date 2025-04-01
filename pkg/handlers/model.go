@@ -2,6 +2,12 @@ package handlers
 
 import "bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 
+type SnapshotNotifyState struct {
+	Prepare  bool `json:"prepare"`
+	Progress bool `json:"progress"`
+	Result   bool `json:"result"`
+}
+
 type RestoreType struct {
 	Owner            string                  `json:"owner"`
 	Type             string                  `json:"type"` // snapshot or url

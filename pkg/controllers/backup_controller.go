@@ -71,6 +71,17 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
+	if r.isDeleted(backup) {
+		if err := worker.Worker.CancelBackup(backup.Name); err != nil {
+			log.Errorf("cancel backup worker, backupId: %s, backupName: %s, error: %v", backup.Name, backup.Spec.Name, err)
+		}
+
+		if err := r.deleteBackup(backup); err != nil {
+			log.Errorf("delete backupId: %s, backupName: %s, error: %v, retry...", backup.Name, backup.Spec.Name, err)
+			return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
+		}
+	}
+
 	if !r.isNotified(backup) {
 		err = r.notify(backup)
 		if err != nil {
@@ -110,30 +121,19 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
+				if r.isDeleted(bc2) {
+					return true
+				}
+
 				if isNotifiedStateChanged(bc1, bc2) {
 					log.Info("backup notify state changed: Notified")
-					return false
+					return true
 				}
 
-				if isDeleted(bc2) {
-					return false
-				}
-
-				return true
+				return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit backup delete event")
-
-				backup, ok := e.Object.(*sysv1.Backup)
-				if !ok {
-					log.Errorf("delete backup error, not a backup resource")
-					return false
-				}
-
-				if err := worker.Worker.CancelBackup(backup.Name, ""); err != nil {
-					log.Errorf("cancel backup %s error: %v", backup.Name, err)
-				}
-
 				return false
 			}})).
 		Build(r)
@@ -155,7 +155,7 @@ func isNotifiedStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bo
 	return false
 }
 
-func isDeleted(newBackup *sysv1.Backup) bool {
+func (r *BackupReconciler) isDeleted(newBackup *sysv1.Backup) bool {
 	return newBackup.Spec.Deleted
 }
 
@@ -208,4 +208,15 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	}
 
 	return r.handler.GetBackupHandler().UpdateNotifyState(ctx, backup.Name, true)
+}
+
+func (r *BackupReconciler) deleteBackup(backup *sysv1.Backup) error {
+	var ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := r.handler.GetBackupHandler().DeleteBackup(ctx, backup); err != nil {
+		return err
+	}
+
+	return nil
 }

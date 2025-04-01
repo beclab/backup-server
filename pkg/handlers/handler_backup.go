@@ -11,6 +11,8 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/converter"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
@@ -32,6 +34,29 @@ func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 		factory:  f,
 		handlers: handlers,
 	}
+}
+
+func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) error {
+	if err := o.handlers.GetSnapshotHandler().DeleteSnapshots(ctx, backup.Name); err != nil {
+		// TODO review, if snapshots not found?
+		return err
+	}
+
+	integrationName := GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
+	if integrationName == "" {
+		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
+	}
+
+	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
+	if err != nil {
+		return err
+	}
+
+	if err := notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name); err != nil {
+		return err
+	}
+
+	return o.delete(ctx, backup)
 }
 
 func (o *BackupHandler) GetBackupPassword(ctx context.Context, backup *sysv1.Backup) (password string, err error) {

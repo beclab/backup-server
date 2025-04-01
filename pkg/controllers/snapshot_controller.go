@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -66,21 +67,37 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	snapshot, err := c.SysV1().Snapshots(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Second}, nil
+		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 	} else if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
+	}
+
+	backup, err := r.getBackup(snapshot.Spec.BackupId)
+	if err != nil && apierrors.IsNotFound(err) {
+		return ctrl.Result{}, errors.WithStack(err)
+	} else if err != nil {
+		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 	}
 
 	var phase = *snapshot.Spec.Phase
 
 	switch phase {
-	case constant.Pending.String():
-		if err := r.addToWorkerManager(snapshot); err != nil {
-			return ctrl.Result{}, errors.WithStack(err)
+	case constant.Pending.String(): // review
+		if err := r.addToWorkerManager(backup, snapshot); err != nil {
+			log.Errorf("add snapshot %s to worker error: %v", snapshot.Name, err)
+			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 		}
 	case constant.Running.String():
-		if err := r.updateRunningPhase(snapshot); err != nil {
-			return ctrl.Result{}, errors.WithStack(err)
+		r.handler.GetSnapshotHandler().UpdatePhase(ctx, req.Name, constant.Failed.String())
+	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
+		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil {
+			log.Errorf("notify backupName: %s, snapshotId: %s, phase: %s, error: %v", backup.Spec.Name, snapshot.Name, *snapshot.Spec.Phase, err)
+			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+		} else {
+			log.Errorf("notify backupName: %s, snapshotId: %s, phase: %s", backup.Spec.Name, snapshot.Name, *snapshot.Spec.Phase)
+		}
+		if err := r.handler.GetSnapshotHandler().UpdateNotifyResultState(context.Background(), snapshot); err != nil {
+			log.Errorf("update snapshot %s notify state error: %v", snapshot.Name, err)
 		}
 	}
 
@@ -107,7 +124,12 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				switch phase {
 				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
-					return false
+					snapshotNotified, err := r.checkSnapshotPushState(snapshot)
+					if err != nil {
+						log.Errorf("hit snapshot create event, check snapshot push state error: %v, snapshotId: %s", err, snapshot.Name)
+						return false
+					}
+					return !snapshotNotified
 				default:
 					return true
 				}
@@ -123,38 +145,17 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				backup, err := r.getBackup(newSnapshot.Spec.BackupId)
+				snapshotNotified, err := r.checkSnapshotPushState(newSnapshot)
 				if err != nil {
-					log.Errorf("get backup error: %v, backupId: %s, spanshotId: %s", err, newSnapshot.Spec.BackupId, newSnapshot.Name)
+					log.Errorf("hit snapshot update event, check snapshot push state error: %v, snapshotId: %s", err, newSnapshot.Name)
 					return false
 				}
 
-				log.Infof("snapshot update event, snapshotId: %s, snapshotPhase: %s", newSnapshot.Name, *newSnapshot.Spec.Phase)
-
-				if constant.Failed.String() == *newSnapshot.Spec.Phase {
+				if snapshotNotified {
 					return false
 				}
 
-				var notifyState string
-				if r.isRunning(oldSnapshot, newSnapshot) {
-					notifyState = constant.Running.String()
-				} else if r.isCanceled(newSnapshot) {
-					notifyState = constant.Canceled.String()
-				}
-
-				if notifyState == "" {
-					log.Infof("snapshot state is %s, skip notify", *newSnapshot.Spec.Phase)
-					return false
-				}
-
-				log.Infof("snapshot notify state changed: %s", notifyState)
-				if err := r.notifySnapshot(backup, newSnapshot, notifyState); err != nil {
-					log.Errorf("notify backupName: %s, snapshotId: %s, snapshotPhase: %s, error: %v", backup.Spec.Name, newSnapshot.Name, notifyState, err)
-				} else {
-					log.Infof("notify backupName: %s, snapshotId: %s, snapshotPhase: %s", backup.Spec.Name, newSnapshot.Name, notifyState)
-				}
-
-				return false
+				return true
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit snapshot delete event")
@@ -200,6 +201,45 @@ func (r *SnapshotReconciler) isCanceled(newSnapshot *v1.Snapshot) bool {
 	return newPhase == constant.Canceled.String()
 }
 
+func (r *SnapshotReconciler) addToWorkerManager(backup *sysapiv1.Backup, snapshot *sysapiv1.Snapshot) error {
+	if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
+		log.Errorf("notify backupName: %s, snapshotId: %s, phase: New, error: %v", backup.Spec.Name, snapshot.Name, err)
+		return err
+	} else {
+		log.Infof("notify backupName: %s, snapshotId: %s, phase: New", backup.Spec.Name, snapshot.Name)
+	}
+	log.Infof("add to backup worker, snapshotId: %s", snapshot.Name)
+	worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
+
+	return nil
+}
+
+func (r *SnapshotReconciler) checkSnapshotPushState(snapshot *sysapiv1.Snapshot) (bool, error) {
+	if snapshot.Spec.Extra == nil {
+		return false, fmt.Errorf("snapshot extra is nil")
+	}
+
+	data, ok := snapshot.Spec.Extra["push"]
+	if !ok {
+		return false, fmt.Errorf("snapshot extra push is nil")
+	}
+
+	var snapshotNotifyState *handlers.SnapshotNotifyState
+	if err := json.Unmarshal([]byte(data), &snapshotNotifyState); err != nil {
+		return false, err
+	}
+
+	var phase = *snapshot.Spec.Phase
+	switch phase {
+	case constant.Running.String():
+		return snapshotNotifyState.Progress, nil
+	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
+		return snapshotNotifyState.Result, nil
+	}
+
+	return false, nil
+}
+
 func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snapshot, status string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -231,39 +271,44 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 	return nil
 }
 
-func (r *SnapshotReconciler) addToWorkerManager(snapshot *sysapiv1.Snapshot) error {
-	backup, err := r.getBackup(snapshot.Spec.BackupId)
+func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v1.Backup, snapshot *v1.Snapshot) error {
+	locationConfig, err := handlers.GetBackupLocationConfig(backup)
 	if err != nil {
-		log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
 		return err
 	}
-	if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
-		log.Errorf("notify backupName: %s, snapshotId: %s, phase: New, error: %v", backup.Spec.Name, snapshot.Name, err)
-	} else {
-		log.Infof("notify backupName: %s, snapshotId: %s, phase: New", backup.Spec.Name, snapshot.Name)
-	}
-	log.Infof("add to backup worker, snapshotId: %s", snapshot.Name)
-	worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
+	location := locationConfig["name"]
 
-	return nil
-}
-
-func (r *SnapshotReconciler) updateRunningPhase(snapshot *sysapiv1.Snapshot) error {
-	backup, err := r.getBackup(snapshot.Spec.BackupId)
+	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, location)
 	if err != nil {
-		log.Errorf("get backup error %v, backupId: %s", err, snapshot.Spec.BackupId)
-		return err
-	}
-	// It is necessary to check whether the restic snapshot was successful and fix the CRD data.
-	// The snapshotID from the CRD needs to be passed to the restic backend and associated with the restic snapshot information.
-	if err := r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String()); err != nil {
-		log.Errorf("update backupName: %s, snapshotId: %s, phase Failed, error %v", backup.Spec.Name, snapshot.Name, err)
-	}
-	if err := r.notifySnapshot(backup, snapshot, constant.Failed.String()); err != nil {
-		log.Errorf("notify backupName: %s, snapshotId: %s, phase: Failed, error: %v", backup.Spec.Name, snapshot.Name, err)
-	} else {
-		log.Infof("notify backupName: %s, snapshotId: %s, phase: Failed", backup.Spec.Name, snapshot.Name)
+		return fmt.Errorf("get space token error: %v", err)
 	}
 
-	return nil
+	var storageInfo, resticInfo = r.handler.GetSnapshotHandler().ParseSnapshotInfo(snapshot)
+
+	var snapshotRecord = &notify.Snapshot{
+		UserId:       spaceToken.OlaresDid,
+		BackupId:     backup.Name,
+		SnapshotId:   snapshot.Name,
+		Unit:         constant.DefaultSnapshotSizeUnit,
+		SnapshotTime: snapshot.Spec.StartAt,
+		Type:         handlers.ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
+		Status:       *snapshot.Spec.Phase,
+	}
+
+	if storageInfo != nil {
+		snapshotRecord.Url = storageInfo.Url
+		snapshotRecord.CloudName = storageInfo.CloudName
+		snapshotRecord.RegionId = storageInfo.RegionId
+		snapshotRecord.Bucket = storageInfo.Bucket
+		snapshotRecord.Prefix = storageInfo.Prefix
+	}
+	if resticInfo != nil {
+		snapshotRecord.Message = util.ToJSON(resticInfo)
+		snapshotRecord.Size = resticInfo.TotalBytesProcessed
+		snapshotRecord.ResticSnapshotId = resticInfo.SnapshotID
+	} else {
+		snapshotRecord.Message = *snapshot.Spec.Message
+	}
+
+	return notify.NotifySnapshot(ctx, constant.DefaultSyncServerURL, snapshotRecord)
 }

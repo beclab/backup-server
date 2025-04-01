@@ -23,6 +23,33 @@ import (
 	"k8s.io/client-go/util/retry"
 )
 
+func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, error) {
+	if snapshot.Spec.Extra == nil {
+		return false, fmt.Errorf("snapshot %s extra is nil", snapshot.Name)
+	}
+
+	notifyState, ok := snapshot.Spec.Extra["push"]
+	if !ok {
+		return false, fmt.Errorf("snapshot %s extra push is nil", snapshot.Name)
+	}
+
+	var s *SnapshotNotifyState
+	if err := json.Unmarshal([]byte(notifyState), &s); err != nil {
+		return false, err
+	}
+
+	switch field {
+	case "progress":
+		return s.Progress, nil
+	case "result":
+		return s.Result, nil
+	case "prepare":
+		return s.Prepare, nil
+	}
+
+	return false, fmt.Errorf("field not found")
+}
+
 // TODO debug
 func getBackupPassword(owner string, backupName string) (string, error) {
 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
