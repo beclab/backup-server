@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -29,6 +30,7 @@ type SnapshotHandler struct {
 	factory  client.Factory
 	cron     *cron.Cron
 	handlers Interface
+	sync.Mutex
 }
 
 type backupJob struct {
@@ -135,21 +137,35 @@ func (o *SnapshotHandler) ListSnapshots(ctx context.Context, limit int64, labelS
 	return l, nil
 }
 
+func (o *SnapshotHandler) RemoveFromSchedule(ctx context.Context, backup *sysv1.Backup) {
+	o.Lock()
+	defer o.Unlock()
+	entries := o.cron.Entries()
+	for _, e := range entries {
+		if e.Job.(backupJob).name == backup.Name {
+			log.Infof("remove cron job, name: %s, id: %s", backup.Spec.Name, backup.Name)
+			o.cron.Remove(e.ID)
+		}
+	}
+}
+
 func (o *SnapshotHandler) CreateSchedule(ctx context.Context, backup *sysv1.Backup, schedule string, paused bool) error {
+	o.Lock()
+	defer o.Unlock()
 	log.Infof("create snapshot schedule, name: %s, frequency: %s, schedule: %s", backup.Spec.Name, backup.Spec.BackupPolicy.SnapshotFrequency, schedule)
 
 	entries := o.cron.Entries()
 	for _, e := range entries {
-		if e.Job.(backupJob).name == backup.Spec.Name {
+		if e.Job.(backupJob).name == backup.Name {
 			log.Info("remove prev cron job to apply new one")
 			o.cron.Remove(e.ID)
 		}
 	}
 
 	_, err := o.cron.AddJob(schedule, backupJob{
-		name: backup.Spec.Name,
+		name: backup.Name,
 		f: func() {
-			log.Infof("prepare to create snapshot task, name: %s", backup.Spec.Name)
+			log.Infof("prepare to create snapshot task, name: %s, id: %s", backup.Spec.Name, backup.Name)
 
 			var location string
 			for k := range backup.Spec.Location {

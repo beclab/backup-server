@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sort"
 	"time"
 
@@ -16,8 +15,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
-	"github.com/emicklei/go-restful/v3"
-	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,9 +33,18 @@ func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 	}
 }
 
+func (o *BackupHandler) GetDefaultSpaceToken(ctx context.Context, backup *sysv1.Backup) (*integration.SpaceToken, error) {
+	integrationName := GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
+	if integrationName == "" {
+		return nil, fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
+	}
+
+	return integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
+}
+
 func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) error {
 	if err := o.handlers.GetSnapshotHandler().DeleteSnapshots(ctx, backup.Name); err != nil {
-		// TODO review, if snapshots not found?
+		log.Errorf("delete backup %s snapshots error: %v", backup.Name, err)
 		return err
 	}
 
@@ -57,60 +63,6 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 	}
 
 	return o.delete(ctx, backup)
-}
-
-func (o *BackupHandler) GetBackupPassword(ctx context.Context, backup *sysv1.Backup) (password string, err error) {
-	var owner = backup.Spec.Owner
-	var backupName = backup.Spec.Name
-
-	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
-	client := resty.New().SetTimeout(5 * time.Second).SetDebug(true)
-
-	req := &proxyRequest{
-		Op:       "getAccount",
-		DataType: "backupPassword",
-		Version:  "v1",
-		Group:    "service.settings",
-		Data:     backupName,
-	}
-
-	terminusNonce, err := util.GenTerminusNonce("")
-	if err != nil {
-		err = fmt.Errorf("generate nonce error: %v", err)
-		return
-	}
-
-	log.Info("fetch password from settings, ", settingsUrl)
-	resp, err := client.R().SetContext(ctx).
-		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader("Terminus-Nonce", terminusNonce).
-		SetBody(req).
-		SetResult(&passwordResponse{}).
-		Post(settingsUrl)
-
-	if err != nil {
-		err = fmt.Errorf("request settings password api error: %v", err)
-		return
-	}
-
-	if resp.StatusCode() != http.StatusOK {
-		err = fmt.Errorf("request settings password api response not ok, status: %d, msg: %s", resp.StatusCode(), string(resp.Body()))
-		return
-	}
-
-	pwdResp := resp.Result().(*passwordResponse)
-	if pwdResp.Code != 0 {
-		err = fmt.Errorf("request settings password api response error, code: %d, msg: %s", pwdResp.Code, pwdResp.Message)
-		return
-	}
-
-	if pwdResp.Data == nil {
-		err = fmt.Errorf("request settings password api response error, code: %d, msg: %s", pwdResp.Code, pwdResp.Message)
-		return
-	}
-
-	password = pwdResp.Data.Value
-	return
 }
 
 func (o *BackupHandler) Delete(ctx context.Context, backup *sysv1.Backup) error {

@@ -50,8 +50,7 @@ func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, err
 	return false, fmt.Errorf("field not found")
 }
 
-// TODO debug
-func getBackupPassword(owner string, backupName string) (string, error) {
+func GetBackupPassword(ctx context.Context, owner string, backupName string) (string, error) {
 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
 	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
 

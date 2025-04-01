@@ -9,6 +9,7 @@ import (
 
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
@@ -53,7 +54,7 @@ func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, owner string
 	i.OlaresTokens[integrationName] = token
 
 	if token.Expired() {
-		return nil, fmt.Errorf("olares space token expired")
+		return nil, fmt.Errorf("olares space token expired, expiresAt: %d, format: %s", token.ExpiresAt, util.ParseUnixMilliToDate(token.ExpiresAt))
 	}
 
 	return token, nil

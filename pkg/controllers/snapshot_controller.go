@@ -12,7 +12,6 @@ import (
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -58,7 +57,7 @@ func NewSnapshotController(c client.Client, factory k8sclient.Factory, schema *r
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log.Infof("received snapshot request, namespace: %q, name: %q", req.Namespace, req.Name)
+	log.Infof("received snapshot request, snapshotId: %q", req.Name)
 
 	c, err := r.factory.Sysv1Client()
 	if err != nil {
@@ -67,10 +66,13 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	snapshot, err := c.SysV1().Snapshots(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
+		log.Infof("snapshot %s not found, it may have been deleted", req.Name)
+		return ctrl.Result{}, nil
 	} else if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
+
+	log.Infof("received snapshot request, snapshotId: %q, phase: %s, extra: %s", req.Name, *snapshot.Spec.Phase, util.ToJSON(snapshot.Spec.Extra))
 
 	backup, err := r.getBackup(snapshot.Spec.BackupId)
 	if err != nil && apierrors.IsNotFound(err) {
@@ -244,11 +246,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	integrationName := handlers.GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
-	if integrationName == "" {
-		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
-	}
-	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
+	olaresSpaceToken, err := r.handler.GetBackupHandler().GetDefaultSpaceToken(ctx, backup)
 	if err != nil {
 		return err
 	}
@@ -272,13 +270,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 }
 
 func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v1.Backup, snapshot *v1.Snapshot) error {
-	locationConfig, err := handlers.GetBackupLocationConfig(backup)
-	if err != nil {
-		return err
-	}
-	location := locationConfig["name"]
-
-	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, location)
+	spaceToken, err := r.handler.GetBackupHandler().GetDefaultSpaceToken(ctx, backup)
 	if err != nil {
 		return fmt.Errorf("get space token error: %v", err)
 	}
@@ -306,7 +298,7 @@ func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v
 		snapshotRecord.Message = util.ToJSON(resticInfo)
 		snapshotRecord.Size = resticInfo.TotalBytesProcessed
 		snapshotRecord.ResticSnapshotId = resticInfo.SnapshotID
-	} else {
+	} else if snapshot.Spec.Message != nil {
 		snapshotRecord.Message = *snapshot.Spec.Message
 	}
 

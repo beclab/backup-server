@@ -10,7 +10,6 @@ import (
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -66,7 +65,8 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	backup, err := c.SysV1().Backups(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Second}, nil
+		log.Infof("backup %s not found, it may have been deleted", req.Name)
+		return ctrl.Result{}, nil
 	} else if err != nil {
 		return ctrl.Result{}, errors.WithStack(err)
 	}
@@ -78,8 +78,10 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 		if err := r.deleteBackup(backup); err != nil {
 			log.Errorf("delete backupId: %s, backupName: %s, error: %v, retry...", backup.Name, backup.Spec.Name, err)
-			return ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}, nil
+			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 		}
+		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
+		return ctrl.Result{}, nil
 	}
 
 	if !r.isNotified(backup) {
@@ -99,6 +101,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	} else {
 		return ctrl.Result{}, nil
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -125,7 +128,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return true
 				}
 
-				if isNotifiedStateChanged(bc1, bc2) {
+				if isNotifiedStateChanged(bc1, bc2) { // need review
 					log.Info("backup notify state changed: Notified")
 					return true
 				}
@@ -150,9 +153,9 @@ func (r *BackupReconciler) isNotified(backup *sysv1.Backup) bool {
 
 func isNotifiedStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bool {
 	if oldBackup.Spec.Notified != newBackup.Spec.Notified {
-		return true
+		return false
 	}
-	return false
+	return true
 }
 
 func (r *BackupReconciler) isDeleted(newBackup *sysv1.Backup) bool {
@@ -176,11 +179,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	integrationName := handlers.GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
-	if integrationName == "" {
-		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
-	}
-	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
+	olaresSpaceToken, err := r.handler.GetBackupHandler().GetDefaultSpaceToken(ctx, backup)
 	if err != nil {
 		return err
 	}
@@ -204,7 +203,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	}
 
 	if err := notify.NotifyBackup(ctx, constant.DefaultSyncServerURL, notifyBackupObj); err != nil {
-		return fmt.Errorf("notify backup obj error: %v", err)
+		return fmt.Errorf("[push] notify backup obj error: %v", err)
 	}
 
 	return r.handler.GetBackupHandler().UpdateNotifyState(ctx, backup.Name, true)

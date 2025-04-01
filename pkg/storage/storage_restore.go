@@ -124,7 +124,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	var err error
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
-		password, err = s.Handlers.GetBackupHandler().GetBackupPassword(s.Ctx, s.Backup)
+		password, err = handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
 		if err != nil {
 			return fmt.Errorf("Restore %s get password error %v", s.RestoreId, err)
 		}
@@ -138,6 +138,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		}
 	} else {
 		// backupUrl
+		log.Infof("restore from backupUrl, ready to get integration token")
 		integrationName, err := integration.IntegrationManager().GetGetIntegrationNameByLocation(s.Ctx, s.RestoreType.Owner, s.RestoreType.Location)
 		if err != nil {
 			return err

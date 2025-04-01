@@ -171,12 +171,8 @@ func (w *WorkerManage) CancelBackup(backupId string) error {
 		return fmt.Errorf("no snapshot is running")
 	}
 
-	if w.isBackupQueueEmpty() {
+	if w.isBackupQueueEmpty() { // CancelBackup
 		return fmt.Errorf("backupQueue is empty")
-	}
-
-	if w.activeBackup.backupId != backupId {
-		return nil
 	}
 
 	if w.activeBackup.backupId != backupId {
@@ -197,7 +193,7 @@ func (w *WorkerManage) CancelSnapshot(snapshotId string) error {
 		return fmt.Errorf("no snapshot is running")
 	}
 
-	if w.isBackupQueueEmpty() {
+	if w.isBackupQueueEmpty() { // CancelSnapshot
 		return fmt.Errorf("backupQueue is empty")
 	}
 
