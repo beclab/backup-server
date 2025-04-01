@@ -1,9 +1,9 @@
 package controllers
 
 const (
-	BackupConfigController = "backupconfig_controller"
-
 	BackupController = "backup_controller"
+
+	SnapshotController = "snapshot_controller"
 
 	RestoreController = "restore_controller"
 )

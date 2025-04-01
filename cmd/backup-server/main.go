@@ -6,10 +6,7 @@ import (
 
 	"bytetrade.io/web3os/backup-server/cmd/backup-server/apiserver"
 	"bytetrade.io/web3os/backup-server/cmd/backup-server/controller"
-	vcontroller "bytetrade.io/web3os/backup-server/cmd/backup-server/velero_backup"
 	"github.com/spf13/cobra"
-	// "bytetrade.io/web3os/backup-server/cmd/backup-server/controller"
-	// vcontroller "bytetrade.io/web3os/backup-server/cmd/backup-server/velero_backup"
 )
 
 var rootCommand = cobra.Command{
@@ -29,8 +26,7 @@ func init() {
 	rootCommand.AddCommand(completion)
 
 	rootCommand.AddCommand(apiserver.NewAPIServerCommand())
-	rootCommand.AddCommand(controller.NewControllerCommand()) // todo replaced?
-	rootCommand.AddCommand(vcontroller.NewVeleroBackupControllerCommand())
+	rootCommand.AddCommand(controller.NewControllerCommand())
 
 }
 

@@ -16,6 +16,19 @@ import (
 	"github.com/pkg/errors"
 )
 
+func Base64encode(s []byte) string {
+	return base64.StdEncoding.EncodeToString(s)
+}
+
+func Base64decode(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
+}
+
+func MD5(s string) string {
+	hash := md5.Sum([]byte(s))
+	return hex.EncodeToString(hash[:])
+}
+
 func ParseToInt64(v string) int64 {
 	i, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {
@@ -185,4 +198,23 @@ func GetFirstDayOfWeek(t time.Time) time.Time {
 	offset := -time.Duration(weekday-1) * 24 * time.Hour
 
 	return t.Add(offset).Truncate(24 * time.Hour)
+}
+
+func IsTimestampNearingExpiration(targetTimestamp int64) bool {
+	adjustedTimestamp := targetTimestamp - (15 * 1000)
+	currentTimestamp := time.Now().UnixMilli()
+	return adjustedTimestamp < currentTimestamp
+}
+
+func ParseUnixMilliToDate(targetTimestamp int64) string {
+	t := time.UnixMilli(targetTimestamp)
+	return t.Format("2006-01-02 15:04:05")
+}
+
+func GetSuffix(c string, s string) (string, error) {
+	var r = strings.Split(c, s)
+	if len(r) != 2 {
+		return "", fmt.Errorf("get suffix invalid, context: %s", c)
+	}
+	return r[1], nil
 }

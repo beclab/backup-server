@@ -19,8 +19,10 @@ func EnvOrDefault(name, def string) string {
 	return v
 }
 
-func GenTerminusNonce() (string, error) {
-	randomKey := os.Getenv("APP_RANDOM_KEY")
+func GenTerminusNonce(randomKey string) (string, error) {
+	if randomKey == "" {
+		randomKey = os.Getenv("APP_RANDOM_KEY")
+	}
 	timestamp := getTimestamp()
 	cipherText, err := AesEncrypt([]byte(timestamp), []byte(randomKey))
 	if err != nil {

@@ -2,14 +2,11 @@ package apiserver
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"bytetrade.io/web3os/backup-server/cmd/backup-server/apiserver/options"
 	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/common"
 	"bytetrade.io/web3os/backup-server/pkg/signals"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/lithammer/dedent"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -47,7 +44,6 @@ func NewAPIServerCommand() *cobra.Command {
 
 	fs := cmd.Flags()
 	o.AddFlags(fs)
-	common.AddFlags(fs)
 
 	return cmd
 }
@@ -89,15 +85,6 @@ func run(o *options.ServerRunOptions, ctx context.Context) error {
 			return err
 		}
 	}
-
-	// print flag values
-	common.PrintFlagAndValues(
-		"backup-retain-days", fmt.Sprintf("%d", velero.DefaultBackupTTL),
-		"terminus-rootfs-path", velero.DefaultOSDataPath,
-		"backup-temp-path", velero.DefaultBackupTempStoragePath,
-		"backup-bucket", velero.DefaultBackupBucket,
-		"backup-key-prefix", velero.DefaultBackupKeyPrefix,
-	)
 
 	if err := apiserver.PrepareRun(); err != nil {
 		return errors.Errorf("apiserver prepare run: %v", err)

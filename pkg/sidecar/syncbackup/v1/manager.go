@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	backupv1 "bytetrade.io/web3os/backup-server/pkg/modules/backup/v1"
 	"bytetrade.io/web3os/backup-server/pkg/sidecar/syncbackup/v1/db"
 	_ "bytetrade.io/web3os/backup-server/pkg/sidecar/syncbackup/v1/db/v010"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/velero"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
@@ -126,7 +126,7 @@ func (s *SyncManager) StoreAndSync(b *backupv1.SyncBackup) error {
 			return errors.New("has synced")
 		}
 
-		if *b.Phase == velero.Succeed && b.S3Repository != "" {
+		if *b.Phase == constant.Completed.String() && b.S3Repository != "" {
 			flag = true
 		}
 
