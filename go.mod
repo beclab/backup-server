@@ -40,7 +40,6 @@ require (
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/lithammer/dedent v1.1.0
 	github.com/mattn/go-sqlite3 v1.14.17
-	github.com/mitchellh/go-homedir v1.1.0
 	github.com/pkg/errors v0.9.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.7.0

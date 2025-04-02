@@ -48,12 +48,7 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 		return err
 	}
 
-	integrationName := GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
-	if integrationName == "" {
-		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
-	}
-
-	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
+	spaceToken, err := o.GetDefaultSpaceToken(ctx, backup)
 	if err != nil {
 		return err
 	}

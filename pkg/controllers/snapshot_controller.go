@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"time"
@@ -30,16 +29,18 @@ import (
 // BackupReconciler reconciles a BackupConfig object
 type SnapshotReconciler struct {
 	client.Client
-	factory k8sclient.Factory
-	scheme  *runtime.Scheme
-	handler handlers.Interface
+	factory             k8sclient.Factory
+	scheme              *runtime.Scheme
+	handler             handlers.Interface
+	controllerStartTime metav1.Time
 }
 
 func NewSnapshotController(c client.Client, factory k8sclient.Factory, schema *runtime.Scheme, handler handlers.Interface) *SnapshotReconciler {
 	return &SnapshotReconciler{Client: c,
-		factory: factory,
-		scheme:  schema,
-		handler: handler,
+		factory:             factory,
+		scheme:              schema,
+		handler:             handler,
+		controllerStartTime: metav1.Now(),
 	}
 }
 
@@ -57,49 +58,65 @@ func NewSnapshotController(c client.Client, factory k8sclient.Factory, schema *r
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log.Infof("received snapshot request, snapshotId: %q", req.Name)
+	// log.Infof("received snapshot request, id: %s", req.Name)
 
 	c, err := r.factory.Sysv1Client()
 	if err != nil {
+		log.Errorf("get sysv1 client error: %v, name: %s", err, req.Name)
 		return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, errors.WithStack(err)
 	}
 
 	snapshot, err := c.SysV1().Snapshots(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		log.Infof("snapshot %s not found, it may have been deleted", req.Name)
+		log.Infof("snapshot not found, it may have been deleted, id: %s", req.Name)
 		return ctrl.Result{}, nil
 	} else if err != nil {
+		log.Errorf("get snapshot error: %v, id: %s", err, req.Name)
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
-	log.Infof("received snapshot request, snapshotId: %q, phase: %s, extra: %s", req.Name, *snapshot.Spec.Phase, util.ToJSON(snapshot.Spec.Extra))
+	log.Infof("received snapshot request, id: %s, phase: %s, extra: %s", req.Name, *snapshot.Spec.Phase, util.ToJSON(snapshot.Spec.Extra))
 
+	// TODO 这里应该是可以优化的，放到下面，可以检查请求次数
 	backup, err := r.getBackup(snapshot.Spec.BackupId)
 	if err != nil && apierrors.IsNotFound(err) {
-		return ctrl.Result{}, errors.WithStack(err)
+		log.Errorf("snapshot not found, it may have been deleted, id: %s", req.Name)
+		return ctrl.Result{}, nil
 	} else if err != nil {
-		return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+		log.Errorf("get snapshot error: %v, id: %s", err, req.Name)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	var phase = *snapshot.Spec.Phase
 
 	switch phase {
-	case constant.Pending.String(): // review
-		if err := r.addToWorkerManager(backup, snapshot); err != nil {
-			log.Errorf("add snapshot %s to worker error: %v", snapshot.Name, err)
-			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+	case constant.Pending.String():
+		isNewlyCreated := snapshot.CreationTimestamp.After(r.controllerStartTime.Time)
+		if isNewlyCreated {
+			if err := r.addToWorkerManager(backup, snapshot); err != nil {
+				log.Errorf("add snapshot to worker error: %v, id: %s", err, snapshot.Name)
+				return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+			}
+		} else {
+			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String())
 		}
 	case constant.Running.String():
-		r.handler.GetSnapshotHandler().UpdatePhase(ctx, req.Name, constant.Failed.String())
+		isNewlyCreated := snapshot.CreationTimestamp.After(r.controllerStartTime.Time)
+		if !isNewlyCreated {
+			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String())
+		}
 	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
+		if phase == constant.Canceled.String() {
+			worker.Worker.CancelSnapshot(snapshot.Name)
+		}
 		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil {
-			log.Errorf("notify backupName: %s, snapshotId: %s, phase: %s, error: %v", backup.Spec.Name, snapshot.Name, *snapshot.Spec.Phase, err)
+			log.Errorf("[notify] snapshot error: %v, id: %s, phase: %s", err, snapshot.Name, *snapshot.Spec.Phase)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 		} else {
-			log.Errorf("notify backupName: %s, snapshotId: %s, phase: %s", backup.Spec.Name, snapshot.Name, *snapshot.Spec.Phase)
+			log.Infof("[notify] snapshot success, id: %s, phase: %s", snapshot.Name, *snapshot.Spec.Phase)
 		}
 		if err := r.handler.GetSnapshotHandler().UpdateNotifyResultState(context.Background(), snapshot); err != nil {
-			log.Errorf("update snapshot %s notify state error: %v", snapshot.Name, err)
+			log.Errorf("update snapshot notify state error: %v, id: %s", err, snapshot.Name)
 		}
 	}
 
@@ -112,29 +129,32 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&sysapiv1.Snapshot{}, builder.WithPredicates(predicate.Funcs{
 			GenericFunc: func(genericEvent event.GenericEvent) bool { return false },
 			CreateFunc: func(e event.CreateEvent) bool {
-				log.Info("hit snapshot create event")
-
 				snapshot, ok := r.isSysSnapshot(e.Object)
 				if !ok {
 					log.Debugf("not a snapshot resource")
 					return false
 				}
 
-				log.Infof("hit snapshot create event, snapshotId: %s, snapshotPhase: %s", snapshot.Name, *snapshot.Spec.Phase)
-
+				var reconcile bool
 				var phase = *snapshot.Spec.Phase
 
 				switch phase {
 				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
-					snapshotNotified, err := r.checkSnapshotPushState(snapshot)
+					snapshotNotified, err := handlers.CheckSnapshotNotifyState(snapshot, "result")
 					if err != nil {
-						log.Errorf("hit snapshot create event, check snapshot push state error: %v, snapshotId: %s", err, snapshot.Name)
-						return false
+						log.Errorf("hit snapshot create event, check snapshot push state error: %v, id: %s", err, snapshot.Name)
+						reconcile = false
+					} else {
+						reconcile = !snapshotNotified
 					}
-					return !snapshotNotified
 				default:
-					return true
+					reconcile = true
 				}
+
+				if reconcile {
+					log.Infof("hit snapshot create event, id: %s, phase: %s, extra: %s", snapshot.Name, *snapshot.Spec.Phase, util.ToJSON(snapshot.Spec.Extra))
+				}
+				return reconcile
 			},
 			UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 				log.Info("hit snapshot update event")
@@ -147,9 +167,9 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				snapshotNotified, err := r.checkSnapshotPushState(newSnapshot)
+				snapshotNotified, err := handlers.CheckSnapshotNotifyState(newSnapshot, "result")
 				if err != nil {
-					log.Errorf("hit snapshot update event, check snapshot push state error: %v, snapshotId: %s", err, newSnapshot.Name)
+					log.Errorf("hit snapshot update event, check snapshot push state error: %v, id: %s", err, newSnapshot.Name)
 					return false
 				}
 
@@ -205,41 +225,19 @@ func (r *SnapshotReconciler) isCanceled(newSnapshot *v1.Snapshot) bool {
 
 func (r *SnapshotReconciler) addToWorkerManager(backup *sysapiv1.Backup, snapshot *sysapiv1.Snapshot) error {
 	if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
-		log.Errorf("notify backupName: %s, snapshotId: %s, phase: New, error: %v", backup.Spec.Name, snapshot.Name, err)
+		log.Errorf("[notify] snapshot error: %v, id: %s, phase: Pending", err, snapshot.Name)
 		return err
 	} else {
-		log.Infof("notify backupName: %s, snapshotId: %s, phase: New", backup.Spec.Name, snapshot.Name)
+		log.Infof("[notify] snapshot success, id: %s, phase: Pending", snapshot.Name)
 	}
-	log.Infof("add to backup worker, snapshotId: %s", snapshot.Name)
+	log.Infof("add to worker queue, id: %s", snapshot.Name)
 	worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, snapshot.Spec.BackupId, snapshot.Name))
 
 	return nil
 }
 
 func (r *SnapshotReconciler) checkSnapshotPushState(snapshot *sysapiv1.Snapshot) (bool, error) {
-	if snapshot.Spec.Extra == nil {
-		return false, fmt.Errorf("snapshot extra is nil")
-	}
-
-	data, ok := snapshot.Spec.Extra["push"]
-	if !ok {
-		return false, fmt.Errorf("snapshot extra push is nil")
-	}
-
-	var snapshotNotifyState *handlers.SnapshotNotifyState
-	if err := json.Unmarshal([]byte(data), &snapshotNotifyState); err != nil {
-		return false, err
-	}
-
-	var phase = *snapshot.Spec.Phase
-	switch phase {
-	case constant.Running.String():
-		return snapshotNotifyState.Progress, nil
-	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
-		return snapshotNotifyState.Result, nil
-	}
-
-	return false, nil
+	return handlers.CheckSnapshotNotifyState(snapshot, "result")
 }
 
 func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snapshot, status string) error {

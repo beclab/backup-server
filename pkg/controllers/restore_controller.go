@@ -10,6 +10,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -20,16 +21,18 @@ import (
 
 type RestoreReconciler struct {
 	client.Client
-	factory bclient.Factory
-	scheme  *runtime.Scheme
-	handler handlers.Interface
+	factory             bclient.Factory
+	scheme              *runtime.Scheme
+	handler             handlers.Interface
+	controllerStartTime metav1.Time
 }
 
 func NewRestoreController(c client.Client, factory bclient.Factory, schema *runtime.Scheme, handler handlers.Interface) *RestoreReconciler {
 	return &RestoreReconciler{Client: c,
-		factory: factory,
-		scheme:  schema,
-		handler: handler,
+		factory:             factory,
+		scheme:              schema,
+		handler:             handler,
+		controllerStartTime: metav1.Now(),
 	}
 }
 
