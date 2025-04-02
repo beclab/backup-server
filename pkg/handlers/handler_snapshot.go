@@ -61,7 +61,7 @@ func (o *SnapshotHandler) DeleteSnapshots(ctx context.Context, backupId string) 
 		return err
 	}
 
-	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 }
@@ -211,8 +211,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			Name:      name,
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
-				"backup-id":     backup.Name,
-				"snapshot-type": fmt.Sprintf("%d", *parseSnapshotType),
+				"backup-id": backup.Name,
 			},
 		},
 		Spec: sysv1.SnapshotSpec{
