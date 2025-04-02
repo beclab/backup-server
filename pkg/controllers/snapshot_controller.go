@@ -77,7 +77,7 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	log.Infof("received snapshot request, id: %s, phase: %s, extra: %s", req.Name, *snapshot.Spec.Phase, util.ToJSON(snapshot.Spec.Extra))
 
-	// TODO 这里应该是可以优化的，放到下面，可以检查请求次数
+	// TODO check backup
 	backup, err := r.getBackup(snapshot.Spec.BackupId)
 	if err != nil && apierrors.IsNotFound(err) {
 		log.Errorf("snapshot not found, it may have been deleted, id: %s", req.Name)

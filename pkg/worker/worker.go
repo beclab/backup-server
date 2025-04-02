@@ -62,7 +62,7 @@ func (w *WorkerManage) StartBackupWorker() {
 		for {
 			select {
 			case <-ticker.C:
-				w.RunBackup(w.ctx)
+				w.RunBackup()
 			case <-w.ctx.Done():
 				return
 			}
@@ -79,7 +79,7 @@ func (w *WorkerManage) StartRestoreWorker() {
 		for {
 			select {
 			case <-ticker.C:
-				w.RunRestore(w.ctx)
+				w.RunRestore()
 			case <-w.ctx.Done():
 				return
 			}
@@ -87,7 +87,7 @@ func (w *WorkerManage) StartRestoreWorker() {
 	}()
 }
 
-func (w *WorkerManage) RunRestore(ctx context.Context) {
+func (w *WorkerManage) RunRestore() {
 	var restoreId string
 	var ok bool
 	var setupErr error
@@ -108,7 +108,7 @@ func (w *WorkerManage) RunRestore(ctx context.Context) {
 			return
 		}
 
-		var ctxTask, cancelTask = context.WithCancel(ctx)
+		var ctxTask, cancelTask = context.WithCancel(w.ctx)
 
 		var storageRestore = &storage.StorageRestore{
 			Ctx:       ctxTask,
@@ -117,7 +117,7 @@ func (w *WorkerManage) RunRestore(ctx context.Context) {
 		}
 
 		w.activeRestore = &activeRestore{
-			ctx:       ctx,
+			ctx:       ctxTask,
 			cancel:    cancelTask,
 			restoreId: restoreId,
 			restore:   storageRestore,
@@ -146,7 +146,7 @@ func (w *WorkerManage) callbackRestoreProgress(percentDone float64) {
 	w.activeRestore.progress = percentDone
 }
 
-func (w *WorkerManage) RunBackup(ctx context.Context) {
+func (w *WorkerManage) RunBackup() {
 	var backupId string
 	var snapshotId string
 	var ok bool
@@ -168,7 +168,7 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 			return
 		}
 
-		var ctxTask, cancelTask = context.WithCancel(ctx)
+		var ctxTask, cancelTask = context.WithCancel(w.ctx)
 		var storageBackup = &storage.StorageBackup{
 			Ctx:        ctxTask,
 			Handlers:   w.handlers,
@@ -176,7 +176,7 @@ func (w *WorkerManage) RunBackup(ctx context.Context) {
 		}
 
 		w.activeBackup = &activeBackup{
-			ctx:        ctx,
+			ctx:        ctxTask,
 			cancel:     cancelTask,
 			backupId:   backupId,
 			snapshotId: snapshotId,

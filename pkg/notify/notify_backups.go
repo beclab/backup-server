@@ -67,7 +67,7 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 		var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupPath=%s&backupLocation=%s",
 			backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupPath, backup.BackupLocation)
 
-		log.Infof("notify backup data: %s", data)
+		log.Infof("[notify] backup data: %s", data)
 
 		result, err := http.Post[Response](ctx, url, headers, data, false)
 		if err != nil {
@@ -75,7 +75,7 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 		}
 
 		if result.Code != 200 {
-			return fmt.Errorf("send new backup record failed: %d, url: %s", result.Code, url)
+			return fmt.Errorf("[notify] send new backup record failed: %d, url: %s", result.Code, url)
 		}
 		return nil
 	}); err != nil {
@@ -99,7 +99,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		snapshot.Url, snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
 		snapshot.Message)
 
-	log.Infof("push snapshot data: %s", data)
+	log.Infof("[notify] snapshot data: %s", data)
 
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
@@ -108,13 +108,13 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 
-		result, err := http.Post[Response](ctx, url, headers, data, false)
+		result, err := http.Post[Response](ctx, url, headers, data, true)
 		if err != nil {
 			return err
 		}
 
 		if result.Code != 200 {
-			return fmt.Errorf("push snapshot record failed %s", result.Message)
+			return fmt.Errorf("[notify] snapshot record failed %s", result.Message)
 		}
 		return nil
 	}); err != nil {
@@ -133,7 +133,7 @@ func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, 
 
 	var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s", userId, token, backupId)
 
-	log.Infof("push delete backup data: %s", data)
+	log.Infof("[notify] delete backup data: %s", data)
 
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
@@ -148,7 +148,7 @@ func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, 
 		}
 
 		if result.Code != 200 {
-			return fmt.Errorf("push delete backup record failed %s", result.Message)
+			return fmt.Errorf("[notify] delete backup record failed %s", result.Message)
 		}
 		return nil
 	}); err != nil {

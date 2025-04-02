@@ -34,7 +34,7 @@ func New(cfg *config.Config, factory client.Factory, handler handlers.Interface)
 	}
 }
 
-func (h *Handler) health(req *restful.Request, resp *restful.Response) {
+func (h *Handler) health(_ *restful.Request, resp *restful.Response) {
 	response.SuccessNoData(resp)
 }
 
@@ -80,13 +80,18 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 }
 
 func (h *Handler) get(req *restful.Request, resp *restful.Response) {
-	ctx, id := req.Request.Context(), req.PathParameter("id")
+	ctx, backupId := req.Request.Context(), req.PathParameter("id")
 	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
 	_ = owner
 
-	backup, err := h.handler.GetBackupHandler().GetById(ctx, id)
-	if err != nil {
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessage(err, "describe backup"))
+		return
+	}
+
+	if backup == nil {
+		response.HandleError(resp, fmt.Errorf("backup %s not exists", backupId))
 		return
 	}
 
@@ -172,8 +177,13 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 	format := "failed to update backup plan %q"
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessage(err, "get backup error"))
+		return
+	}
+
+	if backup == nil {
+		response.HandleError(resp, fmt.Errorf("backup %s not exists", backupId))
 		return
 	}
 
@@ -196,8 +206,13 @@ func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response)
 	log.Debugf("delete backup %q", backupId)
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessagef(err, "get backup error"))
+		return
+	}
+
+	if backup == nil {
+		response.HandleError(resp, fmt.Errorf("backup %s not exists", backupId))
 		return
 	}
 
@@ -230,13 +245,13 @@ func (h *Handler) enabledBackupPlan(req *restful.Request, resp *restful.Response
 	log.Debugf("backup: %s, event: %s", backupId, b.Event)
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
-	if err != nil || !apierrors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessagef(err, "get backup %s error", backupId))
 		return
 	}
 
-	if backup != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "backup %s not exists", backupId))
+	if backup == nil {
+		response.HandleError(resp, fmt.Errorf("backup %s not exists", backupId))
 		return
 	}
 
@@ -272,8 +287,13 @@ func (h *Handler) addSnapshot(req *restful.Request, resp *restful.Response) {
 	}
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessagef(err, "get backup %s error: %v", backupId, err))
+		return
+	}
+
+	if backup == nil {
+		response.HandleError(resp, fmt.Errorf("backup %s not exists", backupId))
 		return
 	}
 
@@ -288,13 +308,11 @@ func (h *Handler) addSnapshot(req *restful.Request, resp *restful.Response) {
 		break
 	}
 
-	snapshot, err := h.handler.GetSnapshotHandler().Create(ctx, backup, location)
+	_, err = h.handler.GetSnapshotHandler().Create(ctx, backup, location)
 	if err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "create snapshot NOW error: %v, backupId: %s", err, backupId))
 		return
 	}
-
-	worker.Worker.AppendBackupTask(fmt.Sprintf("%s_%s_%s", backup.Spec.Owner, backup.Name, snapshot.Name))
 
 	response.SuccessNoData(resp)
 }
@@ -335,13 +353,13 @@ func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 	snapshotId := req.PathParameter("id")
 
 	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, snapshotId)
-	if err != nil {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.Errorf("snapshot %s not found", snapshotId))
 		return
 	}
 
 	if snapshot == nil {
-		response.HandleError(resp, errors.WithMessage(err, "snapshots not exists"))
+		response.HandleError(resp, fmt.Errorf("snapshot %s not exists", snapshotId))
 		return
 	}
 
@@ -369,27 +387,27 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 	snapshotId := req.PathParameter("snapshotId")
 	_ = ctx
 
-	log.Debugf("snapshot: %s, event: %s", snapshotId, b.Event)
+	log.Debugf("backup: %s, snapshot: %s, event: %s", backupId, snapshotId, b.Event)
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
-	if err != nil || !apierrors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessagef(err, "get backup %s error", backupId))
 		return
 	}
 
 	if backup == nil {
-		response.HandleError(resp, errors.WithMessagef(err, "backup %s not exists", backupId))
+		response.HandleError(resp, fmt.Errorf("backup %s not exists", backupId))
 		return
 	}
 
 	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, snapshotId)
-	if err != nil || !apierrors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessagef(err, "get snapshot %s error", snapshotId))
 		return
 	}
 
 	if snapshot == nil {
-		response.HandleError(resp, errors.WithMessagef(err, "snapshot %s not exists", snapshotId))
+		response.HandleError(resp, fmt.Errorf("snapshot %s not exists", backupId))
 		return
 	}
 
@@ -399,11 +417,6 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 		constant.Failed.String(), constant.Completed.String()}, phase) {
 		log.Infof("snapshot %s phase %s no need to Cancel", snapshotId, phase)
 		response.SuccessNoData(resp)
-		return
-	}
-
-	if err := worker.Worker.CancelSnapshot(snapshotId); err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "remove snapshot %s from backupQueue error", snapshotId))
 		return
 	}
 
@@ -457,6 +470,7 @@ func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 
 	for _, r := range result {
 		if constant.Running.String() == r.Status {
+			// + TODO fix worker
 			r.Progress, err = worker.Worker.GetRestoreProgress(r.Id)
 			if err != nil {
 				log.Errorf("list restores, get restore %s progress error: %v", r.Id, err)
@@ -496,15 +510,26 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		snapshotId = b.SnapshotId
 		restoreTypeName = constant.RestoreTypeSnapshot
 		snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, b.SnapshotId)
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			response.HandleError(resp, errors.Errorf("get snapshot %s error: %v", b.SnapshotId, err))
 			return
 		}
 
+		if snapshot == nil {
+			response.HandleError(resp, fmt.Errorf("snapshot %s not exists", snapshotId))
+			return
+		}
+
 		backup, err := h.handler.GetBackupHandler().GetById(ctx, snapshot.Spec.BackupId)
-		if err != nil {
+		if err != nil && !apierrors.IsNotFound(err) {
 			response.HandleError(resp, errors.Errorf("get backup %s error: %v", snapshot.Spec.BackupId, err))
 			return
+		}
+
+		if backup == nil {
+			response.HandleError(resp, fmt.Errorf("backup %s not exists", snapshot.Spec.BackupId))
+			return
+
 		}
 
 		backupName = backup.Spec.Name
@@ -553,13 +578,19 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 	_ = owner
 
 	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)
-	if err != nil {
-		response.HandleError(resp, errors.WithMessage(err, "describe restore"))
+	if err != nil && !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessagef(err, "get restore %s error", restoreId))
+		return
+	}
+
+	if restore == nil {
+		response.HandleError(resp, fmt.Errorf("restore %s not exists", restoreId))
 		return
 	}
 
 	var progress float64
 	if *restore.Spec.Phase == constant.Running.String() {
+		// + TODO fix worker
 		progress, err = worker.Worker.GetRestoreProgress(restoreId)
 		if err != nil {
 			log.Errorf("describe restore, get progress error: %v", err)
@@ -592,13 +623,13 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 	log.Debugf("restore: %s, event: %s", restoreId, b.Event)
 
 	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)
-	if err != nil || !apierrors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.WithMessagef(err, "get restore %s error", restoreId))
 		return
 	}
 
 	if restore == nil {
-		response.HandleError(resp, errors.WithMessagef(err, "restore %s not exists", restoreId))
+		response.HandleError(resp, fmt.Errorf("restore %s not exists", restoreId))
 		return
 	}
 
@@ -610,6 +641,7 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
+	// + TODO fix worker
 	if err := worker.Worker.CancelRestore(restoreId); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "remove restore %s from restoreQueue error", restoreId))
 		return
