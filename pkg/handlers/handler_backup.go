@@ -48,12 +48,7 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 		return err
 	}
 
-	integrationName := GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
-	if integrationName == "" {
-		return fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
-	}
-
-	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
+	spaceToken, err := o.GetDefaultSpaceToken(ctx, backup)
 	if err != nil {
 		return err
 	}
@@ -121,17 +116,7 @@ func (o *BackupHandler) GetById(ctx context.Context, id string) (*sysv1.Backup, 
 		return nil, err
 	}
 
-	backup, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if backup == nil {
-		return nil, apierrors.NewNotFound(sysv1.Resource("Backup"), id)
-	}
-
-	return backup, nil
+	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
 }
 
 func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Backup, error) {

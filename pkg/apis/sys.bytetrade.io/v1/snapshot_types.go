@@ -33,9 +33,9 @@ type SnapshotSpec struct {
 	SnapshotType  *int              `json:"snapshotType"`
 	SnapshotId    *string           `json:"snapshotId,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`
-	CreateAt      int64             `json:"createAt"`
-	StartAt       int64             `json:"startAt"`
-	EndAt         int64             `json:"endAt,omitempty"`
+	CreateAt      *metav1.Time      `json:"createAt"`
+	StartAt       *metav1.Time      `json:"startAt"`
+	EndAt         *metav1.Time      `json:"endAt,omitempty"`
 	Phase         *string           `json:"phase"`
 	Message       *string           `json:"message,omitempty"`
 	ResticPhase   *string           `json:"resticPhase,omitempty"`

@@ -39,7 +39,7 @@ func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phas
 	}
 
 	if phase == constant.Running.String() {
-		restore.Spec.StartAt = time.Now().UnixMilli()
+		restore.Spec.StartAt = pointer.Time()
 	}
 	restore.Spec.Phase = pointer.String(phase)
 
@@ -77,7 +77,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 		return nil, err
 	}
 
-	var startAt = time.Now().UnixMilli()
+	var startAt = pointer.Time()
 	var phase = constant.Pending.String()
 
 	var restore = &sysv1.Restore{
@@ -110,7 +110,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 func (o *RestoreHandler) updateRestoreFailedStatus(backupError error, restore *sysv1.Restore) error {
 	restore.Spec.Phase = pointer.String(constant.Failed.String())
 	restore.Spec.Message = pointer.String(backupError.Error())
-	restore.Spec.EndAt = time.Now().UnixMilli()
+	restore.Spec.EndAt = pointer.Time()
 
 	return o.Update(context.Background(), restore.Name, &restore.Spec) // update failed
 }

@@ -61,7 +61,7 @@ func (o *SnapshotHandler) DeleteSnapshots(ctx context.Context, backupId string) 
 		return err
 	}
 
-	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 }
@@ -94,12 +94,12 @@ func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, ph
 		return err
 	}
 
-	var t = time.Now().UnixMilli()
+	var now = pointer.Time()
 	snapshot.Spec.Phase = pointer.String(phase)
 	if phase == constant.Running.String() {
-		snapshot.Spec.StartAt = t
+		snapshot.Spec.StartAt = now
 	} else {
-		snapshot.Spec.EndAt = t
+		snapshot.Spec.EndAt = now
 	}
 
 	return o.update(ctx, snapshot) // updatePhase
@@ -192,7 +192,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 	if err != nil {
 		return nil, err
 	}
-	var startAt = time.Now().UnixMilli()
+	var startAt = pointer.Time()
 	var name = uuid.NewUUID()
 	var phase = constant.Pending.String()
 	var parseSnapshotType = ParseSnapshotType(constant.UnKnownBackup)
@@ -211,8 +211,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			Name:      name,
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
-				"backup-id":     backup.Name,
-				"snapshot-type": fmt.Sprintf("%d", *parseSnapshotType),
+				"backup-id": backup.Name,
 			},
 		},
 		Spec: sysv1.SnapshotSpec{
@@ -245,17 +244,7 @@ func (o *SnapshotHandler) GetById(ctx context.Context, snapshotId string) (*sysv
 		return nil, err
 	}
 
-	snapshot, err := c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Get(getCtx, snapshotId, metav1.GetOptions{})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if snapshot == nil {
-		return nil, apierrors.NewNotFound(sysv1.Resource("Snapshot"), snapshotId)
-	}
-
-	return snapshot, nil
+	return c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Get(getCtx, snapshotId, metav1.GetOptions{})
 }
 
 func (o *SnapshotHandler) GetRunningSnapshot(ctx context.Context, backupId string) (bool, error) {

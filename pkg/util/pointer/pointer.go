@@ -3,6 +3,8 @@ package pointer
 import (
 	"fmt"
 	"reflect"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // AllPtrFieldsNil tests whether all pointer fields in a struct are nil.  This is useful when,
@@ -171,6 +173,11 @@ func StringEqual(a, b *string) bool {
 		return true
 	}
 	return *a == *b
+}
+
+func Time() *metav1.Time {
+	var now = metav1.Now()
+	return &now
 }
 
 // Float32 returns a pointer to the a float32.

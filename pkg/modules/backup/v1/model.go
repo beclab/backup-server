@@ -265,7 +265,7 @@ func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interfa
 	for _, snapshot := range snapshots.Items {
 		var item = &ResponseSnapshotList{
 			Id:       snapshot.Name,
-			CreateAt: snapshot.Spec.StartAt,
+			CreateAt: snapshot.Spec.StartAt.UnixMilli(),
 			Size:     handlers.ParseSnapshotSize(snapshot.Spec.Size),
 			Status:   parseMessage(snapshot.Spec.Phase),
 		}
@@ -366,7 +366,7 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 	return &ResponseRestoreDetail{
 		BackupName:   backup.Spec.Name,
 		BackupPath:   handlers.GetBackupPath(backup),
-		SnapshotName: handlers.ParseSnapshotName(snapshot.Spec.StartAt),
+		SnapshotName: handlers.ParseSnapshotName(snapshot.Spec.StartAt.UnixMilli()),
 		RestorePath:  handlers.GetRestorePath(restore),
 		Status:       *restore.Spec.Phase,
 		Message:      *restore.Spec.Message,
@@ -389,8 +389,8 @@ func parseResponseRestoreList(data *sysv1.RestoreList) []*ResponseRestoreList {
 			Id:         restore.Name,
 			BackupName: d.BackupName,
 			Path:       d.Path,
-			CreateAt:   restore.Spec.CreateAt,
-			EndAt:      restore.Spec.EndAt,
+			CreateAt:   restore.Spec.CreateAt.UnixMilli(),
+			EndAt:      restore.Spec.EndAt.UnixMilli(),
 			Status:     *restore.Spec.Phase,
 		}
 		result = append(result, r)

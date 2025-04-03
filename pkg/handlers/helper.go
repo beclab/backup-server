@@ -69,7 +69,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 	}
 
 	log.Info("fetch password from settings, ", settingsUrl)
-	resp, err := client.R().
+	resp, err := client.R().SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
 		SetHeader("Terminus-Nonce", terminusNonce).
 		SetBody(req).

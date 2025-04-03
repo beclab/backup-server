@@ -71,7 +71,7 @@ func RequestJSON(method, url string, headers map[string]string, body, to any) (s
 
 func Post[T any](ctx context.Context, url string, headers map[string]string, data interface{}, debug bool) (*T, error) {
 	var result T
-	client := resty.New().SetTimeout(10 * time.Second).
+	client := resty.New().SetTimeout(15 * time.Second).
 		SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).R().SetDebug(debug)
 
 	if headers != nil {

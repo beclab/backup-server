@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
@@ -47,7 +46,6 @@ func (s *StorageRestore) RunRestore(progressCallback func(percentDone float64)) 
 		return errors.WithStack(err)
 	}
 
-	// todo update failed phase
 	var f = func() error {
 		var e error
 		if e = s.prepareRestoreParams(); e != nil {
@@ -328,7 +326,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 		restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
 	}
 
-	restore.Spec.EndAt = time.Now().UnixMilli()
+	restore.Spec.EndAt = pointer.Time()
 
 	return s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec)
 }

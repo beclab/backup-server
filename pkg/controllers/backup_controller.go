@@ -28,17 +28,19 @@ import (
 // BackupReconciler reconciles a Backup object
 type BackupReconciler struct {
 	client.Client
-	factory k8sclient.Factory
-	scheme  *runtime.Scheme
-	handler handlers.Interface
+	factory             k8sclient.Factory
+	scheme              *runtime.Scheme
+	handler             handlers.Interface
+	controllerStartTime metav1.Time
 }
 
 func NewBackupController(c client.Client, factory k8sclient.Factory, schema *runtime.Scheme, handler handlers.Interface) *BackupReconciler {
 	return &BackupReconciler{
-		Client:  c,
-		factory: factory,
-		scheme:  schema,
-		handler: handler,
+		Client:              c,
+		factory:             factory,
+		scheme:              schema,
+		handler:             handler,
+		controllerStartTime: metav1.Now(),
 	}
 }
 
@@ -56,30 +58,40 @@ func NewBackupController(c client.Client, factory k8sclient.Factory, schema *run
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log.Infof("received backup request, namespace: %q, name: %q", req.Namespace, req.Name)
+	log.Infof("received backup request, id: %s", req.Name)
 
 	c, err := r.factory.Sysv1Client()
 	if err != nil {
+		log.Errorf("get sysv1 client error: %v, id: %s", err, req.Name)
 		return ctrl.Result{Requeue: true, RequeueAfter: 3 * time.Second}, errors.WithStack(err)
 	}
 
 	backup, err := c.SysV1().Backups(req.Namespace).Get(ctx, req.Name, metav1.GetOptions{})
 	if err != nil && apierrors.IsNotFound(err) {
-		log.Infof("backup %s not found, it may have been deleted", req.Name)
+		log.Errorf("backup not found, it may have been deleted, id: %s", req.Name)
 		return ctrl.Result{}, nil
 	} else if err != nil {
+		log.Errorf("get backup error: %v, id: %s", err, req.Name)
 		return ctrl.Result{}, errors.WithStack(err)
 	}
 
+	log.Infof("received backup request, id: %s, name: %s, owner: %s, deleted: %v, enabled: %v", req.Name, backup.Spec.Name, backup.Spec.Owner, backup.Spec.Deleted, backup.Spec.BackupPolicy.Enabled)
+
 	if r.isDeleted(backup) {
+		log.Infof("received backup request, id: %s, event: deleted", req.Name)
 		if err := worker.Worker.CancelBackup(backup.Name); err != nil {
-			log.Errorf("cancel backup worker, backupId: %s, backupName: %s, error: %v", backup.Name, backup.Spec.Name, err)
+			log.Errorf("cancel backup worker, error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
 		}
 
 		if err := r.deleteBackup(backup); err != nil {
-			log.Errorf("delete backupId: %s, backupName: %s, error: %v, retry...", backup.Name, backup.Spec.Name, err)
+			log.Errorf("delete backup error: %v, id: %s, name: %s, retry...", err, backup.Name, backup.Spec.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 		}
+		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
+		return ctrl.Result{}, nil
+	}
+
+	if !r.isPaused(backup) {
 		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
 		return ctrl.Result{}, nil
 	}
@@ -87,15 +99,16 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if !r.isNotified(backup) {
 		err = r.notify(backup)
 		if err != nil {
-			log.Errorf("notify backupName: %s, backupId: %s, error: %v", backup.Spec.Name, backup.Name, err)
+			log.Errorf("notify backup error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 		}
-		log.Infof("notify backupName: %s, backupId: %s, record success", backup.Spec.Name, backup.Name)
+		log.Infof("notify backup success, id: %s, name: %s", backup.Name, backup.Spec.Name)
 	}
 
 	if !backup.Spec.Deleted && backup.Spec.BackupPolicy.Enabled {
 		err = r.reconcileBackupPolicies(backup)
 		if err != nil {
+			log.Errorf("reconcile backup policies error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
 			return ctrl.Result{}, errors.WithStack(err)
 		}
 	} else {
@@ -123,17 +136,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					log.Info("backup not changed")
 					return false
 				}
-
-				if r.isDeleted(bc2) {
-					return true
-				}
-
-				if isNotifiedStateChanged(bc1, bc2) { // need review
-					log.Info("backup notify state changed: Notified")
-					return true
-				}
-
-				return false
+				return true
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit backup delete event")
@@ -162,6 +165,10 @@ func (r *BackupReconciler) isDeleted(newBackup *sysv1.Backup) bool {
 	return newBackup.Spec.Deleted
 }
 
+func (r *BackupReconciler) isPaused(newBackup *sysv1.Backup) bool {
+	return newBackup.Spec.BackupPolicy.Enabled
+}
+
 func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 	ctx := context.Background()
 	if backup.Spec.BackupPolicy != nil {
@@ -170,7 +177,7 @@ func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 		if err != nil {
 			return err
 		}
-		log.Debugf("schedule %q created: %q", backup.Spec.Name, cron)
+		log.Debugf("schedule %s created: %q", backup.Spec.Name, cron)
 	}
 	return nil
 }

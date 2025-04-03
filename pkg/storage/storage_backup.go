@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
@@ -75,7 +74,7 @@ func (s *StorageBackup) RunBackup() error {
 		// } else {
 		// 	log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
 		// }
-
+		log.Errorf("Backup %s,%s, prepare for run error: %v", backupName, snapshotId, err)
 		if e := s.updateBackupResult(nil, nil, err); e != nil {
 			return errors.WithStack(e)
 		}
@@ -83,7 +82,7 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 
-	log.Infof("backup %s,%s, locationConfig: %s", backupName, snapshotId, util.ToJSON(s.Params.Location))
+	log.Infof("Backup %s,%s, locationConfig: %s", backupName, snapshotId, util.ToJSON(s.Params.Location))
 	backupResult, backupStorageObj, backupErr := s.execute()
 	if backupErr != nil {
 		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
@@ -178,7 +177,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	var snapshotId = s.Snapshot.Name
 	var location = s.Params.Location["location"]
 
-	log.Infof("Backup %s,%s, location %s prepare", backupName, snapshotId, location)
+	log.Infof("Backup %s,%s, location: %s, prepare", backupName, snapshotId, location)
 
 	var backupService *backupssdkstorage.BackupService
 
@@ -253,6 +252,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	var spaceToken *integration.SpaceToken
 
 	for {
+		// TODO loop forever?
 		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
 		if err != nil {
 			err = fmt.Errorf("get space token error: %v", err)
@@ -286,11 +286,6 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
-				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, location["name"])
-				if err != nil {
-					err = fmt.Errorf("get space token error: %v", err)
-					break
-				}
 				continue
 			} else {
 				err = fmt.Errorf("space backup error: %v", err)
@@ -336,7 +331,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
 	}
 
-	snapshot.Spec.EndAt = time.Now().UnixMilli()
+	snapshot.Spec.EndAt = pointer.Time()
 
 	if backupStorageObj != nil {
 		var extra = snapshot.Spec.Extra
@@ -364,7 +359,7 @@ func (s *StorageBackup) notifyBackupResult(backupOutput *backupssdkrestic.Summar
 		BackupId:     s.Backup.Name,
 		SnapshotId:   s.Snapshot.Name,
 		Unit:         constant.DefaultSnapshotSizeUnit,
-		SnapshotTime: s.Snapshot.Spec.StartAt,
+		SnapshotTime: s.Snapshot.Spec.StartAt.UnixMilli(),
 		Type:         handlers.ParseSnapshotTypeText(s.SnapshotType),
 	}
 
