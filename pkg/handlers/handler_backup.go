@@ -116,17 +116,7 @@ func (o *BackupHandler) GetById(ctx context.Context, id string) (*sysv1.Backup, 
 		return nil, err
 	}
 
-	backup, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if backup == nil {
-		return nil, apierrors.NewNotFound(sysv1.Resource("Backup"), id)
-	}
-
-	return backup, nil
+	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
 }
 
 func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Backup, error) {

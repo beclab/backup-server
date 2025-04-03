@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
@@ -332,7 +331,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
 	}
 
-	snapshot.Spec.EndAt = time.Now().UnixMilli()
+	snapshot.Spec.EndAt = pointer.Time()
 
 	if backupStorageObj != nil {
 		var extra = snapshot.Spec.Extra
@@ -360,7 +359,7 @@ func (s *StorageBackup) notifyBackupResult(backupOutput *backupssdkrestic.Summar
 		BackupId:     s.Backup.Name,
 		SnapshotId:   s.Snapshot.Name,
 		Unit:         constant.DefaultSnapshotSizeUnit,
-		SnapshotTime: s.Snapshot.Spec.StartAt,
+		SnapshotTime: s.Snapshot.Spec.StartAt.UnixMilli(),
 		Type:         handlers.ParseSnapshotTypeText(s.SnapshotType),
 	}
 
