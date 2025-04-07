@@ -69,7 +69,7 @@ func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, locat
 	return i.withCloudToken(data), nil
 }
 
-func (i *Integration) GetGetIntegrationNameByLocation(ctx context.Context, owner, location string) (string, error) {
+func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, location string) (string, error) {
 
 	accounts, err := i.queryIntegrationAccounts(ctx, owner)
 	if err != nil {
@@ -78,6 +78,7 @@ func (i *Integration) GetGetIntegrationNameByLocation(ctx context.Context, owner
 
 	var name string
 	for _, account := range accounts {
+		// account.Type includes: space, awss3, tencent
 		if strings.Contains(location, account.Type) {
 			name = account.Name
 			break
@@ -85,7 +86,7 @@ func (i *Integration) GetGetIntegrationNameByLocation(ctx context.Context, owner
 	}
 
 	if name == "" {
-		return "", fmt.Errorf("integration account name not found, owner: %s, location: %s", owner, location)
+		return "", fmt.Errorf("integration account not found, owner: %s, location: %s", owner, location)
 	}
 
 	return name, nil
@@ -149,12 +150,12 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 		err = errors.WithStack(fmt.Errorf("integration accounts not exists"))
 		return nil, err
 	} else if accountsResp.Code != 0 {
-		err = errors.WithStack(fmt.Errorf("request accounts api response error, status: %d, message: %s", accountsResp.Code, accountsResp.Message))
+		err = errors.WithStack(fmt.Errorf("get integration accounts error, status: %d, message: %s", accountsResp.Code, accountsResp.Message))
 		return nil, err
 	}
 
 	if accountsResp.Data == nil || len(accountsResp.Data) == 0 {
-		err = errors.WithStack(fmt.Errorf("request accounts api response data is nil, status: %d, message: %s", accountsResp.Code, accountsResp.Message))
+		err = errors.WithStack(fmt.Errorf("integration accounts not exists"))
 		return nil, err
 	}
 

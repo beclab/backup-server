@@ -10,6 +10,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/pkg/errors"
@@ -44,7 +45,7 @@ func (o *BackupPlan) Apply(ctx context.Context, c *BackupCreate) error {
 	var err error
 	o.c = c
 
-	if err = o.validate(); err != nil {
+	if err = o.validate(ctx); err != nil {
 		return errors.WithStack(err)
 	}
 	if err = o.apply(ctx); err != nil { // new backup plan
@@ -67,7 +68,7 @@ func (o *BackupPlan) Update(ctx context.Context, c *BackupCreate, backup *sysv1.
 	return nil
 }
 
-func (o *BackupPlan) validate() error {
+func (o *BackupPlan) validate(ctx context.Context) error {
 	if o.c.Name == "" {
 		return errors.New("name is required")
 	}
@@ -76,6 +77,10 @@ func (o *BackupPlan) validate() error {
 	}
 
 	if err := o.validLocation(); err != nil {
+		return err
+	}
+
+	if err := o.validIntegration(ctx); err != nil {
 		return err
 	}
 
@@ -236,6 +241,28 @@ func (o *BackupPlan) validLocation() error {
 		if locationConfig.Path == "" {
 			return errors.Errorf("backup %s location %s path %s invalid, please check target path", o.c.Name, location, locationConfig.Path)
 		}
+	}
+
+	return nil
+}
+
+func (o *BackupPlan) validIntegration(ctx context.Context) error {
+	var owner = o.owner
+	var location = o.c.Location
+	var locationConfig = o.c.LocationConfig
+
+	if location == constant.BackupLocationFileSystem.String() {
+		return nil
+	}
+
+	integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(ctx, owner, location)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	if integrationName != locationConfig.Name {
+		log.Errorf("integration %s not match locationConfigName %s", integrationName, locationConfig.Name)
+		return fmt.Errorf("backup config %s does not match integration in location: %s", locationConfig.Name, location)
 	}
 
 	return nil

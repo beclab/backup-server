@@ -6,6 +6,7 @@ import (
 
 	"bytetrade.io/web3os/backup-server/cmd/backup-server/apiserver/options"
 	"bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/signals"
 	"github.com/lithammer/dedent"
 	"github.com/pkg/errors"
@@ -85,6 +86,9 @@ func run(o *options.ServerRunOptions, ctx context.Context) error {
 			return err
 		}
 	}
+
+	var factory = client.ClientFactory()
+	integration.NewIntegrationManager(factory)
 
 	if err := apiserver.PrepareRun(); err != nil {
 		return errors.Errorf("apiserver prepare run: %v", err)
