@@ -42,17 +42,9 @@ func (h *Handler) ready(req *restful.Request, resp *restful.Response) {
 	resp.Write([]byte("ok"))
 }
 
-func (h *Handler) init(req *restful.Request, resp *restful.Response) {
-	response.SuccessNoData(resp)
-}
-
-func (h *Handler) available(req *restful.Request, resp *restful.Response) {
-	response.SuccessNoData(resp)
-}
-
 func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 	limit := req.QueryParameter("limit")
 
 	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, 0, util.ParseToInt64(limit))
@@ -81,7 +73,7 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 
 func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	ctx, backupId := req.Request.Context(), req.PathParameter("id")
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 	_ = owner
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
@@ -110,7 +102,7 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	}
 
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 
 	log.Debugf("received backup create request: %s", util.ToJSON(b))
 
@@ -168,7 +160,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	backupId, owner := req.PathParameter("id"), req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	backupId, owner := req.PathParameter("id"), req.HeaderParameter(constant.BflUserKey)
 	ctx := req.Request.Context()
 	b.Name = backupId
 
@@ -430,7 +422,7 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 
 func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 
 	olaresId, err := h.handler.GetSnapshotHandler().GetOlaresId(owner)
 	if err != nil {
@@ -452,7 +444,7 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 
 func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 	limit := req.QueryParameter("limit")
 
 	restores, err := h.handler.GetRestoreHandler().ListRestores(ctx, owner, 0, util.ParseToInt64(limit))
@@ -494,7 +486,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	ctx := req.Request.Context()
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 
 	if !b.verify() {
 		log.Errorf("add restore params invalid, params: %s", util.ToJSON(b))
@@ -574,7 +566,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 
 func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 	ctx, restoreId := req.Request.Context(), req.PathParameter("id")
-	owner := req.HeaderParameter(constant.DefaultOwnerHeaderKey)
+	owner := req.HeaderParameter(constant.BflUserKey)
 	_ = owner
 
 	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)

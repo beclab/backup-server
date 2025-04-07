@@ -9,8 +9,9 @@ const (
 	EnvSpaceUrl          string = "OLARES_SPACE_URL"
 	DefaultSyncServerURL string = "https://cloud-api.bttcdn.com"
 
-	DefaultSnapshotSizeUnit  = "byte"
-	DefaultOwnerHeaderKey    = "X-Backup-Owner"
+	DefaultSnapshotSizeUnit = "byte"
+	BflUserKey              = "X-BFL-USER"
+
 	DefaultOsSystemNamespace = "os-system"
 
 	FullyBackup         string = "fully"
