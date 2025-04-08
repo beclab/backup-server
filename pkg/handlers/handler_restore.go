@@ -90,6 +90,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 			Namespace: constant.DefaultOsSystemNamespace,
 		},
 		Spec: sysv1.RestoreSpec{
+			Owner: restoreType.Owner,
 			RestoreType: map[string]string{
 				restoreTypeName: util.ToJSON(restoreType),
 			},

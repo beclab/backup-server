@@ -41,7 +41,10 @@ type RestoreParameters struct {
 	Location map[string]string
 }
 
-func (s *StorageRestore) RunRestore(progressCallback func(percentDone float64)) error {
+func (s *StorageRestore) progressCallback(percentDone float64) {
+}
+
+func (s *StorageRestore) RunRestore() error {
 	if err := s.checkRestoreExists(); err != nil {
 		return errors.WithStack(err)
 	}
@@ -65,7 +68,7 @@ func (s *StorageRestore) RunRestore(progressCallback func(percentDone float64)) 
 		return nil
 	}
 
-	restoreResult, restoreErr := s.execute(progressCallback)
+	restoreResult, restoreErr := s.execute(s.progressCallback)
 
 	if restoreErr != nil {
 		log.Errorf("Restore %s error: %v", s.RestoreId, restoreErr)

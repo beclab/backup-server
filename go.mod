@@ -27,6 +27,7 @@ replace (
 
 require (
 	bytetrade.io/web3os/backups-sdk v0.0.0-20250331092300-3e715638ae66
+	github.com/alitto/pond/v2 v2.3.2
 	github.com/aws/aws-sdk-go-v2 v1.32.3
 	github.com/aws/aws-sdk-go-v2/config v1.18.28
 	github.com/aws/aws-sdk-go-v2/credentials v1.13.27

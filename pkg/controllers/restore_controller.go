@@ -78,8 +78,7 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				var phase = *restore.Spec.Phase
 				switch phase {
 				case constant.Pending.String():
-					log.Infof("add to restore worker %s", restore.Name)
-					worker.Worker.AppendRestoreTask(restore.Name)
+					worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
 				default:
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
@@ -101,6 +100,10 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 				if *newRestore.Spec.Phase == constant.Failed.String() {
 					return false
+				}
+
+				if *newRestore.Spec.Phase == constant.Canceled.String() {
+					worker.GetWorkerPool().CancelRestore(newRestore.Name)
 				}
 
 				return false

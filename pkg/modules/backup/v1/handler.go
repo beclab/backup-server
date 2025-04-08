@@ -14,7 +14,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -468,15 +467,14 @@ func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	for _, r := range result {
-		if constant.Running.String() == r.Status {
-			// + TODO fix worker
-			r.Progress, err = worker.Worker.GetRestoreProgress(r.Id)
-			if err != nil {
-				log.Errorf("list restores, get restore %s progress error: %v", r.Id, err)
-			}
-		}
-	}
+	// for _, r := range result {
+	// 	if constant.Running.String() == r.Status {
+	// 		r.Progress, err = worker.Worker.GetRestoreProgress(r.Id)
+	// 		if err != nil {
+	// 			log.Errorf("list restores, get restore %s progress error: %v", r.Id, err)
+	// 		}
+	// 	}
+	// }
 
 	response.Success(resp, result)
 }
@@ -589,13 +587,13 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	var progress float64
-	if *restore.Spec.Phase == constant.Running.String() {
-		// + TODO fix worker
-		progress, err = worker.Worker.GetRestoreProgress(restoreId)
-		if err != nil {
-			log.Errorf("describe restore, get progress error: %v", err)
-		}
-	}
+	// if *restore.Spec.Phase == constant.Running.String() {
+	// 	// + TODO fix worker
+	// 	progress, err = worker.Worker.GetRestoreProgress(restoreId)
+	// 	if err != nil {
+	// 		log.Errorf("describe restore, get progress error: %v", err)
+	// 	}
+	// }
 
 	response.Success(resp, parseResponseRestoreDetail(nil, nil, restore, progress))
 }
@@ -638,12 +636,6 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 		constant.Failed.String(), constant.Completed.String()}, phase) {
 		log.Infof("restore %s phase %s no need to Cancel", restoreId, phase)
 		response.SuccessNoData(resp)
-		return
-	}
-
-	// + TODO fix worker
-	if err := worker.Worker.CancelRestore(restoreId); err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "remove restore %s from restoreQueue error", restoreId))
 		return
 	}
 
