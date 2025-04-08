@@ -32,6 +32,24 @@ func NewRestoreHandler(f client.Factory, handlers Interface) *RestoreHandler {
 	}
 }
 
+func (o *RestoreHandler) UpdateProgress(ctx context.Context, restoreId string, percent int) error {
+	restore, err := o.GetById(ctx, restoreId)
+	if err != nil {
+		return err
+	}
+
+	if restore == nil {
+		return fmt.Errorf("restore %s not found", restoreId)
+	}
+
+	if *restore.Spec.Phase != constant.Running.String() {
+		return fmt.Errorf("restore %s is not Running, phase: %s", restoreId, *restore.Spec.Phase)
+	}
+
+	restore.Spec.Progress = percent
+	return o.update(ctx, restore)
+}
+
 func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phase string) error {
 	restore, err := o.GetById(ctx, restoreId)
 	if err != nil {
@@ -90,11 +108,13 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 			Namespace: constant.DefaultOsSystemNamespace,
 		},
 		Spec: sysv1.RestoreSpec{
+			Owner: restoreType.Owner,
 			RestoreType: map[string]string{
 				restoreTypeName: util.ToJSON(restoreType),
 			},
 			CreateAt: startAt,
 			StartAt:  startAt,
+			Progress: 0,
 			Phase:    &phase,
 		},
 	}
@@ -221,6 +241,30 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 		return nil
 	}); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (o *RestoreHandler) update(ctx context.Context, restore *sysv1.Restore) error {
+	sc, err := o.factory.Sysv1Client()
+	if err != nil {
+		return err
+	}
+
+	var getCtx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+RETRY:
+	_, err = sc.SysV1().Restores(constant.DefaultOsSystemNamespace).Update(getCtx, restore, metav1.UpdateOptions{
+		FieldManager: constant.RestoreController,
+	})
+
+	if err != nil && apierrors.IsConflict(err) {
+		log.Warnf("update restore %s spec retry", restore.Name)
+		goto RETRY
+	} else if err != nil {
+		return errors.WithStack(fmt.Errorf("update restore error: %v", err))
 	}
 
 	return nil

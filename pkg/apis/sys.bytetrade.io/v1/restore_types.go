@@ -28,11 +28,13 @@ type RestoreSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	Owner         string            `json:"owner"`
 	RestoreType   map[string]string `json:"restoreType"`
 	CreateAt      *metav1.Time      `json:"createAt"`
 	StartAt       *metav1.Time      `json:"startAt"`
 	EndAt         *metav1.Time      `json:"endAt,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`
+	Progress      int               `json:"progress,omitempty"`
 	Phase         *string           `json:"phase"`
 	Message       *string           `json:"message,omitempty"`
 	ResticPhase   *string           `json:"resticPhase,omitempty"`

@@ -2,392 +2,260 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
-
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	pond "github.com/alitto/pond/v2"
 )
 
-var Worker *WorkerManage
+const (
+	maxConcurrency   = 1
+	backupQueueSize  = 20
+	restoreQueueSize = 20
+	nonBlocking      = true
+)
 
-type WorkerManage struct {
+var workerPool *WorkerPool
+
+type WorkerPool struct {
 	ctx      context.Context
+	cancel   context.CancelFunc
 	handlers handlers.Interface
 
-	backupQueue  []string // owner_backupid_snapshotid
-	restoreQueue []string // restoreId
+	activeBackupTask  *BackupTask
+	activeRestoreTask *RestoreTask
 
-	activeBackup  *activeBackup
-	activeRestore *activeRestore
+	backupTasks  sync.Map
+	restoreTasks sync.Map
+
+	backupPool  pond.Pool
+	restorePool pond.Pool
 
 	sync.Mutex
 }
 
-type activeBackup struct {
+type BackupTask struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
+	task       pond.Task
+	owner      string
 	backupId   string
 	snapshotId string
 	backup     *storage.StorageBackup
+	canceled   bool
 }
 
-type activeRestore struct {
+type RestoreTask struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
+	task      pond.Task
+	owner     string
 	restoreId string
 	restore   *storage.StorageRestore
-	progress  float64
+	canceled  bool
 }
 
-func NewWorkerManage(ctx context.Context, handlers handlers.Interface) *WorkerManage {
-	Worker = &WorkerManage{
-		handlers: handlers,
-		ctx:      ctx,
+func NewWorkerPool(ctx context.Context, handlers handlers.Interface) {
+	workerPool = &WorkerPool{
+		ctx:         ctx,
+		backupPool:  newPool(backupQueueSize),
+		restorePool: newPool(restoreQueueSize),
+		handlers:    handlers,
 	}
-	return Worker
 }
 
-func (w *WorkerManage) StartBackupWorker() {
-	log.Infof("[worker] run backup worker")
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+func GetWorkerPool() *WorkerPool {
+	return workerPool
+}
 
-		for {
-			select {
-			case <-ticker.C:
-				w.RunBackup()
-			case <-w.ctx.Done():
-				return
-			}
+func newPool(queueSize int) pond.Pool {
+	return pond.NewPool(maxConcurrency, pond.WithContext(context.Background()), pond.WithQueueSize(queueSize), pond.WithNonBlocking(nonBlocking))
+}
+
+func (w *WorkerPool) AddBackupTask(owner string, backupId string, snapshotId string) {
+
+	log.Infof("[worker] backup task added, snapshotId: %s, waitings: %d, runnings: %d", snapshotId, w.backupPool.WaitingTasks(), w.backupPool.RunningWorkers())
+
+	var ctxTask, cancelTask = context.WithCancel(w.ctx)
+
+	var backup = &storage.StorageBackup{
+		Ctx:              ctxTask,
+		Handlers:         w.handlers,
+		SnapshotId:       snapshotId,
+		LastProgressTime: time.Now(),
+	}
+
+	var backupTask = &BackupTask{
+		ctx:        ctxTask,
+		cancel:     cancelTask,
+		owner:      owner,
+		backupId:   backupId,
+		snapshotId: snapshotId,
+		backup:     backup,
+	}
+
+	wrappedFn := func() {
+		defer func() {
+			w.Lock()
+			w.activeBackupTask = nil
+			w.backupTasks.Delete(fmt.Sprintf("%s_%s_%s", owner, backupId, snapshotId))
+			w.Unlock()
+
+			backupTask = nil
+		}()
+
+		if backupTask.canceled {
+			log.Infof("[worker] backup task canceled: %s_%s_%s", owner, backupId, snapshotId)
+			return
 		}
-	}()
-}
 
-func (w *WorkerManage) StartRestoreWorker() {
-	log.Infof("[worker] run restore worker")
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
+		log.Infof("[worker] backup task start, owner: %s, backupId: %s, snapshotId: %s", owner, backupId, snapshotId)
 
-		for {
-			select {
-			case <-ticker.C:
-				w.RunRestore()
-			case <-w.ctx.Done():
-				return
-			}
-		}
-	}()
-}
-
-func (w *WorkerManage) RunRestore() {
-	var restoreId string
-	var ok bool
-	var setupErr error
-
-	func() {
 		w.Lock()
-		defer w.Unlock()
+		w.backupTasks.Store(fmt.Sprintf("%s_%s_%s", owner, backupId, snapshotId), backupTask)
+		w.activeBackupTask = backupTask
+		w.Unlock()
 
-		if w.activeRestore != nil {
-			log.Infof("[worker] active restore %s is running, skip", w.activeRestore.restoreId)
-			setupErr = fmt.Errorf("[worker] active restore %s is running, skip", w.activeRestore.restoreId)
+		if err := backupTask.backup.RunBackup(); err != nil {
+			log.Errorf("[worker] backup task failed, owner: %s, backupId: %s, snapshotId: %s, err: %s", owner, backupId, snapshotId, err.Error())
+		} else {
+			log.Infof("[worker] backup task success, owner: %s, backupId: %s, snapshotId: %s", owner, backupId, snapshotId)
+		}
+	}
+
+	_, ok := w.backupPool.TrySubmit(wrappedFn)
+
+	if !ok {
+		log.Warn("[worker] backup task submission failed because the queue is full")
+		cancelTask()
+		backupTask = nil
+	}
+}
+
+func (w *WorkerPool) AddRestoreTask(owner string, restoreId string) {
+
+	log.Infof("[worker] restore task added, restoreId: %s, waitings: %d, runnings: %d", restoreId, w.restorePool.WaitingTasks(), w.restorePool.RunningWorkers())
+
+	var ctxTask, cancelTask = context.WithCancel(w.ctx)
+
+	var restore = &storage.StorageRestore{
+		Ctx:              ctxTask,
+		Handlers:         w.handlers,
+		RestoreId:        restoreId,
+		LastProgressTime: time.Now(),
+	}
+
+	var restoreTask = &RestoreTask{
+		ctx:       ctxTask,
+		cancel:    cancelTask,
+		owner:     owner,
+		restoreId: restoreId,
+		restore:   restore,
+	}
+
+	wrappedFn := func() {
+		defer func() {
+			w.Lock()
+			w.activeRestoreTask = nil
+			w.restoreTasks.Delete(fmt.Sprintf("%s_%s", owner, restoreId))
+			w.Unlock()
+
+			restoreTask = nil
+		}()
+
+		if restoreTask.canceled {
+			log.Infof("[worker] restore task canceled: %s_%s", owner, restoreId)
 			return
 		}
 
-		restoreId, ok = w.getRestoreQueue()
-		if !ok {
-			setupErr = fmt.Errorf("[worker] restoreQueue is empty")
-			return
-		}
+		log.Infof("[worker] restore task start, owner: %s, restoreId: %s", owner, restoreId)
 
-		var ctxTask, cancelTask = context.WithCancel(w.ctx)
-
-		var storageRestore = &storage.StorageRestore{
-			Ctx:       ctxTask,
-			Handlers:  w.handlers,
-			RestoreId: restoreId,
-		}
-
-		w.activeRestore = &activeRestore{
-			ctx:       ctxTask,
-			cancel:    cancelTask,
-			restoreId: restoreId,
-			restore:   storageRestore,
-			progress:  0.0,
-		}
-	}()
-
-	if setupErr != nil {
-		return
-	}
-
-	log.Infof("[worker] run restore %s", restoreId)
-
-	if err := w.activeRestore.restore.RunRestore(w.callbackRestoreProgress); err != nil {
-		log.Errorf("[worker] restore %s error: %v", restoreId, err)
-	}
-
-	w.clearActiveRestore(restoreId)
-}
-
-func (w *WorkerManage) callbackRestoreProgress(percentDone float64) {
-	if w.activeRestore == nil {
-		return
-	}
-
-	w.activeRestore.progress = percentDone
-}
-
-func (w *WorkerManage) RunBackup() {
-	var backupId string
-	var snapshotId string
-	var ok bool
-	var setupErr error
-
-	func() {
 		w.Lock()
-		defer w.Unlock()
+		w.restoreTasks.Store(fmt.Sprintf("%s_%s", owner, restoreId), restoreTask)
+		w.activeRestoreTask = restoreTask
+		w.Unlock()
 
-		if w.activeBackup != nil {
-			log.Infof("[worker] active snapshot %s is running, skip", w.activeBackup.snapshotId)
-			setupErr = fmt.Errorf("[worker] active snapshot %s is running, skip", w.activeBackup.snapshotId)
-			return
+		if err := restoreTask.restore.RunRestore(); err != nil {
+			log.Errorf("[worker] restore task failed, owner: %s, restoreId: %s, err: %s", owner, restoreId, err.Error())
+		} else {
+			log.Infof("[worker] restore task success, owner: %s, restoreId: %s", owner, restoreId)
 		}
-
-		_, backupId, snapshotId, ok = w.getBackupQueue()
-		if !ok {
-			setupErr = fmt.Errorf("[worker] backupQueue is empty")
-			return
-		}
-
-		var ctxTask, cancelTask = context.WithCancel(w.ctx)
-		var storageBackup = &storage.StorageBackup{
-			Ctx:        ctxTask,
-			Handlers:   w.handlers,
-			SnapshotId: snapshotId,
-		}
-
-		w.activeBackup = &activeBackup{
-			ctx:        ctxTask,
-			cancel:     cancelTask,
-			backupId:   backupId,
-			snapshotId: snapshotId,
-			backup:     storageBackup,
-		}
-	}()
-
-	if setupErr != nil {
-		return
 	}
 
-	log.Infof("[worker] run backup: %s, snapshot: %s", backupId, snapshotId)
-
-	if err := w.activeBackup.backup.RunBackup(); err != nil {
-		log.Errorf("[worker] backup: %s, error: %v", snapshotId, err)
+	_, ok := w.restorePool.TrySubmit(wrappedFn)
+	if !ok {
+		log.Warn("[worker] restore task submission failed because the queue is full")
+		cancelTask()
+		restoreTask = nil
 	}
-
-	w.clearActiveBackup(backupId, snapshotId)
 }
 
-func (w *WorkerManage) CancelBackup(backupId string) error {
+func (w *WorkerPool) CancelBackup(backupId string) {
 	w.Lock()
 	defer w.Unlock()
 
 	log.Infof("[worker] cancel backup: %s", backupId)
 
-	w.removeBackupSnapshotsFromBackupQueue(backupId)
+	w.backupTasks.Range(func(key, value interface{}) bool {
+		task := value.(*BackupTask)
+		if task.backupId == backupId {
+			task.canceled = true
+		}
+		return true
+	})
 
-	if w.activeBackup != nil && w.activeBackup.backupId == backupId {
-		w.activeBackup.cancel()
-
-		w.activeBackup = nil
+	if w.activeBackupTask != nil {
+		task := w.activeBackupTask
+		if task.backupId == backupId {
+			task.cancel()
+		}
 	}
-
-	return nil
 }
 
-func (w *WorkerManage) CancelSnapshot(snapshotId string) error {
+func (w *WorkerPool) CancelSnapshot(snapshotId string) {
 	w.Lock()
 	defer w.Unlock()
 
 	log.Infof("[worker] cancel snapshot: %s", snapshotId)
 
-	w.removeSnapshotIdFromBackupQueue(snapshotId)
+	w.backupTasks.Range(func(key, value interface{}) bool {
+		task := value.(*BackupTask)
+		if task.snapshotId == snapshotId {
+			task.canceled = true
+		}
+		return true
+	})
 
-	if w.activeBackup != nil && w.activeBackup.snapshotId == snapshotId {
-		w.activeBackup.cancel()
-
-		w.activeBackup = nil
+	if w.activeBackupTask != nil {
+		task := w.activeBackupTask
+		if task.snapshotId == snapshotId {
+			task.cancel()
+		}
 	}
-
-	return nil
 }
 
-func (w *WorkerManage) CancelRestore(restoreId string) error {
+func (w *WorkerPool) CancelRestore(restoreId string) {
 	w.Lock()
 	defer w.Unlock()
 
 	log.Infof("[worker] cancel restore: %s", restoreId)
 
-	w.removeRestoreIdFromRestoreQueue(restoreId)
-
-	if w.activeRestore != nil && w.activeRestore.restoreId == restoreId {
-		w.activeRestore.cancel()
-
-		w.activeRestore = nil
-	}
-
-	return nil
-}
-
-func (w *WorkerManage) AppendBackupTask(id string) {
-	w.Lock()
-	defer w.Unlock()
-
-	w.backupQueue = append(w.backupQueue, id)
-}
-
-func (w *WorkerManage) AppendRestoreTask(restoreId string) {
-	w.Lock()
-	defer w.Unlock()
-
-	w.restoreQueue = append(w.restoreQueue, restoreId)
-}
-
-func (w *WorkerManage) GetRestoreProgress(restoreId string) (float64, error) {
-	if w.activeRestore == nil {
-		return 0.0, errors.New("[worker] no active restore")
-	}
-	if w.activeRestore.restoreId != restoreId {
-		return 0.0, fmt.Errorf("[worker] restore id not match, runId: %s", w.activeRestore.restoreId)
-	}
-
-	return w.activeRestore.progress, nil
-}
-
-func (w *WorkerManage) clearActiveBackup(backupId, snapshotId string) {
-	w.Lock()
-	defer w.Unlock()
-	log.Infof("[worker] clear active backup: %s, snapshot: %s", backupId, snapshotId)
-	w.activeBackup = nil
-}
-
-func (w *WorkerManage) clearActiveRestore(restoreId string) {
-	w.Lock()
-	defer w.Unlock()
-	log.Infof("[worker] clear active restore: %s", restoreId)
-	w.activeRestore = nil
-}
-
-func (w *WorkerManage) getBackupQueue() (owner string, backupId string, snapshotId string, flag bool) {
-	if len(w.backupQueue) == 0 {
-		return
-	}
-
-	first := w.backupQueue[0]
-	w.backupQueue = w.backupQueue[1:]
-
-	ids := strings.Split(first, "_")
-	if len(ids) != 3 {
-		return
-	}
-
-	owner = ids[0]
-	backupId = ids[1]
-	snapshotId = ids[2]
-	flag = true
-
-	return
-}
-
-func (w *WorkerManage) getRestoreQueue() (string, bool) {
-	if len(w.restoreQueue) == 0 {
-		return "", false
-	}
-
-	first := w.restoreQueue[0]
-	w.restoreQueue = w.restoreQueue[1:]
-
-	return first, true
-}
-
-func (w *WorkerManage) removeBackupSnapshotsFromBackupQueue(backupId string) bool {
-	if len(w.backupQueue) == 0 {
-		return false
-	}
-
-	var slice []string
-	for _, v := range w.backupQueue {
-		vs := strings.Split(v, "_")
-		if len(vs) != 3 {
-			continue
+	w.restoreTasks.Range(func(key, value interface{}) bool {
+		task := value.(*RestoreTask)
+		if task.restoreId == restoreId {
+			task.canceled = true
 		}
-
-		if vs[1] != backupId {
-			slice = append(slice, v)
-		}
-	}
-
-	w.backupQueue = slice
-	return true
-}
-
-func (w *WorkerManage) removeSnapshotIdFromBackupQueue(snapshotId string) bool {
-	if len(w.backupQueue) == 0 {
-		return false
-	}
-
-	var found bool
-	var slice []string
-	for i, v := range w.backupQueue {
-		vs := strings.Split(v, "_")
-		if len(vs) != 3 {
-			continue
-		}
-		if vs[2] == snapshotId {
-			slice = w.backupQueue[:i]
-			slice = append(slice, w.backupQueue[i+1:]...)
-			found = true
-			break
-		}
-	}
-
-	if found {
-		w.backupQueue = slice
 		return true
-	}
+	})
 
-	return false
-}
-
-func (w *WorkerManage) removeRestoreIdFromRestoreQueue(restoreId string) bool {
-	if len(w.restoreQueue) == 0 {
-		return false
-	}
-
-	var found bool
-	var slice []string
-	for i, v := range w.restoreQueue {
-		if v == restoreId {
-			slice = w.restoreQueue[:i]
-			slice = append(slice, w.restoreQueue[i+1:]...)
-			found = true
-			break
+	if w.activeRestoreTask != nil {
+		task := w.activeRestoreTask
+		if task.restoreId == restoreId {
+			task.cancel()
 		}
 	}
-
-	if found {
-		w.restoreQueue = slice
-		return true
-	}
-
-	return false
 }

@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	bclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
@@ -78,8 +79,7 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				var phase = *restore.Spec.Phase
 				switch phase {
 				case constant.Pending.String():
-					log.Infof("add to restore worker %s", restore.Name)
-					worker.Worker.AppendRestoreTask(restore.Name)
+					worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
 				default:
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
@@ -99,8 +99,16 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
+				if r.isRunningProgress(oldRestore, newRestore) {
+					return false
+				}
+
 				if *newRestore.Spec.Phase == constant.Failed.String() {
 					return false
+				}
+
+				if *newRestore.Spec.Phase == constant.Canceled.String() {
+					worker.GetWorkerPool().CancelRestore(newRestore.Name)
 				}
 
 				return false
@@ -115,6 +123,14 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return nil
+}
+
+func (r *RestoreReconciler) isRunningProgress(oldRestore *v1.Restore, newRestore *v1.Restore) bool {
+	if *oldRestore.Spec.Phase == *newRestore.Spec.Phase && *newRestore.Spec.Phase == constant.Running.String() {
+		return true
+	}
+
+	return false
 }
 
 func (r *RestoreReconciler) isSysRestore(obj client.Object) (*sysapiv1.Restore, bool) {

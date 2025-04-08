@@ -124,9 +124,7 @@ func run(factory client.Factory) error {
 	integration.NewIntegrationManager(factory)
 	var handler = handlers.NewHandler(factory)
 
-	workerManager := worker.NewWorkerManage(context.TODO(), handler)
-	workerManager.StartBackupWorker()
-	workerManager.StartRestoreWorker()
+	worker.NewWorkerPool(context.TODO(), handler)
 
 	enabledControllers := map[string]struct{}{
 		controllers.BackupController:   {},
