@@ -137,7 +137,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	} else {
 		// backupUrl
 		log.Infof("restore from backupUrl, ready to get integration token")
-		integrationName, err := integration.IntegrationManager().GetGetIntegrationNameByLocation(s.Ctx, s.RestoreType.Owner, s.RestoreType.Location)
+		integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(s.Ctx, s.RestoreType.Owner, s.RestoreType.Location)
 		if err != nil {
 			return err
 		}
