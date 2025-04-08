@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
@@ -82,9 +83,10 @@ func (w *WorkerPool) AddBackupTask(owner string, backupId string, snapshotId str
 	var ctxTask, cancelTask = context.WithCancel(w.ctx)
 
 	var backup = &storage.StorageBackup{
-		Ctx:        ctxTask,
-		Handlers:   w.handlers,
-		SnapshotId: snapshotId,
+		Ctx:              ctxTask,
+		Handlers:         w.handlers,
+		SnapshotId:       snapshotId,
+		LastProgressTime: time.Now(),
 	}
 
 	var backupTask = &BackupTask{
@@ -141,9 +143,10 @@ func (w *WorkerPool) AddRestoreTask(owner string, restoreId string) {
 	var ctxTask, cancelTask = context.WithCancel(w.ctx)
 
 	var restore = &storage.StorageRestore{
-		Ctx:       ctxTask,
-		Handlers:  w.handlers,
-		RestoreId: restoreId,
+		Ctx:              ctxTask,
+		Handlers:         w.handlers,
+		RestoreId:        restoreId,
+		LastProgressTime: time.Now(),
 	}
 
 	var restoreTask = &RestoreTask{
@@ -160,6 +163,8 @@ func (w *WorkerPool) AddRestoreTask(owner string, restoreId string) {
 			w.activeRestoreTask = nil
 			w.restoreTasks.Delete(fmt.Sprintf("%s_%s", owner, restoreId))
 			w.Unlock()
+
+			restoreTask = nil
 		}()
 
 		if restoreTask.canceled {
@@ -185,6 +190,7 @@ func (w *WorkerPool) AddRestoreTask(owner string, restoreId string) {
 	if !ok {
 		log.Warn("[worker] restore task submission failed because the queue is full")
 		cancelTask()
+		restoreTask = nil
 	}
 }
 

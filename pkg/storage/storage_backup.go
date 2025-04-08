@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
@@ -31,6 +32,9 @@ type StorageBackup struct {
 	Snapshot     *sysv1.Snapshot
 	Params       *BackupParameters
 	SnapshotType *int
+
+	LastProgressPercent int
+	LastProgressTime    time.Time
 }
 
 type BackupParameters struct {
@@ -168,6 +172,29 @@ func (s *StorageBackup) prepareForRun() error {
 	return s.Handlers.GetSnapshotHandler().UpdatePhase(s.Ctx, s.Snapshot.Name, constant.Running.String())
 }
 
+func (s *StorageBackup) progressCallback(percentDone float64) {
+
+	select {
+	case <-s.Ctx.Done():
+		return
+	default:
+	}
+
+	var percent = int(percentDone * progressDone)
+
+	if percent == progressDone {
+		percent = progressDone - 1
+		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
+		return
+	}
+
+	if time.Since(s.LastProgressTime) >= progressInterval*time.Second && s.LastProgressPercent != percent {
+		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
+		s.LastProgressPercent = percent
+		s.LastProgressTime = time.Now()
+	}
+}
+
 func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) {
 	var isSpaceBackup bool
@@ -238,7 +265,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	}
 
 	if !isSpaceBackup {
-		backupOutput, backupStorageObj, backupError = backupService.Backup()
+		backupOutput, backupStorageObj, backupError = backupService.Backup(s.progressCallback)
 	}
 
 	return
@@ -282,7 +309,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			Space:    spaceBackupOption,
 		})
 
-		backupOutput, backupStorageObj, err = backupService.Backup()
+		backupOutput, backupStorageObj, err = backupService.Backup(s.progressCallback)
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
@@ -325,6 +352,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		snapshot.Spec.SnapshotType = s.SnapshotType
 		snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 		snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
+		snapshot.Spec.Progress = progressDone
 		snapshot.Spec.Phase = pointer.String(phase.String())
 		snapshot.Spec.Message = pointer.String(phase.String())
 		snapshot.Spec.ResticPhase = pointer.String(phase.String())

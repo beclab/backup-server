@@ -51,6 +51,24 @@ func NewSnapshotHandler(f client.Factory, handlers Interface) *SnapshotHandler {
 	}
 }
 
+func (o *SnapshotHandler) UpdateProgress(ctx context.Context, snapshotId string, percent int) error {
+	snapshot, err := o.GetById(ctx, snapshotId)
+	if err != nil {
+		return err
+	}
+
+	if snapshot == nil {
+		return fmt.Errorf("snapshot %s not found", snapshotId)
+	}
+
+	if *snapshot.Spec.Phase != constant.Running.String() {
+		return fmt.Errorf("snapshot %s is not Running, phase: %s", snapshotId, *snapshot.Spec.Phase)
+	}
+
+	snapshot.Spec.Progress = percent
+	return o.update(ctx, snapshot)
+}
+
 func (o *SnapshotHandler) DeleteSnapshots(ctx context.Context, backupId string) error {
 	var getCtx, cancel = context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -220,6 +238,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			SnapshotType: parseSnapshotType,
 			CreateAt:     startAt,
 			StartAt:      startAt,
+			Progress:     0,
 			Phase:        &phase,
 			Extra: map[string]string{
 				"push": util.ToJSON(pushState),

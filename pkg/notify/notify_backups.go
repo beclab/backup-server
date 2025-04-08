@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/util/http"
@@ -96,7 +97,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
 		snapshot.SnapshotId, snapshot.ResticSnapshotId, snapshot.Size, snapshot.Unit,
 		snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
-		snapshot.Url, snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
+		strings.TrimPrefix(snapshot.Url, "s3:"), snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
 		snapshot.Message)
 
 	log.Infof("[notify] snapshot data: %s", data)

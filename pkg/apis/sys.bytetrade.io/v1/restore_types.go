@@ -34,6 +34,7 @@ type RestoreSpec struct {
 	StartAt       *metav1.Time      `json:"startAt"`
 	EndAt         *metav1.Time      `json:"endAt,omitempty"`
 	Size          *uint64           `json:"size,omitempty"`
+	Progress      int               `json:"progress,omitempty"`
 	Phase         *string           `json:"phase"`
 	Message       *string           `json:"message,omitempty"`
 	ResticPhase   *string           `json:"resticPhase,omitempty"`

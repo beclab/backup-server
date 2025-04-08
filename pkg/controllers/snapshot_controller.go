@@ -167,6 +167,10 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
+				if r.isRunningProgress(oldSnapshot, newSnapshot) {
+					return false
+				}
+
 				snapshotNotified, err := handlers.CheckSnapshotNotifyState(newSnapshot, "result")
 				if err != nil {
 					log.Errorf("hit snapshot update event, check snapshot push state error: %v, id: %s", err, newSnapshot.Name)
@@ -209,6 +213,14 @@ func (r *SnapshotReconciler) getBackup(backupId string) (*v1.Backup, error) {
 	}
 
 	return backup, nil
+}
+
+func (r *SnapshotReconciler) isRunningProgress(oldSnapshot *v1.Snapshot, newSnapshot *v1.Snapshot) bool {
+	if *newSnapshot.Spec.Phase == *oldSnapshot.Spec.Phase && *newSnapshot.Spec.Phase == constant.Running.String() {
+		return true
+	}
+
+	return false
 }
 
 func (r *SnapshotReconciler) isRunning(oldSnapshot *v1.Snapshot, newSnapshot *v1.Snapshot) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
@@ -33,15 +34,15 @@ type StorageRestore struct {
 	RestoreType *handlers.RestoreType
 
 	Params *RestoreParameters
+
+	LastProgressPercent int
+	LastProgressTime    time.Time
 }
 
 type RestoreParameters struct {
 	Password string
 	Path     string
 	Location map[string]string
-}
-
-func (s *StorageRestore) progressCallback(percentDone float64) {
 }
 
 func (s *StorageRestore) RunRestore() error {
@@ -68,7 +69,7 @@ func (s *StorageRestore) RunRestore() error {
 		return nil
 	}
 
-	restoreResult, restoreErr := s.execute(s.progressCallback)
+	restoreResult, restoreErr := s.execute()
 
 	if restoreErr != nil {
 		log.Errorf("Restore %s error: %v", s.RestoreId, restoreErr)
@@ -170,7 +171,30 @@ func (s *StorageRestore) prepareForRun() error {
 	return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
 }
 
-func (s *StorageRestore) execute(progressCallback func(percentDone float64)) (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
+func (s *StorageRestore) progressCallback(percentDone float64) {
+
+	select {
+	case <-s.Ctx.Done():
+		return
+	default:
+	}
+
+	var percent = int(percentDone * progressDone)
+
+	if percent == progressDone {
+		percent = progressDone - 1
+		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
+		return
+	}
+
+	if time.Since(s.LastProgressTime) >= progressInterval*time.Second && s.LastProgressPercent != percent {
+		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
+		s.LastProgressPercent = percent
+		s.LastProgressTime = time.Now()
+	}
+}
+
+func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
 	var isSpaceRestore bool
 	var logger = log.GetLogger()
 	var resticSnapshotId = s.RestoreType.ResticSnapshotId
@@ -183,7 +207,7 @@ func (s *StorageRestore) execute(progressCallback func(percentDone float64)) (re
 	switch location {
 	case constant.BackupLocationSpace.String():
 		isSpaceRestore = true
-		restoreOutput, restoreError = s.restoreFromSpace(progressCallback)
+		restoreOutput, restoreError = s.restoreFromSpace()
 	case constant.BackupLocationAwsS3.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
@@ -237,13 +261,13 @@ func (s *StorageRestore) execute(progressCallback func(percentDone float64)) (re
 	}
 
 	if !isSpaceRestore {
-		restoreOutput, restoreError = restoreService.Restore(progressCallback)
+		restoreOutput, restoreError = restoreService.Restore(s.progressCallback)
 	}
 
 	return
 }
 
-func (s *StorageRestore) restoreFromSpace(progressCallback func(percentDone float64)) (restoreOutput *backupssdkrestic.RestoreSummaryOutput, err error) {
+func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, err error) {
 	var backupId string
 	var terminusSuffix string
 	var owner = s.RestoreType.Owner
@@ -291,7 +315,7 @@ func (s *StorageRestore) restoreFromSpace(progressCallback func(percentDone floa
 			Space:    spaceRestoreOption,
 		})
 
-		restoreOutput, err = restoreService.Restore(progressCallback)
+		restoreOutput, err = restoreService.Restore(s.progressCallback)
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
@@ -324,6 +348,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 		restore.Spec.ResticPhase = pointer.String(constant.Failed.String())
 	} else {
 		restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
+		restore.Spec.Progress = progressDone
 		restore.Spec.Phase = pointer.String(constant.Completed.String())
 		restore.Spec.ResticPhase = pointer.String(constant.Completed.String())
 		restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
