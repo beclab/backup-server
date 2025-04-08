@@ -47,7 +47,7 @@ func NewControllerCommand() *cobra.Command {
 	cmd := cobra.Command{
 		Use:   "controller",
 		Short: "start controller",
-		Long:  dedent.Dedent(`controller for backupConfig, watch and create velero resources`),
+		Long:  dedent.Dedent(`controller for backup and restore`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := Run(); err != nil {
 				return err
@@ -135,14 +135,14 @@ func run(factory client.Factory) error {
 	if _, ok := enabledControllers[controllers.BackupController]; ok {
 		if err = controllers.NewBackupController(mgr.GetClient(), factory, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
-			return pkgerrors.Errorf("unable to create backupConfig controller: %v", err)
+			return pkgerrors.Errorf("unable to create backup controller: %v", err)
 		}
 	}
 
 	if _, ok := enabledControllers[controllers.SnapshotController]; ok {
 		if err = controllers.NewSnapshotController(mgr.GetClient(), factory, mgr.GetScheme(), handler).
 			SetupWithManager(mgr); err != nil {
-			return pkgerrors.Errorf("unable to create backup controller: %v", err)
+			return pkgerrors.Errorf("unable to create snapshot controller: %v", err)
 		}
 	}
 

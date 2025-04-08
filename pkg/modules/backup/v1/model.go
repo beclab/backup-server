@@ -115,18 +115,19 @@ type ResponseSnapshotDetail struct {
 	Id           string `json:"id"`
 	Size         string `json:"size"`
 	SnapshotType string `json:"snapshotType"`
+	Progress     int    `json:"progress"`
 	Status       string `json:"status"`
 	Message      string `json:"message"`
 }
 
 type ResponseRestoreDetail struct {
-	BackupName   string  `json:"backupName"`
-	BackupPath   string  `json:"backupPath"`
-	SnapshotName string  `json:"snapshotName"`
-	RestorePath  string  `json:"restorePath"`
-	Status       string  `json:"status"`
-	Message      string  `json:"message"`
-	Progress     float64 `json:"progress,omitempty"`
+	BackupName   string `json:"backupName"`
+	BackupPath   string `json:"backupPath"`
+	SnapshotName string `json:"snapshotName"`
+	RestorePath  string `json:"restorePath"`
+	Progress     int    `json:"progress,omitempty"`
+	Status       string `json:"status"`
+	Message      string `json:"message"`
 }
 
 type ResponseRestoreList struct {
@@ -282,6 +283,7 @@ func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDeta
 		Id:           snapshot.Name,
 		Size:         handlers.ParseSnapshotSize(snapshot.Spec.Size),
 		SnapshotType: handlers.ParseSnapshotTypeTitle(snapshot.Spec.SnapshotType),
+		Progress:     snapshot.Spec.Progress,
 		Status:       parseMessage(snapshot.Spec.Phase),
 		Message:      parseMessage(snapshot.Spec.Message),
 	}
@@ -297,7 +299,9 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	}
 }
 
-func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList) []*ResponseBackupList {
+func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList) map[string]interface{} {
+	var result = make(map[string]interface{})
+
 	if data == nil || data.Items == nil || len(data.Items) == 0 {
 		return nil
 	}
@@ -342,7 +346,10 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 		res = append(res, r)
 	}
 
-	return res
+	result["offset"] = data.Continue
+	result["backups"] = res
+
+	return result
 }
 
 func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
@@ -362,22 +369,24 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 	}
 }
 
-func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore, progress float64) *ResponseRestoreDetail {
+func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) *ResponseRestoreDetail {
 	return &ResponseRestoreDetail{
 		BackupName:   backup.Spec.Name,
 		BackupPath:   handlers.GetBackupPath(backup),
 		SnapshotName: handlers.ParseSnapshotName(snapshot.Spec.StartAt.UnixMilli()),
 		RestorePath:  handlers.GetRestorePath(restore),
+		Progress:     restore.Spec.Progress,
 		Status:       *restore.Spec.Phase,
 		Message:      *restore.Spec.Message,
-		Progress:     progress,
 	}
 }
 
-func parseResponseRestoreList(data *sysv1.RestoreList) []*ResponseRestoreList {
+func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
 	if data == nil || data.Items == nil || len(data.Items) == 0 {
 		return nil
 	}
+
+	var res = make(map[string]interface{})
 
 	var result []*ResponseRestoreList
 	for _, restore := range data.Items {
@@ -396,8 +405,10 @@ func parseResponseRestoreList(data *sysv1.RestoreList) []*ResponseRestoreList {
 		result = append(result, r)
 	}
 
-	return result
+	res["offset"] = data.Continue
+	res["restores"] = result
 
+	return res
 }
 
 func (s *SyncBackup) FormData() (map[string]string, error) {
