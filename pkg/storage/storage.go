@@ -2,5 +2,5 @@ package storage
 
 const (
 	progressDone     = 10000 //
-	progressInterval = 20
+	progressInterval = 10
 )
