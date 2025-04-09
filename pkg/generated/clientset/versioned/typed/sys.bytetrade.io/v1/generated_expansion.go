@@ -19,8 +19,6 @@ package v1
 
 type BackupExpansion interface{}
 
-type BackupConfigExpansion interface{}
-
 type RestoreExpansion interface{}
 
 type SnapshotExpansion interface{}

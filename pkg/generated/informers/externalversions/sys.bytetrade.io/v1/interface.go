@@ -25,8 +25,6 @@ import (
 type Interface interface {
 	// Backups returns a BackupInformer.
 	Backups() BackupInformer
-	// BackupConfigs returns a BackupConfigInformer.
-	BackupConfigs() BackupConfigInformer
 	// Restores returns a RestoreInformer.
 	Restores() RestoreInformer
 	// Snapshots returns a SnapshotInformer.
@@ -47,11 +45,6 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // Backups returns a BackupInformer.
 func (v *version) Backups() BackupInformer {
 	return &backupInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// BackupConfigs returns a BackupConfigInformer.
-func (v *version) BackupConfigs() BackupConfigInformer {
-	return &backupConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Restores returns a RestoreInformer.

@@ -54,7 +54,8 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans/backup").
 		To(handler.listBackup).
-		Param(ws.QueryParameter("limit", "page size of backup plans").Required(false)).
+		Param(ws.QueryParameter("limit", "page size of backup plans").Required(true)).
+		Param(ws.QueryParameter("offset", "page offset of backup plans").Required(false)).
 		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
 		Doc("list backup plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
@@ -93,6 +94,8 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	ws.Route(ws.GET("/plans/backup/{id}/snapshots").
 		To(handler.listSnapshots).
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
+		Param(ws.QueryParameter("limit", "page size of backup snapshots").Required(true)).
+		Param(ws.QueryParameter("offset", "page offset of backup snapshots").Required(false)).
 		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
 		Doc("list backup snapshots").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
@@ -118,7 +121,8 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans/restore").
 		To(handler.listRestore).
-		Param(ws.QueryParameter("limit", "page size of restore plans").Required(false)).
+		Param(ws.QueryParameter("limit", "page size of restore plans").Required(true)).
+		Param(ws.QueryParameter("offset", "page offset of restore plans").Required(false)).
 		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
 		Doc("list restore plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))

@@ -31,10 +31,6 @@ func (c *FakeSysV1) Backups(namespace string) v1.BackupInterface {
 	return &FakeBackups{c, namespace}
 }
 
-func (c *FakeSysV1) BackupConfigs(namespace string) v1.BackupConfigInterface {
-	return &FakeBackupConfigs{c, namespace}
-}
-
 func (c *FakeSysV1) Restores(namespace string) v1.RestoreInterface {
 	return &FakeRestores{c, namespace}
 }

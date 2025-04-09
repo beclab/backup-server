@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-// BackupReconciler reconciles a BackupConfig object
+// BackupReconciler reconciles a Snapshot object
 type SnapshotReconciler struct {
 	client.Client
 	factory             k8sclient.Factory

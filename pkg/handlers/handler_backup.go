@@ -87,13 +87,16 @@ func (o *BackupHandler) UpdateNotifyState(ctx context.Context, backupId string, 
 
 }
 
-func (o *BackupHandler) ListBackups(ctx context.Context, owner string, page int64, limit int64) (*sysv1.BackupList, error) {
+func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset string, limit int64) (*sysv1.BackupList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{})
+	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
+		Limit:    limit,
+		Continue: offset,
+	})
 
 	if err != nil {
 		return nil, err

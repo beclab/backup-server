@@ -61,6 +61,7 @@ type BackupStatus struct {
 // +kubebuilder:resource:scope=Namespaced, shortName={bc}, categories={all}
 // +kubebuilder:printcolumn:JSONPath=.spec.name, name=name, type=string
 // +kubebuilder:printcolumn:JSONPath=.spec.owner, name=owner, type=string
+// +kubebuilder:printcolumn:JSONPath=.spec.deleted, name=deleted, type=boolean
 // +kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=creation, type=date
 //+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
