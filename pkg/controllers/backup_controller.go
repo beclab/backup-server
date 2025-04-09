@@ -79,7 +79,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	if r.isDeleted(backup) {
 		log.Infof("received backup request, id: %s, event: deleted", req.Name)
-		worker.GetWorkerPool().CancelBackup(backup.Name)
+		worker.GetWorkerPool().CancelBackup(backup.Spec.Owner, backup.Name)
 
 		if err := r.deleteBackup(backup); err != nil {
 			log.Errorf("delete backup error: %v, id: %s, name: %s, retry...", err, backup.Name, backup.Spec.Name)

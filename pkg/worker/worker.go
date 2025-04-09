@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
@@ -14,75 +15,139 @@ import (
 
 const (
 	maxConcurrency   = 1
-	backupQueueSize  = 20
-	restoreQueueSize = 20
+	backupQueueSize  = 5
+	restoreQueueSize = 5
 	nonBlocking      = true
 )
 
 var workerPool *WorkerPool
+
+type TaskType string
+
+const (
+	BackupTaskType  TaskType = "backup"
+	RestoreTaskType TaskType = "restore"
+)
 
 type WorkerPool struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	handlers handlers.Interface
 
-	activeBackupTask  *BackupTask
-	activeRestoreTask *RestoreTask
+	userPools sync.Map
 
-	backupTasks  sync.Map
-	restoreTasks sync.Map
+	sync.RWMutex
+}
 
-	backupPool  pond.Pool
-	restorePool pond.Pool
+type TaskPool struct {
+	taskType   TaskType
+	pool       pond.Pool
+	tasks      sync.Map
+	activeTask atomic.Value
+	owner      string
+	sync.RWMutex
+}
 
-	sync.Mutex
+func (tp *TaskPool) setActiveTask(task interface{}) {
+	tp.activeTask.Store(task)
+}
+
+type UserPool struct {
+	owner       string
+	backupPool  *TaskPool
+	restorePool *TaskPool
+	sync.RWMutex
+}
+
+type BaseTask struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	id       string
+	owner    string
+	taskType TaskType
+	canceled bool
+	mutex    sync.RWMutex
+}
+
+func (t *BaseTask) IsCanceled() bool {
+	t.mutex.RLock()
+	defer t.mutex.RUnlock()
+	return t.canceled
 }
 
 type BackupTask struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	task       pond.Task
-	owner      string
+	*BaseTask
 	backupId   string
 	snapshotId string
 	backup     *storage.StorageBackup
-	canceled   bool
 }
 
 type RestoreTask struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	task      pond.Task
-	owner     string
+	*BaseTask
 	restoreId string
 	restore   *storage.StorageRestore
-	canceled  bool
-}
-
-func NewWorkerPool(ctx context.Context, handlers handlers.Interface) {
-	workerPool = &WorkerPool{
-		ctx:         ctx,
-		backupPool:  newPool(backupQueueSize),
-		restorePool: newPool(restoreQueueSize),
-		handlers:    handlers,
-	}
-}
-
-func GetWorkerPool() *WorkerPool {
-	return workerPool
 }
 
 func newPool(queueSize int) pond.Pool {
 	return pond.NewPool(maxConcurrency, pond.WithContext(context.Background()), pond.WithQueueSize(queueSize), pond.WithNonBlocking(nonBlocking))
 }
 
-func (w *WorkerPool) AddBackupTask(owner string, backupId string, snapshotId string) {
+func GetWorkerPool() *WorkerPool {
+	return workerPool
+}
 
-	log.Infof("[worker] backup task added, snapshotId: %s, waitings: %d, runnings: %d", snapshotId, w.backupPool.WaitingTasks(), w.backupPool.RunningWorkers())
+func NewWorkerPool(ctx context.Context, handlers handlers.Interface) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	workerPool = &WorkerPool{
+		ctx:      ctx,
+		cancel:   cancel,
+		handlers: handlers,
+	}
+}
+
+func (w *WorkerPool) GetOrCreateUserPool(owner string) *UserPool {
+	if pool, ok := w.userPools.Load(owner); ok {
+		userPool := pool.(*UserPool)
+		return userPool
+	}
+
+	userPool := &UserPool{
+		owner: owner,
+		backupPool: &TaskPool{
+			taskType: BackupTaskType,
+			pool:     newPool(backupQueueSize),
+			owner:    owner,
+		},
+		restorePool: &TaskPool{
+			taskType: RestoreTaskType,
+			pool:     newPool(restoreQueueSize),
+			owner:    owner,
+		},
+	}
+
+	w.userPools.Store(owner, userPool)
+
+	return userPool
+}
+
+func (w *WorkerPool) AddBackupTask(owner, backupId, snapshotId string) error {
+	userPool := w.GetOrCreateUserPool(owner)
+	taskPool := userPool.backupPool
 
 	var ctxTask, cancelTask = context.WithCancel(w.ctx)
 
-	var backup = &storage.StorageBackup{
+	taskId := fmt.Sprintf("%s_%s", backupId, snapshotId)
+
+	baseTask := &BaseTask{
+		ctx:      ctxTask,
+		cancel:   cancelTask,
+		owner:    owner,
+		id:       taskId,
+		taskType: BackupTaskType,
+	}
+
+	backup := &storage.StorageBackup{
 		Ctx:              ctxTask,
 		Handlers:         w.handlers,
 		SnapshotId:       snapshotId,
@@ -90,35 +155,30 @@ func (w *WorkerPool) AddBackupTask(owner string, backupId string, snapshotId str
 	}
 
 	var backupTask = &BackupTask{
-		ctx:        ctxTask,
-		cancel:     cancelTask,
-		owner:      owner,
+		BaseTask:   baseTask,
 		backupId:   backupId,
 		snapshotId: snapshotId,
 		backup:     backup,
 	}
 
-	wrappedFn := func() {
-		defer func() {
-			w.Lock()
-			w.activeBackupTask = nil
-			w.backupTasks.Delete(fmt.Sprintf("%s_%s_%s", owner, backupId, snapshotId))
-			w.Unlock()
+	taskPool.tasks.Store(taskId, backupTask)
 
-			backupTask = nil
+	taskFn := func() {
+		defer func() {
+			taskPool.tasks.Delete(taskId)
+			taskPool.setActiveTask(nil)
+
+			if r := recover(); r != nil {
+				log.Errorf("[worker] backup task panic: %v, owner: %s, backupId: %s, snapshotId: %s", r, owner, backupId, snapshotId)
+			}
 		}()
 
-		if backupTask.canceled {
-			log.Infof("[worker] backup task canceled: %s_%s_%s", owner, backupId, snapshotId)
+		if backupTask.IsCanceled() {
 			return
 		}
 
 		log.Infof("[worker] backup task start, owner: %s, backupId: %s, snapshotId: %s", owner, backupId, snapshotId)
-
-		w.Lock()
-		w.backupTasks.Store(fmt.Sprintf("%s_%s_%s", owner, backupId, snapshotId), backupTask)
-		w.activeBackupTask = backupTask
-		w.Unlock()
+		taskPool.setActiveTask(backupTask)
 
 		if err := backupTask.backup.RunBackup(); err != nil {
 			log.Errorf("[worker] backup task failed, owner: %s, backupId: %s, snapshotId: %s, err: %s", owner, backupId, snapshotId, err.Error())
@@ -127,57 +187,64 @@ func (w *WorkerPool) AddBackupTask(owner string, backupId string, snapshotId str
 		}
 	}
 
-	_, ok := w.backupPool.TrySubmit(wrappedFn)
-
+	_, ok := taskPool.pool.TrySubmit(taskFn)
 	if !ok {
-		log.Warn("[worker] backup task submission failed because the queue is full")
 		cancelTask()
-		backupTask = nil
+		taskPool.tasks.Delete(taskId)
+		return fmt.Errorf("[worker] backup task queue is full for owner: %s", owner)
 	}
+
+	return nil
 }
 
-func (w *WorkerPool) AddRestoreTask(owner string, restoreId string) {
+func (w *WorkerPool) AddRestoreTask(owner, restoreId string) error {
 
-	log.Infof("[worker] restore task added, restoreId: %s, waitings: %d, runnings: %d", restoreId, w.restorePool.WaitingTasks(), w.restorePool.RunningWorkers())
+	userPool := w.GetOrCreateUserPool(owner)
+	taskPool := userPool.restorePool
 
-	var ctxTask, cancelTask = context.WithCancel(w.ctx)
+	taskCtx, cancelTask := context.WithCancel(w.ctx)
 
-	var restore = &storage.StorageRestore{
-		Ctx:              ctxTask,
+	taskId := restoreId
+
+	baseTask := &BaseTask{
+		ctx:      taskCtx,
+		cancel:   cancelTask,
+		owner:    owner,
+		id:       taskId,
+		taskType: RestoreTaskType,
+	}
+
+	restore := &storage.StorageRestore{
+		Ctx:              taskCtx,
 		Handlers:         w.handlers,
 		RestoreId:        restoreId,
 		LastProgressTime: time.Now(),
 	}
 
 	var restoreTask = &RestoreTask{
-		ctx:       ctxTask,
-		cancel:    cancelTask,
-		owner:     owner,
+		BaseTask:  baseTask,
 		restoreId: restoreId,
 		restore:   restore,
 	}
 
-	wrappedFn := func() {
-		defer func() {
-			w.Lock()
-			w.activeRestoreTask = nil
-			w.restoreTasks.Delete(fmt.Sprintf("%s_%s", owner, restoreId))
-			w.Unlock()
+	taskPool.tasks.Store(taskId, restoreTask)
 
-			restoreTask = nil
+	taskFn := func() {
+		defer func() {
+			taskPool.tasks.Delete(taskId)
+			taskPool.setActiveTask(nil)
+
+			if r := recover(); r != nil {
+				log.Errorf("[worker] restore task panic: %v, owner: %s, restoreId: %s", r, owner, restoreId)
+			}
 		}()
 
-		if restoreTask.canceled {
-			log.Infof("[worker] restore task canceled: %s_%s", owner, restoreId)
+		if restoreTask.IsCanceled() {
 			return
 		}
 
 		log.Infof("[worker] restore task start, owner: %s, restoreId: %s", owner, restoreId)
-
-		w.Lock()
-		w.restoreTasks.Store(fmt.Sprintf("%s_%s", owner, restoreId), restoreTask)
-		w.activeRestoreTask = restoreTask
-		w.Unlock()
+		taskPool.setActiveTask(restoreTask)
 
 		if err := restoreTask.restore.RunRestore(); err != nil {
 			log.Errorf("[worker] restore task failed, owner: %s, restoreId: %s, err: %s", owner, restoreId, err.Error())
@@ -186,76 +253,101 @@ func (w *WorkerPool) AddRestoreTask(owner string, restoreId string) {
 		}
 	}
 
-	_, ok := w.restorePool.TrySubmit(wrappedFn)
+	_, ok := taskPool.pool.TrySubmit(taskFn)
 	if !ok {
-		log.Warn("[worker] restore task submission failed because the queue is full")
 		cancelTask()
-		restoreTask = nil
+		taskPool.tasks.Delete(taskId)
+		return fmt.Errorf("[worker] restore task queue is full for owner: %s", owner)
 	}
+
+	return nil
 }
 
-func (w *WorkerPool) CancelBackup(backupId string) {
-	w.Lock()
-	defer w.Unlock()
+func (w *WorkerPool) CancelBackup(owner, backupId string) {
 
-	log.Infof("[worker] cancel backup: %s", backupId)
+	log.Infof("[worker] cancel backup, owner: %s, backupId: %s", owner, backupId)
 
-	w.backupTasks.Range(func(key, value interface{}) bool {
+	poolObj, ok := w.userPools.Load(owner)
+	if !ok {
+		log.Warnf("[worker] no backup tasks found for owner: %s", owner)
+		return
+	}
+
+	userPool := poolObj.(*UserPool)
+	taskPool := userPool.backupPool
+
+	taskPool.tasks.Range(func(key, value interface{}) bool {
 		task := value.(*BackupTask)
 		if task.backupId == backupId {
-			task.canceled = true
+			task.BaseTask.canceled = true
 		}
 		return true
 	})
 
-	if w.activeBackupTask != nil {
-		task := w.activeBackupTask
-		if task.backupId == backupId {
-			task.cancel()
+	activeTask := taskPool.activeTask.Load()
+	if activeTask != nil {
+		backupTask := activeTask.(*BackupTask)
+		if backupTask.backupId == backupId {
+			backupTask.BaseTask.cancel()
 		}
 	}
 }
 
-func (w *WorkerPool) CancelSnapshot(snapshotId string) {
-	w.Lock()
-	defer w.Unlock()
+func (w *WorkerPool) CancelSnapshot(owner, snapshotId string) {
+	log.Infof("[worker] cancel snapshot, owner: %s, snapshotId: %s", owner, snapshotId)
 
-	log.Infof("[worker] cancel snapshot: %s", snapshotId)
+	poolObj, ok := w.userPools.Load(owner)
+	if !ok {
+		log.Warnf("[worker] no backup tasks found for owner: %s", owner)
+		return
+	}
 
-	w.backupTasks.Range(func(key, value interface{}) bool {
+	userPool := poolObj.(*UserPool)
+	taskPool := userPool.backupPool
+
+	taskPool.tasks.Range(func(key, value interface{}) bool {
 		task := value.(*BackupTask)
 		if task.snapshotId == snapshotId {
-			task.canceled = true
+			task.BaseTask.canceled = true
 		}
 		return true
 	})
 
-	if w.activeBackupTask != nil {
-		task := w.activeBackupTask
-		if task.snapshotId == snapshotId {
-			task.cancel()
+	activeTask := taskPool.activeTask.Load()
+	if activeTask != nil {
+		backupTask := activeTask.(*BackupTask)
+		if backupTask.snapshotId == snapshotId {
+			backupTask.BaseTask.cancel()
 		}
 	}
 }
 
-func (w *WorkerPool) CancelRestore(restoreId string) {
-	w.Lock()
-	defer w.Unlock()
+func (w *WorkerPool) CancelRestore(owner, restoreId string) {
 
-	log.Infof("[worker] cancel restore: %s", restoreId)
+	log.Infof("[worker] cancel restore, owner: %s, restoreId: %s", owner, restoreId)
 
-	w.restoreTasks.Range(func(key, value interface{}) bool {
+	poolObj, ok := w.userPools.Load(owner)
+	if !ok {
+		log.Warn("[worker] no restore tasks found for owner: %s", owner)
+		return
+	}
+
+	userPool := poolObj.(*UserPool)
+	taskPool := userPool.restorePool
+
+	taskPool.tasks.Range(func(key, value interface{}) bool {
 		task := value.(*RestoreTask)
 		if task.restoreId == restoreId {
-			task.canceled = true
+			task.BaseTask.canceled = true
 		}
 		return true
 	})
 
-	if w.activeRestoreTask != nil {
-		task := w.activeRestoreTask
-		if task.restoreId == restoreId {
-			task.cancel()
+	activeTask := taskPool.activeTask.Load()
+	if activeTask != nil {
+		restoreTask := activeTask.(*RestoreTask)
+		if restoreTask.restoreId == restoreId {
+			restoreTask.BaseTask.cancel()
 		}
 	}
 }

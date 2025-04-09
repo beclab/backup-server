@@ -108,7 +108,7 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 
 				if *newRestore.Spec.Phase == constant.Canceled.String() {
-					worker.GetWorkerPool().CancelRestore(newRestore.Name)
+					worker.GetWorkerPool().CancelRestore(newRestore.Spec.Owner, newRestore.Name)
 				}
 
 				return false

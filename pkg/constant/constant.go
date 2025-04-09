@@ -119,4 +119,5 @@ const (
 	Failed    Phase = "Failed"
 	Completed Phase = "Completed"
 	Canceled  Phase = "Canceled"
+	Rejected  Phase = "Rejected"
 )

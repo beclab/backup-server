@@ -107,7 +107,7 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
 		if phase == constant.Canceled.String() {
-			worker.GetWorkerPool().CancelSnapshot(snapshot.Name)
+			worker.GetWorkerPool().CancelSnapshot(backup.Spec.Owner, snapshot.Name)
 		}
 		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil {
 			log.Errorf("[notify] snapshot error: %v, id: %s, phase: %s", err, snapshot.Name, *snapshot.Spec.Phase)
@@ -243,7 +243,9 @@ func (r *SnapshotReconciler) addToWorkerManager(backup *sysapiv1.Backup, snapsho
 		log.Infof("[notify] snapshot success, id: %s, phase: Pending", snapshot.Name)
 	}
 
-	worker.GetWorkerPool().AddBackupTask(backup.Spec.Owner, backup.Name, snapshot.Name)
+	if err := worker.GetWorkerPool().AddBackupTask(backup.Spec.Owner, backup.Name, snapshot.Name); err != nil {
+		// TODO rejected
+	}
 
 	return nil
 }
