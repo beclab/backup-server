@@ -87,16 +87,24 @@ func (o *BackupHandler) UpdateNotifyState(ctx context.Context, backupId string, 
 
 }
 
-func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset string, limit int64) (*sysv1.BackupList, error) {
+func (o *BackupHandler) UpdateTotalSize(ctx context.Context, backup *sysv1.Backup, totalSize uint64) error {
+	extra := backup.Spec.Extra
+	if extra == nil {
+		extra = make(map[string]string)
+	}
+	extra["size_updated"] = fmt.Sprintf("%d", time.Now().Unix())
+	backup.Spec.Size = &totalSize
+	backup.Spec.Extra = extra
+	return o.update(ctx, backup)
+}
+
+func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset, limit int64) (*sysv1.BackupList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		Limit:    limit,
-		Continue: offset,
-	})
+	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{})
 
 	if err != nil {
 		return nil, err
@@ -244,4 +252,38 @@ RETRY:
 	}
 
 	return nil
+}
+
+func (o *BackupHandler) Pager(limit int64, offset int64, backups *sysv1.BackupList) *sysv1.BackupList {
+	if limit < 0 {
+		limit = 5
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total = int64(len(backups.Items))
+
+	result := &sysv1.BackupList{
+		TypeMeta: backups.TypeMeta,
+		ListMeta: metav1.ListMeta{
+			ResourceVersion: backups.ResourceVersion,
+		},
+	}
+
+	startIndex := offset
+	endIndex := offset + limit
+
+	if startIndex >= total {
+		result.Items = []sysv1.Backup{}
+		return result
+	}
+
+	if endIndex > total {
+		endIndex = total
+	}
+
+	result.Items = backups.Items[startIndex:endIndex]
+
+	return result
 }

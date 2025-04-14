@@ -13,6 +13,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -104,7 +105,10 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		Owner:      o.owner,
 		BackupType: backupType,
 		Notified:   false,
-		Extra:      map[string]string{},
+		Size:       pointer.UInt64Ptr(0),
+		Extra: map[string]string{
+			"size_updated": fmt.Sprintf("%d", time.Now().Unix()),
+		},
 	}
 
 	if o.c.Location != "" && o.c.LocationConfig != nil {

@@ -134,6 +134,15 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					log.Info("backup not changed")
 					return false
 				}
+
+				flag, err := r.isSizeUpdated(bc1, bc2)
+				if err != nil {
+					log.Errorf("backup size updated error: %v", err)
+					return false
+				}
+				if flag {
+					return false
+				}
 				return true
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
@@ -165,6 +174,24 @@ func (r *BackupReconciler) isDeleted(newBackup *sysv1.Backup) bool {
 
 func (r *BackupReconciler) isPaused(newBackup *sysv1.Backup) bool {
 	return newBackup.Spec.BackupPolicy.Enabled
+}
+
+func (r *BackupReconciler) isSizeUpdated(oldBackupSpec, newBackupSpec *sysv1.Backup) (bool, error) {
+	oldExtra := oldBackupSpec.Spec.Extra
+	newExtra := newBackupSpec.Spec.Extra
+
+	oldSizeUpdated, ok1 := oldExtra["size_updated"]
+	newSizeUpdated, ok2 := newExtra["size_updated"]
+
+	if ok1 || ok2 {
+		return false, fmt.Errorf("backup size_updated invalid, old: %v, new: %v", ok1, ok2)
+	}
+
+	if oldSizeUpdated != newSizeUpdated {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
