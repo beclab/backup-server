@@ -22,7 +22,7 @@ type StorageRegion struct {
 func (s *StorageRegion) GetRegions(ctx context.Context, owner, olaresId string) ([]map[string]string, error) {
 	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, owner, olaresId)
 	if err != nil {
-		err = fmt.Errorf("get space token error %v", err)
+		err = fmt.Errorf("get space token error: %v", err)
 		return nil, err
 	}
 	if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {

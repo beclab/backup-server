@@ -43,20 +43,22 @@ func (h *Handler) ready(req *restful.Request, resp *restful.Response) {
 func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	owner := req.HeaderParameter(constant.BflUserKey)
-	limit := req.QueryParameter("limit")
-	offset := req.QueryParameter("offset")
+	limit := util.ParseToInt64(req.QueryParameter("limit"))
+	offset := util.ParseToInt64(req.QueryParameter("offset"))
 
-	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, offset, util.ParseToInt64(limit))
+	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, offset, limit)
 	if err != nil {
 		log.Errorf("get backups error: %v", err)
-		response.HandleError(resp, errors.WithMessage(err, "get backup error"))
+		response.Success(resp, parseResponseBackupList(backups, nil))
 		return
 	}
 
-	labelsSelector := h.handler.GetBackupHandler().GetBackupIdForLabels(backups)
+	result := handlers.GenericPager(limit, offset, backups)
+
+	labelsSelector := h.handler.GetBackupHandler().GetBackupIdForLabels(result)
 	var allSnapshots = new(sysv1.SnapshotList)
 	for _, ls := range labelsSelector {
-		snapshots, err := h.handler.GetSnapshotHandler().ListSnapshots(ctx, "", 0, ls, "")
+		snapshots, err := h.handler.GetSnapshotHandler().ListSnapshots(ctx, 0, 0, ls, "")
 		if err != nil {
 			log.Errorf("get snapshots error: %v", err)
 			continue
@@ -67,7 +69,7 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 		allSnapshots.Items = append(allSnapshots.Items, snapshots.Items...)
 	}
 
-	response.Success(resp, parseResponseBackupList(backups, allSnapshots))
+	response.Success(resp, parseResponseBackupList(result, allSnapshots))
 }
 
 func (h *Handler) get(req *restful.Request, resp *restful.Response) {
@@ -311,22 +313,24 @@ func (h *Handler) addSnapshot(req *restful.Request, resp *restful.Response) {
 func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	backupId := req.PathParameter("id")
-	limit := req.QueryParameter("limit")
-	offset := req.QueryParameter("offset")
+	limit := util.ParseToInt64(req.QueryParameter("limit"))
+	offset := util.ParseToInt64(req.QueryParameter("offset"))
 
 	var labelSelector = "backup-id=" + backupId
-	var snapshots, err = h.handler.GetSnapshotHandler().ListSnapshots(ctx, offset, util.ParseToInt64(limit), labelSelector, "")
+	var snapshots, err = h.handler.GetSnapshotHandler().ListSnapshots(ctx, offset, limit, labelSelector, "")
 	if err != nil {
 		response.HandleError(resp, errors.WithMessage(err, fmt.Sprintf("get backup %s snapshots error", backupId)))
 		return
 	}
 
 	if snapshots == nil || len(snapshots.Items) == 0 {
-		response.HandleError(resp, errors.New("snapshots not exists"))
+		response.Success(resp, parseResponseSnapshotList(snapshots))
 		return
 	}
 
-	response.Success(resp, parseResponseSnapshotList(snapshots))
+	result := handlers.GenericPager(limit, offset, snapshots)
+
+	response.Success(resp, parseResponseSnapshotList(result))
 }
 
 func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
@@ -434,22 +438,19 @@ func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) 
 func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	ctx := req.Request.Context()
 	owner := req.HeaderParameter(constant.BflUserKey)
-	limit := req.QueryParameter("limit")
+	limit := util.ParseToInt64(req.QueryParameter("limit"))
+	offset := util.ParseToInt64(req.QueryParameter("offset"))
 
-	restores, err := h.handler.GetRestoreHandler().ListRestores(ctx, owner, 0, util.ParseToInt64(limit))
+	restores, err := h.handler.GetRestoreHandler().ListRestores(ctx, owner, offset, limit)
 	if err != nil {
 		log.Errorf("get restores error: %v", err)
-		response.HandleError(resp, err)
+		response.Success(resp, parseResponseRestoreList(restores))
 		return
 	}
 
-	result := parseResponseRestoreList(restores)
-	if result == nil || len(result) == 0 {
-		response.SuccessNoData(resp)
-		return
-	}
+	result := handlers.GenericPager(limit, offset, restores)
 
-	response.Success(resp, result)
+	response.Success(resp, parseResponseRestoreList(result))
 }
 
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {

@@ -207,6 +207,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	log.Infof("Backup %s,%s, location: %s, prepare", backupName, snapshotId, location)
 
 	var backupService *backupssdkstorage.BackupService
+	var options backupssdkoptions.Option
 
 	switch location {
 	case constant.BackupLocationSpace.String():
@@ -218,18 +219,19 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
 		}
+		options = &backupssdkoptions.AwsBackupOption{
+			RepoName:        backupId,
+			Path:            s.Params.Path,
+			Endpoint:        token.Endpoint,
+			AccessKey:       token.AccessKey,
+			SecretAccessKey: token.SecretKey,
+		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: s.Params.Password,
 			Operator: constant.StorageOperatorApp,
 			Ctx:      s.Ctx,
 			Logger:   logger,
-			Aws: &backupssdkoptions.AwsBackupOption{
-				RepoName:        backupId,
-				Path:            s.Params.Path,
-				Endpoint:        token.Endpoint,
-				AccessKey:       token.AccessKey,
-				SecretAccessKey: token.SecretKey,
-			},
+			Aws:      options.(*backupssdkoptions.AwsBackupOption),
 		})
 	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud()
@@ -237,35 +239,45 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
 		}
+		options = &backupssdkoptions.TencentCloudBackupOption{
+			RepoName:        backupId,
+			Path:            s.Params.Path,
+			Endpoint:        token.Endpoint,
+			AccessKey:       token.AccessKey,
+			SecretAccessKey: token.SecretKey,
+		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password: s.Params.Password,
-			Operator: constant.StorageOperatorApp,
-			Ctx:      s.Ctx,
-			Logger:   logger,
-			TencentCloud: &backupssdkoptions.TencentCloudBackupOption{
-				RepoName:        backupId,
-				Path:            s.Params.Path,
-				Endpoint:        token.Endpoint,
-				AccessKey:       token.AccessKey,
-				SecretAccessKey: token.SecretKey,
-			},
+			Password:     s.Params.Password,
+			Operator:     constant.StorageOperatorApp,
+			Ctx:          s.Ctx,
+			Logger:       logger,
+			TencentCloud: options.(*backupssdkoptions.TencentCloudBackupOption),
 		})
 	case constant.BackupLocationFileSystem.String():
+		options = &backupssdkoptions.FilesystemBackupOption{
+			RepoName: backupId,
+			Endpoint: "", // TODO
+			Path:     s.Params.Path,
+		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password: s.Params.Password,
-			Operator: constant.StorageOperatorApp,
-			Ctx:      s.Ctx,
-			Logger:   logger,
-			Filesystem: &backupssdkoptions.FilesystemBackupOption{
-				RepoName: backupId,
-				Endpoint: "", // TODO
-				Path:     s.Params.Path,
-			},
+			Password:   s.Params.Password,
+			Operator:   constant.StorageOperatorApp,
+			Ctx:        s.Ctx,
+			Logger:     logger,
+			Filesystem: options.(*backupssdkoptions.FilesystemBackupOption),
 		})
 	}
 
 	if !isSpaceBackup {
 		backupOutput, backupStorageObj, backupError = backupService.Backup(s.progressCallback)
+		if backupError == nil {
+			stats, err := s.getStats(options)
+			if err != nil {
+				log.Errorf("Backup %s,%s, get stats error: %v", backupName, snapshotId, err)
+			} else {
+				backupOutput.TotalSize = stats.TotalSize
+			}
+		}
 	}
 
 	return
@@ -277,6 +289,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	var olaresId = location["name"]
 
 	var spaceToken *integration.SpaceToken
+	var spaceBackupOption backupssdkoptions.Option
 
 	for {
 		// TODO loop forever?
@@ -290,7 +303,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			break
 		}
 
-		var spaceBackupOption = &backupssdkoptions.SpaceBackupOption{
+		spaceBackupOption = &backupssdkoptions.SpaceBackupOption{
 			RepoName:       backupId,
 			Path:           s.Params.Path,
 			OlaresDid:      spaceToken.OlaresDid,
@@ -306,7 +319,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			Operator: constant.StorageOperatorApp,
 			Ctx:      s.Ctx,
 			Logger:   log.GetLogger(),
-			Space:    spaceBackupOption,
+			Space:    spaceBackupOption.(*backupssdkoptions.SpaceBackupOption),
 		})
 
 		backupOutput, backupStorageObj, err = backupService.Backup(s.progressCallback)
@@ -321,13 +334,94 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		}
 		break
 	}
+	if err == nil {
+		stats, err := s.getStats(spaceBackupOption)
+		if err != nil {
+
+			log.Errorf("Backup %s,%s, get stats error: %v", s.Backup.Spec.Name, s.SnapshotId, err)
+		} else {
+			backupOutput.TotalSize = stats.TotalSize
+		}
+	}
 
 	return
+}
+
+func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkrestic.StatsContainer, error) {
+	var options = &backupssdkstorage.SnapshotsOption{
+		Password: s.Params.Password,
+		Logger:   log.GetLogger(),
+	}
+
+	switch opt.(type) {
+	case *backupssdkoptions.SpaceBackupOption:
+		var location = s.Params.Location
+		var olaresId = location["name"]
+		spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
+		if err != nil {
+			err = fmt.Errorf("get space token error: %v", err)
+			break
+		}
+		if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
+			err = fmt.Errorf("space access token expired %d(%s)", spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
+			break
+		}
+		o := opt.(*backupssdkoptions.SpaceBackupOption)
+		options.Space = &backupssdkoptions.SpaceSnapshotsOption{
+			RepoName:       o.RepoName,
+			OlaresDid:      spaceToken.OlaresDid,
+			AccessToken:    spaceToken.AccessToken,
+			ClusterId:      location["clusterId"],
+			CloudName:      location["cloudName"],
+			RegionId:       location["regionId"],
+			CloudApiMirror: constant.DefaultSyncServerURL,
+		}
+	case *backupssdkoptions.AwsBackupOption:
+		token, err := s.getIntegrationCloud()
+		if err != nil {
+			err = fmt.Errorf("get %s token error: %v", token.Type, err)
+			break
+		}
+		o := opt.(*backupssdkoptions.AwsBackupOption)
+		options.Aws = &backupssdkoptions.AwsSnapshotsOption{
+			RepoName:        o.RepoName,
+			Endpoint:        o.Endpoint,
+			AccessKey:       token.AccessKey,
+			SecretAccessKey: token.SecretKey,
+		}
+	case *backupssdkoptions.TencentCloudBackupOption:
+		token, err := s.getIntegrationCloud()
+		if err != nil {
+			err = fmt.Errorf("get %s token error: %v", token.Type, err)
+			break
+		}
+		o := opt.(*backupssdkoptions.TencentCloudBackupOption)
+		options.TencentCloud = &backupssdkoptions.TencentCloudSnapshotsOption{
+			RepoName:        o.RepoName,
+			Endpoint:        o.Endpoint,
+			AccessKey:       token.AccessKey,
+			SecretAccessKey: token.SecretKey,
+		}
+	case *backupssdkoptions.FilesystemBackupOption:
+		o := opt.(*backupssdkoptions.FilesystemBackupOption)
+		options.Filesystem = &backupssdkoptions.FilesystemSnapshotsOption{
+			RepoName: o.RepoName,
+			Endpoint: o.Endpoint,
+		}
+	}
+
+	statsService := backupssdk.NewStatsService(options)
+	return statsService.Stats()
 }
 
 // TODO review
 func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.SummaryOutput,
 	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) error {
+
+	backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, s.Backup.Name)
+	if err != nil {
+		return err
+	}
 
 	snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, s.Snapshot.Name)
 	if err != nil {
@@ -368,6 +462,12 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		}
 		extra["storage"] = util.ToJSON(backupStorageObj)
 		snapshot.Spec.Extra = extra
+	}
+
+	if backupOutput != nil {
+		if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupOutput.TotalSize); err != nil {
+			log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
+		}
 	}
 
 	return s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)

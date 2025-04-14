@@ -64,15 +64,13 @@ func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phas
 	return o.Update(ctx, restoreId, &restore.Spec)
 }
 
-func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, page int64, limit int64) (*sysv1.RestoreList, error) {
+func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, offset int64, limit int64) (*sysv1.RestoreList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
-	restores, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
-		Limit: limit,
-	})
+	restores, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{})
 
 	if err != nil {
 		return nil, err

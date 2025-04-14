@@ -257,6 +257,7 @@ func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interfa
 	var data = make(map[string]interface{})
 
 	if snapshots == nil || len(snapshots.Items) == 0 {
+		data["snapshots"] = []struct{}{}
 		return data
 	}
 
@@ -301,6 +302,11 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 
 func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList) map[string]interface{} {
 	var result = make(map[string]interface{})
+
+	if data == nil {
+		result["backups"] = []struct{}{}
+		return result
+	}
 
 	if data == nil || data.Items == nil || len(data.Items) == 0 {
 		return nil
@@ -382,11 +388,12 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 }
 
 func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
-	if data == nil || data.Items == nil || len(data.Items) == 0 {
-		return nil
-	}
-
 	var res = make(map[string]interface{})
+
+	if data == nil || data.Items == nil || len(data.Items) == 0 {
+		res["restores"] = []struct{}{}
+		return res
+	}
 
 	var result []*ResponseRestoreList
 	for _, restore := range data.Items {

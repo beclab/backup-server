@@ -34,6 +34,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/regions").
 		To(handler.getSpaceRegions).
+		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
 		Doc("get regions").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 

@@ -123,15 +123,13 @@ func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, ph
 	return o.update(ctx, snapshot) // updatePhase
 }
 
-func (o *SnapshotHandler) ListSnapshots(ctx context.Context, offset string, limit int64, labelSelector string, fieldSelector string) (*sysv1.SnapshotList, error) {
+func (o *SnapshotHandler) ListSnapshots(ctx context.Context, offset, limit int64, labelSelector string, fieldSelector string) (*sysv1.SnapshotList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
-	var listOptions = metav1.ListOptions{
-		Limit: limit,
-	}
+	var listOptions = metav1.ListOptions{}
 
 	if labelSelector != "" {
 		listOptions.LabelSelector = labelSelector
@@ -269,7 +267,7 @@ func (o *SnapshotHandler) GetById(ctx context.Context, snapshotId string) (*sysv
 func (o *SnapshotHandler) GetRunningSnapshot(ctx context.Context, backupId string) (bool, error) {
 	// check exists
 	var labelSelector = fmt.Sprintf("backup-id=%s", backupId)
-	snapshots, err := o.ListSnapshots(ctx, "", 0, labelSelector, "") // find all snapshots by backupName
+	snapshots, err := o.ListSnapshots(ctx, 0, 0, labelSelector, "") // find all snapshots by backupName
 	if err != nil {
 		return false, err
 	}
@@ -292,7 +290,7 @@ func (o *SnapshotHandler) GetSnapshotType(ctx context.Context, backupId string) 
 	var labelSelector = fmt.Sprintf("backup-id=%s", backupId)
 	snapshotType = constant.FullyBackup
 
-	snapshots, err = o.ListSnapshots(ctx, "", 0, labelSelector, "") // find all snapshots by backupName
+	snapshots, err = o.ListSnapshots(ctx, 0, 0, labelSelector, "") // find all snapshots by backupName
 	if err != nil {
 		return
 	}

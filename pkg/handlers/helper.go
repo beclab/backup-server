@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 )
@@ -574,4 +576,61 @@ func splitSpaceTencentCloud(u string) (*RestoreBackupUrlDetail, error) {
 		Prefix:         prefix,
 		TerminusSuffix: suffix,
 	}, nil
+}
+
+func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T {
+	if limit < 0 {
+		limit = 5
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	listValue := reflect.ValueOf(resourceList)
+	if listValue.Kind() == reflect.Ptr {
+		listValue = listValue.Elem()
+	}
+
+	itemsField := listValue.FieldByName("Items")
+	if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
+		return resourceList
+	}
+
+	total := int64(itemsField.Len())
+
+	resultList := reflect.New(reflect.TypeOf(resourceList).Elem()).Elem()
+
+	if typeMetaField := resultList.FieldByName("TypeMeta"); typeMetaField.IsValid() {
+		originalTypeMetaField := listValue.FieldByName("TypeMeta")
+		if originalTypeMetaField.IsValid() {
+			typeMetaField.Set(originalTypeMetaField)
+		}
+	}
+
+	if listMetaField := resultList.FieldByName("ListMeta"); listMetaField.IsValid() {
+		originalListMetaField := listValue.FieldByName("ListMeta")
+		if originalListMetaField.IsValid() {
+			listMetaField.Set(originalListMetaField)
+		}
+	}
+
+	startIndex := offset
+	endIndex := offset + limit
+
+	if startIndex >= total {
+		emptySlice := reflect.MakeSlice(itemsField.Type(), 0, 0)
+		resultList.FieldByName("Items").Set(emptySlice)
+	} else {
+		if endIndex > total {
+			endIndex = total
+		}
+
+		newItemsSlice := reflect.MakeSlice(itemsField.Type(), int(endIndex-startIndex), int(endIndex-startIndex))
+		for i := startIndex; i < endIndex; i++ {
+			newItemsSlice.Index(int(i - startIndex)).Set(itemsField.Index(int(i)))
+		}
+		resultList.FieldByName("Items").Set(newItemsSlice)
+	}
+
+	return resultList.Addr().Interface().(T)
 }
