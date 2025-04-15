@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"k8s.io/klog/v2"
 )
@@ -21,7 +22,7 @@ type BackupCreate struct {
 	Path            string              `json:"path"`
 	Location        string              `json:"location"` // space or s3
 	LocationConfig  *LocationConfig     `json:"locationConfig,omitempty"`
-	BackupPolicies  *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
+	BackupPolicies  *sysv1.BackupPolicy `json:"backupPolicy,omitempty"`
 	Password        string              `json:"password,omitempty"`
 	ConfirmPassword string              `json:"confirmPassword,omitempty"`
 }
@@ -302,14 +303,9 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 
 func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList) map[string]interface{} {
 	var result = make(map[string]interface{})
-
-	if data == nil {
+	if data == nil || data.Items == nil || len(data.Items) == 0 {
 		result["backups"] = []struct{}{}
 		return result
-	}
-
-	if data == nil || data.Items == nil || len(data.Items) == 0 {
-		return nil
 	}
 
 	var bs = make(map[string]*sysv1.Snapshot)
@@ -325,21 +321,22 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 
 	for _, backup := range data.Items {
 		locationConfig, err := handlers.GetBackupLocationConfig(&backup)
-		if err != nil || locationConfig == nil {
+		if err != nil { // || locationConfig == nil
 			continue
 		}
-		if locationConfig["location"] == "filesystem" { // TODO
-			continue
-		}
+
 		location := locationConfig["location"]
 		locationConfigName := locationConfig["name"]
+		if location == constant.BackupLocationFileSystem.String() {
+			locationConfigName = locationConfig["path"]
+		}
 		var r = &ResponseBackupList{
 			Id:                  backup.Name,
 			Name:                backup.Spec.Name,
 			SnapshotFrequency:   handlers.ParseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
 			NextBackupTimestamp: handlers.GetNextBackupTime(*backup.Spec.BackupPolicy),
 			Location:            location,
-			LocationConfigName:  locationConfigName, // maybe is empty
+			LocationConfigName:  locationConfigName, // filesystem is target
 			Path:                handlers.ParseBackupTypePath(backup.Spec.BackupType),
 		}
 
@@ -347,12 +344,14 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 			r.SnapshotId = s.Name
 			r.Size = handlers.ParseSnapshotSize(s.Spec.Size)
 			r.Status = *s.Spec.Phase
+		} else {
+			r.Status = constant.Pending.String()
 		}
 
 		res = append(res, r)
 	}
 
-	result["offset"] = data.Continue
+	// result["offset"] = data.Continue
 	result["backups"] = res
 
 	return result
@@ -412,7 +411,7 @@ func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
 		result = append(result, r)
 	}
 
-	res["offset"] = data.Continue
+	// res["offset"] = data.Continue
 	res["restores"] = result
 
 	return res

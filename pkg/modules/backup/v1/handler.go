@@ -129,8 +129,7 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	var policy = fmt.Sprintf("%s_%s_%d_%d", b.BackupPolicies.SnapshotFrequency, b.BackupPolicies.TimesOfDay, b.BackupPolicies.DayOfWeek, b.BackupPolicies.DateOfMonth)
-	getLabel = "owner=" + owner + ",policy=" + util.MD5(policy)
+	getLabel = "owner=" + owner + ",policy=" + util.MD5(b.BackupPolicies.TimesOfDay)
 	backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
 	if err != nil && !apierrors.IsNotFound(err) {
 		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
@@ -138,7 +137,7 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	}
 
 	if backup != nil {
-		response.HandleError(resp, errors.New("there are other backup tasks at the same time"))
+		response.HandleError(resp, fmt.Errorf("there are other backup tasks at the same time: %s", b.BackupPolicies.TimesOfDay))
 		return
 	}
 

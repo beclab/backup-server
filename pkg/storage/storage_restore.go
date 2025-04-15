@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -157,9 +158,16 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		password = string(p)
 	}
 
+	userspacePvc, err := handlers.GetUserspacePvc(s.Restore.Spec.Owner)
+	if err != nil {
+		return err
+	}
+
+	var restorePath = path.Join(userspacePvc, handlers.TrimPathPrefix(s.RestoreType.Path))
+
 	log.Infof("restore: %s, locationConfig: %v", s.RestoreId, util.ToJSON(locationConfig))
 	s.Params = &RestoreParameters{
-		Path:     s.RestoreType.Path,
+		Path:     restorePath,
 		Password: password,
 		Location: locationConfig,
 	}

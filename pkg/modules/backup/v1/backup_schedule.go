@@ -89,17 +89,12 @@ func (o *BackupPlan) validate(ctx context.Context) error {
 		return err
 	}
 
-	// TODO remove?
-	if err := o.validPassword(); err != nil {
-		return err
-	}
-
 	return nil
 }
 
 func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 	var backupType = make(map[string]string)
-	backupType["file"] = o.buildBackupType()
+	backupType["file"] = o.buildBackupType() // ! trim path prefix, like '/Files'
 	bc := &sysv1.BackupSpec{
 		Name:       o.c.Name,
 		Owner:      o.owner,
@@ -121,6 +116,7 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 
 	if o.c.BackupPolicies != nil {
 		bc.BackupPolicy = o.c.BackupPolicies
+		bc.BackupPolicy.Enabled = true
 	}
 	return bc
 }
@@ -181,43 +177,6 @@ func (o *BackupPlan) Del(ctx context.Context, name string) error {
 	return errors.New("to be implement")
 }
 
-func (o *BackupPlan) GetBackupResult(sysBackup *sysv1.Backup) (string, string) {
-	if sysBackup == nil {
-		return "", ""
-	}
-	// resticPhase := util.ListContains([]string{velero.Succeed, velero.Success, velero.VeleroBackupCompleted}, *sysBackup.Spec.ResticPhase)
-	// middlewarePhase := util.ListContains([]string{velero.Succeed, velero.Success, velero.VeleroBackupCompleted}, *sysBackup.Spec.MiddleWarePhase)
-
-	// _ = resticPhase
-	// _ = middlewarePhase
-
-	// if resticPhase && middlewarePhase && *sysBackup.Spec.Phase == velero.VeleroBackupCompleted {
-	// 	return velero.VeleroBackupCompleted, ""
-	// } else if !resticPhase {
-	// 	return velero.Failed, *sysBackup.Spec.ResticFailedMessage
-	// } else {
-	// 	return velero.Failed, *sysBackup.Spec.FailedMessage
-	// }
-	return "", ""
-}
-
-func (o *BackupPlan) GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
-	var res int64
-	var n = time.Now().Local()
-	var prefix int64 = util.ParseToInt64(bp.TimesOfDay) / 1000
-	var incr = util.ParseToNextUnixTime(bp.SnapshotFrequency, bp.TimesOfDay, bp.DayOfWeek)
-
-	switch bp.SnapshotFrequency {
-	case "@weekly":
-		var midweek = util.GetFirstDayOfWeek(n).AddDate(0, 0, bp.DayOfWeek)
-		res = midweek.Unix() + incr + prefix
-	default:
-		var midnight = time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
-		res = midnight.Unix() + incr + prefix
-	}
-	return &res
-}
-
 func (o *BackupPlan) validLocation() error {
 	log.Infof("new backup %s location %s", o.c.Name, util.ToJSON(o.c.LocationConfig))
 
@@ -255,13 +214,14 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 	var location = o.c.Location
 	var locationConfig = o.c.LocationConfig
 
-	if location == constant.BackupLocationFileSystem.String() {
-		return nil
-	}
-
 	integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(ctx, owner, location)
 	if err != nil {
 		return errors.WithStack(err)
+	}
+
+	if location == constant.BackupLocationFileSystem.String() {
+		o.c.LocationConfig.Name = integrationName
+		return nil
 	}
 
 	if integrationName != locationConfig.Name {
@@ -287,10 +247,11 @@ func (o *BackupPlan) validBackupPolicy() error {
 	}
 
 	if !strings.Contains(o.c.BackupPolicies.TimesOfDay, ":") {
-		_, err := util.ParseTimestampToLocal(o.c.BackupPolicies.TimesOfDay)
+		timeInUTC, err := util.ParseTimestampToLocal(o.c.BackupPolicies.TimesOfDay)
 		if err != nil {
 			return errors.Errorf("backup %s snapshot times of day invalid, eg: '48600000'", o.c.Name)
 		}
+		o.c.BackupPolicies.TimesOfDay = timeInUTC
 	} else {
 		timeSplit := strings.Split(o.c.BackupPolicies.TimesOfDay, ":")
 		if !strings.Contains(o.c.BackupPolicies.TimesOfDay, ":") || len(timeSplit) != 2 {
@@ -374,12 +335,17 @@ func (o *BackupPlan) buildBackupType() string {
 
 func (o *BackupPlan) buildLocationConfig(location string, clusterId string, config *LocationConfig) string {
 	var data = make(map[string]string)
-	data["name"] = config.Name
-	if location == constant.BackupLocationSpace.String() {
+
+	switch location {
+	case constant.BackupLocationFileSystem.String():
+		data["path"] = config.Path
+	case constant.BackupLocationSpace.String():
 		data["cloudName"] = config.CloudName
 		data["regionId"] = config.RegionId
 		data["clusterId"] = clusterId
 	}
+
+	data["name"] = config.Name
 
 	return util.ToJSON(data)
 }

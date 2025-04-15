@@ -197,7 +197,7 @@ func (r *BackupReconciler) isSizeUpdated(oldBackupSpec, newBackupSpec *sysv1.Bac
 func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
 	ctx := context.Background()
 	if backup.Spec.BackupPolicy != nil {
-		cron, _ := util.ParseToCron(backup.Spec.BackupPolicy.SnapshotFrequency, backup.Spec.BackupPolicy.TimesOfDay, backup.Spec.BackupPolicy.DayOfWeek)
+		cron, _ := util.ParseToCron(backup.Spec.BackupPolicy.SnapshotFrequency, backup.Spec.BackupPolicy.TimesOfDay, backup.Spec.BackupPolicy.DayOfWeek, backup.Spec.BackupPolicy.DateOfMonth)
 		err := r.handler.GetSnapshotHandler().CreateSchedule(ctx, backup, cron, !backup.Spec.BackupPolicy.Enabled)
 		if err != nil {
 			return err

@@ -104,7 +104,7 @@ func DecodeBase64ToString(in string) string {
 	return string(ou)
 }
 
-func ParseToCron(frequency, timesOfDay string, dayOfWeek int) (cron string, err error) {
+func ParseToCron(frequency, timesOfDay string, dayOfWeek int, dateOfMonth int) (cron string, err error) {
 	var (
 		hourInt   int
 		minuteInt int
@@ -141,7 +141,7 @@ func ParseToCron(frequency, timesOfDay string, dayOfWeek int) (cron string, err 
 	case "@weekly":
 		cron = minuteHour + " * * " + strconv.Itoa(dayOfWeek)
 	case "@monthly":
-		cron = minuteHour + " 1 * *"
+		cron = minuteHour + fmt.Sprintf(" %s * *", strconv.Itoa(dateOfMonth))
 	case "@yearly":
 		cron = minuteHour + " 1 1 *"
 	}
@@ -179,12 +179,14 @@ func ParseLocalToTimestamp(value string) (string, error) {
 	return utcTimeStr, nil
 }
 
-func ParseToNextUnixTime(frequency, timesOfDay string, dayOfWeek int) int64 {
+func ParseToNextUnixTime(frequency, timesOfDay string, dayOfWeek int, dateOfMonth int) int64 {
 	switch frequency {
 	case "@daily":
 		return 86400
 	case "@weekly":
 		return 604800
+	case "@monthly":
+		return 2592000
 	default:
 		return 0
 	}
