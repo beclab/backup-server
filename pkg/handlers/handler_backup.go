@@ -154,7 +154,6 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 }
 
 func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
-	var policy = fmt.Sprintf("%s_%s_%d_%d", backupSpec.BackupPolicy.SnapshotFrequency, backupSpec.BackupPolicy.TimesOfDay, backupSpec.BackupPolicy.DayOfWeek, backupSpec.BackupPolicy.DateOfMonth)
 	var backupId = uuid.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
@@ -164,7 +163,7 @@ RETRY:
 			Labels: map[string]string{
 				"owner":  owner,
 				"name":   util.MD5(backupName),
-				"policy": util.MD5(policy),
+				"policy": util.MD5(backupSpec.BackupPolicy.TimesOfDay),
 			},
 		},
 		TypeMeta: metav1.TypeMeta{

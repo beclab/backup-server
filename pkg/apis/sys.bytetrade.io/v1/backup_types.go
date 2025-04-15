@@ -59,7 +59,7 @@ type BackupStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced, shortName={bc}, categories={all}
-// +kubebuilder:printcolumn:JSONPath=.spec.name, name=name, type=string
+// +kubebuilder:printcolumn:JSONPath=.spec.name, name=backup name, type=string
 // +kubebuilder:printcolumn:JSONPath=.spec.owner, name=owner, type=string
 // +kubebuilder:printcolumn:JSONPath=.spec.deleted, name=deleted, type=boolean
 // +kubebuilder:printcolumn:JSONPath=.metadata.creationTimestamp, name=creation, type=date

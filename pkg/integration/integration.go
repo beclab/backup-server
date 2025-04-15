@@ -77,8 +77,20 @@ func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, l
 	}
 
 	var name string
+
+	if location == constant.BackupLocationFileSystem.String() {
+		for _, account := range accounts {
+			if account.Type == "space" {
+				name = account.Name
+				break
+			}
+		}
+		return name, nil
+	}
+
 	for _, account := range accounts {
 		// account.Type includes: space, awss3, tencent
+		// location includes: space, awss3, tencentcloud, filesystem
 		if strings.Contains(location, account.Type) {
 			name = account.Name
 			break

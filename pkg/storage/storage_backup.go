@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -150,6 +151,11 @@ func (s *StorageBackup) prepareBackupParams() error {
 		return fmt.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
 	}
 
+	userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
+	if err != nil {
+		return fmt.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
+	}
+
 	location, err := handlers.GetBackupLocationConfig(s.Backup)
 	if err != nil {
 		return fmt.Errorf("Backup %s,%s, get location config error: %v", backupName, snapshotId, err)
@@ -159,8 +165,17 @@ func (s *StorageBackup) prepareBackupParams() error {
 		return fmt.Errorf("Backup %s,%s, location config not exists", backupName, snapshotId)
 	}
 
+	loc := location["location"]
+	if loc == constant.BackupLocationFileSystem.String() {
+		locPath := location["path"]
+		locPath = handlers.TrimPathPrefix(locPath)
+		location["path"] = path.Join(userspacePath, locPath)
+	}
+
+	var backupPath = path.Join(userspacePath, handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup)))
+
 	s.Params = &BackupParameters{
-		Path:     handlers.GetBackupPath(s.Backup),
+		Path:     backupPath,
 		Password: password,
 		Location: location,
 	}
@@ -256,7 +271,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	case constant.BackupLocationFileSystem.String():
 		options = &backupssdkoptions.FilesystemBackupOption{
 			RepoName: backupId,
-			Endpoint: "", // TODO
+			Endpoint: s.Params.Location["path"],
 			Path:     s.Params.Path,
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{

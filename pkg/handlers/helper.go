@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +56,11 @@ func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, err
 }
 
 func GetBackupPassword(ctx context.Context, owner string, backupName string) (string, error) {
+	d := os.Getenv("PASSWORD_DEBUG")
+	if d != "" {
+		return "123", nil
+	}
+
 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
 	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
 
@@ -155,10 +163,14 @@ func GetClusterId() (string, error) {
 }
 
 func GetBackupIntegrationName(location string, locationConfig map[string]string) string {
-	name, ok := locationConfig[location]
+	name, ok := locationConfig[constant.BackupLocationFileSystem.String()]
 	if !ok {
-		return ""
+		name, ok = locationConfig[location]
+		if !ok {
+			return ""
+		}
 	}
+
 	var config map[string]string
 	if err := json.Unmarshal([]byte(name), &config); err != nil {
 		return ""
@@ -241,6 +253,7 @@ func GetRestorePath(restore *sysv1.Restore) string {
 func GetBackupLocationConfig(backup *sysv1.Backup) (map[string]string, error) {
 	var locationConfig map[string]string
 	var err error
+
 	for k, v := range backup.Spec.Location {
 		if err = json.Unmarshal([]byte(v), &locationConfig); err != nil {
 			return nil, err
@@ -326,18 +339,100 @@ func ParseBackupTypePath(backupType map[string]string) string {
 func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
 	var res int64
 	var n = time.Now().Local()
-	var prefix int64 = util.ParseToInt64(bp.TimesOfDay) / 1000
-	var incr = util.ParseToNextUnixTime(bp.SnapshotFrequency, bp.TimesOfDay, bp.DayOfWeek)
+
+	timeParts := strings.Split(bp.TimesOfDay, ":")
+	if len(timeParts) != 2 {
+		return nil
+	}
+
+	hours, errHour := strconv.Atoi(timeParts[0])
+	minutes, errMin := strconv.Atoi(timeParts[1])
+	if errHour != nil || errMin != nil {
+		return nil
+	}
+	secondsFromMidnight := int64(hours*3600 + minutes*60)
+
+	var incr = util.ParseToNextUnixTime(bp.SnapshotFrequency, bp.TimesOfDay, bp.DayOfWeek, bp.DateOfMonth)
 
 	switch bp.SnapshotFrequency {
+	case "@hourly":
+		res = getNextBackupTimeByHourly(minutes).Unix()
 	case "@weekly":
-		var midweek = util.GetFirstDayOfWeek(n).AddDate(0, 0, bp.DayOfWeek)
-		res = midweek.Unix() + incr + prefix
+		res = getNextBackupTimeByWeekly(hours, minutes, bp.DayOfWeek).Unix()
+	case "@monthly":
+		res = getNextBackupTimeByMonthly(hours, minutes, bp.DateOfMonth).Unix()
 	default:
 		var midnight = time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
-		res = midnight.Unix() + incr + prefix
+		res = midnight.Unix() + incr + secondsFromMidnight // prefix
 	}
 	return &res
+}
+
+func getNextBackupTimeByMonthly(hours, minutes int, day int) time.Time {
+
+	var n = time.Now()
+	firstDayOfMonth := time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, n.Location())
+
+	backupDay := firstDayOfMonth.AddDate(0, 0, day-1)
+
+	backupTime := time.Date(backupDay.Year(), backupDay.Month(), backupDay.Day(),
+		hours, minutes, 0, 0, n.Location())
+
+	if backupTime.Before(n) {
+		backupTime = backupTime.AddDate(0, 1, 0)
+	}
+
+	if backupTime.Day() != day {
+		nextMonth := backupTime.AddDate(0, 1, 0)
+		firstDayOfNextMonth := time.Date(nextMonth.Year(), nextMonth.Month(), 1, 0, 0, 0, 0, n.Location())
+		backupTime = firstDayOfNextMonth.AddDate(0, 0, day-1)
+
+		for backupTime.Day() != day {
+			nextMonth = backupTime.AddDate(0, 1, 0)
+			firstDayOfNextMonth = time.Date(nextMonth.Year(), nextMonth.Month(), 1, 0, 0, 0, 0, n.Location())
+			backupTime = firstDayOfNextMonth.AddDate(0, 0, day-1)
+		}
+	}
+
+	return backupTime
+}
+
+func getNextBackupTimeByWeekly(hours, minutes int, weekly int) time.Time {
+	weekly = weekly - 1
+	var n = time.Now()
+	firstDayOfWeek := util.GetFirstDayOfWeek(n)
+
+	backupDay := firstDayOfWeek.AddDate(0, 0, weekly)
+
+	backupTime := time.Date(backupDay.Year(), backupDay.Month(), backupDay.Day(),
+		hours, minutes, 0, 0, n.Location())
+
+	if backupTime.Before(n) {
+		backupTime = backupTime.AddDate(0, 0, 7)
+	}
+
+	return backupTime
+}
+
+func getNextBackupTimeByHourly(minutes int) time.Time {
+	now := time.Now()
+
+	currentMinute := now.Minute()
+	nextMinute := currentMinute
+
+	remainder := currentMinute % minutes
+	if remainder == 0 && now.Second() == 0 && now.Nanosecond() == 0 {
+		nextMinute = currentMinute + minutes
+	} else {
+		nextMinute = currentMinute + (minutes - remainder)
+	}
+
+	minutesToAdd := nextMinute - currentMinute
+
+	nextTime := now.Add(time.Duration(minutesToAdd) * time.Minute).
+		Truncate(time.Minute)
+
+	return nextTime
 }
 
 func ParseSnapshotName(startAt int64) string {
@@ -633,4 +728,37 @@ func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T
 	}
 
 	return resultList.Addr().Interface().(T)
+}
+
+func GetUserspacePvc(owner string) (string, error) {
+	f, err := client.NewFactory()
+	if err != nil {
+		return "", errors.WithStack(err)
+	}
+
+	c, err := f.KubeClient()
+	if err != nil {
+		return "", errors.WithStack(err)
+	}
+
+	res, err := c.AppsV1().StatefulSets("user-space-"+owner).Get(context.TODO(), "bfl", metav1.GetOptions{})
+	if err != nil {
+		return "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owern: %s", owner))
+	}
+
+	userspacePvc, ok := res.Annotations["userspace_pvc"]
+	if !ok {
+		return "", fmt.Errorf("bfl userspace_pvc not found, owner: %s", owner)
+	}
+
+	var p = path.Join("/", "rootfs", "userspace", userspacePvc)
+
+	return p, nil
+}
+
+func TrimPathPrefix(p string) string {
+	if strings.HasPrefix(p, "/Files") {
+		return strings.TrimPrefix(p, "/Files")
+	}
+	return p
 }

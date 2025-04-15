@@ -5,7 +5,7 @@ go 1.23.0
 toolchain go1.23.7
 
 replace (
-	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.5
+	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.6
 	k8s.io/api => k8s.io/api v0.25.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.25.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.25.6
