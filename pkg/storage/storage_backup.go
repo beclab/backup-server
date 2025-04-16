@@ -80,7 +80,7 @@ func (s *StorageBackup) RunBackup() error {
 		// 	log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
 		// }
 		log.Errorf("Backup %s,%s, prepare for run error: %v", backupName, snapshotId, err)
-		if e := s.updateBackupResult(nil, nil, err); e != nil {
+		if e := s.updateBackupResult(nil, nil, 0, err); e != nil {
 			return errors.WithStack(e)
 		}
 
@@ -88,7 +88,7 @@ func (s *StorageBackup) RunBackup() error {
 	}
 
 	log.Infof("Backup %s,%s, locationConfig: %s", backupName, snapshotId, util.ToJSON(s.Params.Location))
-	backupResult, backupStorageObj, backupErr := s.execute()
+	backupResult, backupStorageObj, backupTotalSize, backupErr := s.execute()
 	if backupErr != nil {
 		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
 	} else {
@@ -100,7 +100,7 @@ func (s *StorageBackup) RunBackup() error {
 	// } else {
 	// 	log.Infof("Backup %s,%s notify backup result success", backupName, snapshotId)
 	// }
-	if err := s.updateBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
+	if err := s.updateBackupResult(backupResult, backupStorageObj, backupTotalSize, backupErr); err != nil {
 		return errors.WithStack(err)
 	}
 
@@ -211,7 +211,7 @@ func (s *StorageBackup) progressCallback(percentDone float64) {
 }
 
 func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
-	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) {
+	backupStorageObj *backupssdkmodel.StorageInfo, backupTotalSize uint64, backupError error) {
 	var isSpaceBackup bool
 	var logger = log.GetLogger()
 	var backupId = s.Backup.Name
@@ -227,7 +227,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	switch location {
 	case constant.BackupLocationSpace.String():
 		isSpaceBackup = true
-		backupOutput, backupStorageObj, backupError = s.backupToSpace()
+		backupOutput, backupStorageObj, backupTotalSize, backupError = s.backupToSpace()
 	case constant.BackupLocationAwsS3.String():
 		token, err := s.getIntegrationCloud()
 		if err != nil {
@@ -290,7 +290,8 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			if err != nil {
 				log.Errorf("Backup %s,%s, get stats error: %v", backupName, snapshotId, err)
 			} else {
-				backupOutput.TotalSize = stats.TotalSize
+				log.Infof("Backup %s,%s, get stats: %s", backupName, snapshotId, util.ToJSON(stats))
+				backupTotalSize = stats.TotalSize
 			}
 		}
 	}
@@ -298,7 +299,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	return
 }
 
-func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryOutput, backupStorageObj *backupssdkmodel.StorageInfo, err error) {
+func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryOutput, backupStorageObj *backupssdkmodel.StorageInfo, totalSize uint64, err error) {
 	var backupId = s.Backup.Name
 	var location = s.Params.Location
 	var olaresId = location["name"]
@@ -355,7 +356,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 			log.Errorf("Backup %s,%s, get stats error: %v", s.Backup.Spec.Name, s.SnapshotId, err)
 		} else {
-			backupOutput.TotalSize = stats.TotalSize
+			totalSize = stats.TotalSize
 		}
 	}
 
@@ -431,7 +432,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 
 // TODO review
 func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.SummaryOutput,
-	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) error {
+	backupStorageObj *backupssdkmodel.StorageInfo, backupTotalSize uint64, backupError error) error {
 
 	backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, s.Backup.Name)
 	if err != nil {
@@ -480,7 +481,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	}
 
 	if backupOutput != nil {
-		if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupOutput.TotalSize); err != nil {
+		if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize); err != nil {
 			log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
 		}
 	}

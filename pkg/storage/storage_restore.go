@@ -129,15 +129,27 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
 		password, err = handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
 		if err != nil {
-			return fmt.Errorf("Restore %s get password error %v", s.RestoreId, err)
+			return fmt.Errorf("Restore %s get password error: %v", s.RestoreId, err)
+		}
+
+		userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
+		if err != nil {
+			return fmt.Errorf("Restore %s, get userspace pvc error: %v", s.RestoreId, err)
 		}
 
 		locationConfig, err = handlers.GetBackupLocationConfig(s.Backup)
 		if err != nil {
-			return fmt.Errorf("Restore %s get location config error %v", s.RestoreId, err)
+			return fmt.Errorf("Restore %s get location config error: %v", s.RestoreId, err)
 		}
 		if locationConfig == nil {
 			return fmt.Errorf("Restore %s location config not found", s.RestoreId)
+		}
+
+		location := locationConfig["location"]
+		if location == constant.BackupLocationFileSystem.String() {
+			locPath := locationConfig["path"]
+			locPath = handlers.TrimPathPrefix(locPath)
+			locationConfig["path"] = path.Join(userspacePath, locPath)
 		}
 	} else {
 		// backupUrl
@@ -206,9 +218,9 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	var isSpaceRestore bool
 	var logger = log.GetLogger()
 	var resticSnapshotId = s.RestoreType.ResticSnapshotId
-	var location = s.Params.Location["location"] // todo review
+	var location = s.Params.Location["location"]
 
-	log.Infof("Restore %s prepare: %s", s.RestoreId, s.RestoreType.Type)
+	log.Infof("Restore %s prepare: %s, resticSnapshotId: %s", s.RestoreId, s.RestoreType.Type, resticSnapshotId)
 
 	var restoreService *backupssdkstorage.RestoreService
 
@@ -225,6 +237,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
 			Operator: constant.StorageOperatorApp,
+			Ctx:      s.Ctx,
 			Logger:   logger,
 			Aws: &backupssdkoptions.AwsRestoreOption{
 				RepoName:        s.Backup.Name,
@@ -244,6 +257,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
 			Operator: constant.StorageOperatorApp,
+			Ctx:      s.Ctx,
 			Logger:   logger,
 			TencentCloud: &backupssdkoptions.TencentCloudRestoreOption{
 				RepoName:        s.Backup.Name,
@@ -258,11 +272,12 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 		restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
 			Password: s.Params.Password,
 			Operator: constant.StorageOperatorApp,
+			Ctx:      s.Ctx,
 			Logger:   logger,
 			Filesystem: &backupssdkoptions.FilesystemRestoreOption{
 				RepoName:   s.Backup.Name,
 				SnapshotId: resticSnapshotId,
-				Endpoint:   s.Params.Path, // TODO
+				Endpoint:   s.Params.Location["path"],
 				Path:       s.Params.Path,
 			},
 		})
@@ -293,7 +308,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 	for {
 		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, owner, location["name"])
 		if err != nil {
-			err = fmt.Errorf("get space token error %v", err)
+			err = fmt.Errorf("get space token error: %v", err)
 			break
 		}
 
@@ -329,12 +344,12 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 			if strings.Contains(err.Error(), "refresh-token error") {
 				spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, owner, location["name"])
 				if err != nil {
-					err = fmt.Errorf("get space token error %v", err)
+					err = fmt.Errorf("get space token error: %v", err)
 					break
 				}
 				continue
 			} else {
-				err = fmt.Errorf("space backup error %v", err)
+				err = fmt.Errorf("space backup error: %v", err)
 				break
 			}
 		}

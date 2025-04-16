@@ -93,9 +93,14 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case constant.Pending.String():
 		isNewlyCreated := snapshot.CreationTimestamp.After(r.controllerStartTime.Time)
 		if isNewlyCreated {
-			if err := r.addToWorkerManager(backup, snapshot); err != nil {
+			err := r.addToWorkerManager(backup, snapshot)
+			if err != nil {
 				log.Errorf("add snapshot to worker error: %v, id: %s", err, snapshot.Name)
-				return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+				if err.Error() == "queue is full" {
+					r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Rejected.String())
+				} else {
+					return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+				}
 			}
 		} else {
 			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String())
@@ -105,7 +110,7 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if !isNewlyCreated {
 			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String())
 		}
-	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
+	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String(), constant.Rejected.String():
 		if phase == constant.Canceled.String() {
 			worker.GetWorkerPool().CancelSnapshot(backup.Spec.Owner, snapshot.Name)
 		}
@@ -244,7 +249,7 @@ func (r *SnapshotReconciler) addToWorkerManager(backup *sysapiv1.Backup, snapsho
 	}
 
 	if err := worker.GetWorkerPool().AddBackupTask(backup.Spec.Owner, backup.Name, snapshot.Name); err != nil {
-		// TODO rejected
+		return fmt.Errorf("queue is full")
 	}
 
 	return nil

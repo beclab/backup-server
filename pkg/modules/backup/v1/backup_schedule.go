@@ -63,7 +63,7 @@ func (o *BackupPlan) Update(ctx context.Context, c *BackupCreate, backup *sysv1.
 		return errors.WithStack(err)
 	}
 
-	if err = o.apply(ctx); err != nil { // update backup plan
+	if err = o.update(ctx, backup); err != nil { // update backup plan
 
 	}
 	return nil
@@ -121,6 +121,12 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 	return bc
 }
 
+func (o *BackupPlan) update(ctx context.Context, backup *sysv1.Backup) error {
+	backup.Spec.BackupPolicy = o.c.BackupPolicies
+
+	return o.handler.GetBackupHandler().UpdateBackupPolicy(ctx, backup)
+}
+
 func (o *BackupPlan) apply(ctx context.Context) error {
 	var (
 		backupSpec *sysv1.BackupSpec
@@ -128,7 +134,7 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 
 	clusterId, err := o.getClusterId(ctx)
 	if err != nil {
-		return errors.WithStack(fmt.Errorf("get cluster id error %v", err))
+		return errors.WithStack(fmt.Errorf("get cluster id error: %v", err))
 	}
 
 	backupSpec = o.mergeConfig(clusterId)
@@ -235,6 +241,9 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 func (o *BackupPlan) validBackupPolicy() error {
 	log.Infof("backup %s location %s", o.c.Name, util.ToJSON(o.c.BackupPolicies))
 
+	var timespanOfDay = o.c.BackupPolicies.TimesOfDay
+	o.c.BackupPolicies.TimespanOfDay = timespanOfDay
+	o.c.BackupPolicies.Enabled = true
 	policy := o.c.BackupPolicies
 
 	if ok := util.ListContains([]string{

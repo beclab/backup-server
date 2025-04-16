@@ -85,7 +85,7 @@ func (o *FilesystemRestoreOptions) GetLocation() string {
 }
 
 func (o *FilesystemRestoreOptions) GetLocationConfigName() string {
-	return "filesystem" // todo
+	return "filesystem"
 }
 
 func (o *FilesystemRestoreOptions) String() string {

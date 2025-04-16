@@ -7,17 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	pond "github.com/alitto/pond/v2"
-)
-
-const (
-	maxConcurrency   = 1
-	backupQueueSize  = 5
-	restoreQueueSize = 5
-	nonBlocking      = true
 )
 
 var workerPool *WorkerPool
@@ -89,7 +83,7 @@ type RestoreTask struct {
 }
 
 func newPool(queueSize int) pond.Pool {
-	return pond.NewPool(maxConcurrency, pond.WithContext(context.Background()), pond.WithQueueSize(queueSize), pond.WithNonBlocking(nonBlocking))
+	return pond.NewPool(constant.MaxConcurrency, pond.WithContext(context.Background()), pond.WithQueueSize(queueSize), pond.WithNonBlocking(constant.NonBlocking))
 }
 
 func GetWorkerPool() *WorkerPool {
@@ -116,12 +110,12 @@ func (w *WorkerPool) GetOrCreateUserPool(owner string) *UserPool {
 		owner: owner,
 		backupPool: &TaskPool{
 			taskType: BackupTaskType,
-			pool:     newPool(backupQueueSize),
+			pool:     newPool(constant.BackupQueueSize),
 			owner:    owner,
 		},
 		restorePool: &TaskPool{
 			taskType: RestoreTaskType,
-			pool:     newPool(restoreQueueSize),
+			pool:     newPool(constant.RestoreQueueSize),
 			owner:    owner,
 		},
 	}

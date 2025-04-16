@@ -27,6 +27,7 @@ type BackupPolicy struct {
 	Enabled           bool   `json:"enabled"`
 	SnapshotFrequency string `json:"snapshotFrequency"`
 	TimesOfDay        string `json:"timesOfDay"`
+	TimespanOfDay     string `json:"timespanOfDay"`
 	DayOfWeek         int    `json:"dayOfWeek"`
 	DateOfMonth       int    `json:"dateOfMonth"`
 }

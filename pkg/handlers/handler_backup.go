@@ -60,6 +60,10 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 	return o.delete(ctx, backup)
 }
 
+func (o *BackupHandler) UpdateBackupPolicy(ctx context.Context, backup *sysv1.Backup) error {
+	return o.update(ctx, backup)
+}
+
 func (o *BackupHandler) Delete(ctx context.Context, backup *sysv1.Backup) error {
 	backup.Spec.Deleted = true
 	return o.update(ctx, backup)

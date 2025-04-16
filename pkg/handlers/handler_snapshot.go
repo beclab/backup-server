@@ -113,10 +113,20 @@ func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, ph
 	}
 
 	var now = pointer.Time()
+
 	snapshot.Spec.Phase = pointer.String(phase)
-	if phase == constant.Running.String() {
+
+	// TODO
+	switch phase {
+	case constant.Running.String():
 		snapshot.Spec.StartAt = now
-	} else {
+	case constant.Canceled.String():
+		snapshot.Spec.Message = pointer.String("Backup canceled")
+		fallthrough
+	case constant.Rejected.String():
+		snapshot.Spec.Message = pointer.String(fmt.Sprintf("Backup queue has reached capacity, maximum queue size is %d tasks", constant.BackupQueueSize))
+		fallthrough
+	default:
 		snapshot.Spec.EndAt = now
 	}
 
@@ -342,7 +352,7 @@ RETRY:
 func (o *SnapshotHandler) GetOlaresId(owner string) (string, error) {
 	dynamicClient, err := o.factory.DynamicClient()
 	if err != nil {
-		return "", errors.WithStack(fmt.Errorf("get dynamic client error %v", err))
+		return "", errors.WithStack(fmt.Errorf("get dynamic client error: %v", err))
 	}
 
 	var backoff = wait.Backoff{
@@ -361,12 +371,12 @@ func (o *SnapshotHandler) GetOlaresId(owner string) (string, error) {
 
 		unstructuredUser, err := dynamicClient.Resource(constant.UsersGVR).Get(ctx, owner, metav1.GetOptions{})
 		if err != nil {
-			return errors.WithStack(fmt.Errorf("get user error %v", err))
+			return errors.WithStack(fmt.Errorf("get user error: %v", err))
 		}
 		obj := unstructuredUser.UnstructuredContent()
 		olaresName, _, err = unstructured.NestedString(obj, "spec", "email")
 		if err != nil {
-			return errors.WithStack(fmt.Errorf("get user nested string error %v", err))
+			return errors.WithStack(fmt.Errorf("get user nested string error: %v", err))
 		}
 		return nil
 	}); err != nil {

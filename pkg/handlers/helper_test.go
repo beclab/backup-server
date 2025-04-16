@@ -10,10 +10,8 @@ import (
 
 func TestWeekly(t *testing.T) {
 	var bp = sysv1.BackupPolicy{
-		SnapshotFrequency: "@monthly",
-		TimesOfDay:        "12:21",
-		DayOfWeek:         5,
-		DateOfMonth:       03,
+		SnapshotFrequency: "@daily",
+		TimesOfDay:        "14:06",
 	}
 
 	var res = GetNextBackupTime(bp)
