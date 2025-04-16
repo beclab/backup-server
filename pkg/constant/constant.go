@@ -121,3 +121,10 @@ const (
 	Canceled  Phase = "Canceled"
 	Rejected  Phase = "Rejected"
 )
+
+const (
+	MaxConcurrency   = 1
+	BackupQueueSize  = 5
+	RestoreQueueSize = 5
+	NonBlocking      = true
+)

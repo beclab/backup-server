@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -54,7 +55,7 @@ type CreateSnapshot struct {
 
 type RestoreCreate struct {
 	BackupUrl  string `json:"backupUrl"`
-	Password   string `json:"password"`
+	Password   string `json:"-"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
 }
@@ -122,7 +123,7 @@ type ResponseSnapshotDetail struct {
 }
 
 type ResponseRestoreDetail struct {
-	BackupName   string `json:"backupName"`
+	BackupName   string `json:"name"`
 	BackupPath   string `json:"backupPath"`
 	SnapshotName string `json:"snapshotName"`
 	RestorePath  string `json:"restorePath"`
@@ -133,7 +134,7 @@ type ResponseRestoreDetail struct {
 
 type ResponseRestoreList struct {
 	Id         string  `json:"id"`
-	BackupName string  `json:"backupName"`
+	BackupName string  `json:"name"`
 	Path       string  `json:"path"`
 	CreateAt   int64   `json:"createAt"`
 	EndAt      int64   `json:"endAt"`
@@ -375,15 +376,25 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 }
 
 func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) *ResponseRestoreDetail {
-	return &ResponseRestoreDetail{
-		BackupName:   backup.Spec.Name,
-		BackupPath:   handlers.GetBackupPath(backup),
-		SnapshotName: handlers.ParseSnapshotName(snapshot.Spec.StartAt.UnixMilli()),
-		RestorePath:  handlers.GetRestorePath(restore),
-		Progress:     restore.Spec.Progress,
-		Status:       *restore.Spec.Phase,
-		Message:      *restore.Spec.Message,
+	var res = &ResponseRestoreDetail{
+		RestorePath: handlers.GetRestorePath(restore),
+		Progress:    restore.Spec.Progress,
+		Status:      *restore.Spec.Phase,
 	}
+
+	// TODO backupURL
+	if backup != nil {
+		res.BackupName = backup.Spec.Name
+		res.BackupPath = handlers.GetBackupPath(backup)
+	}
+	if snapshot != nil {
+		res.SnapshotName = fmt.Sprintf("%d", snapshot.Spec.StartAt.Unix())
+	}
+
+	if restore.Spec.Message != nil {
+		res.Message = *restore.Spec.Message
+	}
+	return res
 }
 
 func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {

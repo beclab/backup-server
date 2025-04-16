@@ -183,7 +183,7 @@ func (r *BackupReconciler) isSizeUpdated(oldBackupSpec, newBackupSpec *sysv1.Bac
 	oldSizeUpdated, ok1 := oldExtra["size_updated"]
 	newSizeUpdated, ok2 := newExtra["size_updated"]
 
-	if ok1 || ok2 {
+	if !ok1 || !ok2 {
 		return false, fmt.Errorf("backup size_updated invalid, old: %v, new: %v", ok1, ok2)
 	}
 

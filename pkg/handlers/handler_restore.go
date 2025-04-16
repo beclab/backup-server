@@ -229,6 +229,15 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 		}
 
 		r.Spec.Phase = pointer.String(phase.String())
+
+		// TODO
+		switch phase {
+		case constant.Canceled:
+			r.Spec.Message = pointer.String("Restore canceled")
+		case constant.Rejected:
+			r.Spec.Message = pointer.String(fmt.Sprintf("Restore queue has reached capacity, maximum queue size is %d tasks", constant.RestoreQueueSize))
+		}
+
 		_, err = c.SysV1().Restores(constant.DefaultOsSystemNamespace).
 			Update(ctx, r, metav1.UpdateOptions{})
 		if err != nil && apierrors.IsConflict(err) {

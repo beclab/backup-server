@@ -338,7 +338,6 @@ func ParseBackupTypePath(backupType map[string]string) string {
 
 func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
 	var res int64
-	var n = time.Now().Local()
 
 	timeParts := strings.Split(bp.TimesOfDay, ":")
 	if len(timeParts) != 2 {
@@ -350,9 +349,6 @@ func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
 	if errHour != nil || errMin != nil {
 		return nil
 	}
-	secondsFromMidnight := int64(hours*3600 + minutes*60)
-
-	var incr = util.ParseToNextUnixTime(bp.SnapshotFrequency, bp.TimesOfDay, bp.DayOfWeek, bp.DateOfMonth)
 
 	switch bp.SnapshotFrequency {
 	case "@hourly":
@@ -362,10 +358,21 @@ func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
 	case "@monthly":
 		res = getNextBackupTimeByMonthly(hours, minutes, bp.DateOfMonth).Unix()
 	default:
-		var midnight = time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
-		res = midnight.Unix() + incr + secondsFromMidnight // prefix
+		res = getNextBackupTimeByDaily(hours, minutes).Unix()
 	}
 	return &res
+}
+
+func getNextBackupTimeByDaily(hours, minutes int) time.Time {
+	var n = time.Now()
+
+	today := time.Date(n.Year(), n.Month(), n.Day(), hours, minutes, 0, 0, n.Location())
+
+	if today.Before(n) {
+		return today.AddDate(0, 0, 1)
+	}
+
+	return today
 }
 
 func getNextBackupTimeByMonthly(hours, minutes int, day int) time.Time {
@@ -445,11 +452,11 @@ func ParseRestoreType(restore *sysv1.Restore) (*RestoreType, error) {
 	var data = restore.Spec.RestoreType
 	v, ok := data[constant.BackupTypeFile]
 	if !ok {
-		return nil, fmt.Errorf("restore file type data not found")
+		return nil, errors.WithStack(fmt.Errorf("restore file type data not found"))
 	}
 
 	if err := json.Unmarshal([]byte(v), &m); err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	return m, nil
 }
@@ -483,6 +490,9 @@ func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
  *       prefix: did:key:xxx-yyy
  * cli   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?backupName={backupname}&snapshotId={resticSnapshotId}
  *       prefix: from user's s3|cos endpoint
+ *
+ * app       fs: /rootfs/userspace/pvc-userspace-zhaoyu001-sehp80bzd9xzttwl/Home/Download?backupName={backupName}&snapshotId={resticSnapshotId}
+ * cli       fs: ^^^
  */
 func ParseRestoreBackupUrlDetail(u string) (*RestoreBackupUrlDetail, string, string, string, error) {
 	// backupUrlObj, backupName,resticSnapshotId, location, err
@@ -674,7 +684,7 @@ func splitSpaceTencentCloud(u string) (*RestoreBackupUrlDetail, error) {
 }
 
 func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T {
-	if limit < 0 {
+	if limit <= 0 {
 		limit = 5
 	}
 	if offset < 0 {
@@ -692,7 +702,6 @@ func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T
 	}
 
 	total := int64(itemsField.Len())
-
 	resultList := reflect.New(reflect.TypeOf(resourceList).Elem()).Elem()
 
 	if typeMetaField := resultList.FieldByName("TypeMeta"); typeMetaField.IsValid() {
