@@ -1,13 +1,15 @@
 package v1
 
 import (
-	"fmt"
+	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"k8s.io/klog/v2"
 )
 
@@ -55,7 +57,7 @@ type CreateSnapshot struct {
 
 type RestoreCreate struct {
 	BackupUrl  string `json:"backupUrl"`
-	Password   string `json:"-"`
+	Password   string `json:"password"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
 }
@@ -125,7 +127,7 @@ type ResponseSnapshotDetail struct {
 type ResponseRestoreDetail struct {
 	BackupName   string `json:"name"`
 	BackupPath   string `json:"backupPath"`
-	SnapshotName string `json:"snapshotName"`
+	SnapshotTime int64  `json:"snapshotTime"`
 	RestorePath  string `json:"restorePath"`
 	Progress     int    `json:"progress,omitempty"`
 	Status       string `json:"status"`
@@ -136,7 +138,7 @@ type ResponseRestoreList struct {
 	Id         string  `json:"id"`
 	BackupName string  `json:"name"`
 	Path       string  `json:"path"`
-	CreateAt   int64   `json:"createAt"`
+	CreateAt   int64   `json:"createAt"` // snapshotTime
 	EndAt      int64   `json:"endAt"`
 	Status     string  `json:"status"`
 	Progress   float64 `json:"progress,omitempty"`
@@ -375,20 +377,62 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 	}
 }
 
-func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) *ResponseRestoreDetail {
-	var res = &ResponseRestoreDetail{
-		RestorePath: handlers.GetRestorePath(restore),
-		Progress:    restore.Spec.Progress,
-		Status:      *restore.Spec.Phase,
+func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseRestoreDetail, error) {
+	var result = &ResponseRestoreDetail{}
+
+	var restoreType = restore.Spec.RestoreType[constant.BackupTypeFile]
+
+	var typeMap map[string]interface{}
+	if err := json.Unmarshal([]byte(restoreType), &typeMap); err != nil {
+		return result, err
 	}
 
-	// TODO backupURL
-	if backup != nil {
-		res.BackupName = backup.Spec.Name
-		res.BackupPath = handlers.GetBackupPath(backup)
+	var backupName, backupPath, snapshotTime, restorePath string
+
+	_, ok := typeMap["backupName"]
+	if ok {
+		backupName = typeMap["backupName"].(string)
 	}
-	if snapshot != nil {
-		res.SnapshotName = fmt.Sprintf("%d", snapshot.Spec.StartAt.Unix())
+
+	_, ok = typeMap["backupPath"]
+	if ok {
+		backupPath = typeMap["backupPath"].(string)
+	}
+
+	_, ok = typeMap["snapshotTime"]
+	if ok {
+		snapshotTime = typeMap["snapshotTime"].(string)
+	}
+
+	_, ok = typeMap["path"]
+	if ok {
+		restorePath = typeMap["path"].(string)
+	}
+
+	result = &ResponseRestoreDetail{
+		BackupName:   backupName,
+		BackupPath:   backupPath,
+		SnapshotTime: util.ParseToInt64(snapshotTime),
+		RestorePath:  restorePath,
+		Progress:     restore.Spec.Progress,
+		Status:       *restore.Spec.Phase,
+	}
+
+	if restore.Spec.Message != nil {
+		result.Message = *restore.Spec.Message
+	}
+
+	return result, nil
+}
+
+func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, restore *sysv1.Restore) *ResponseRestoreDetail {
+	var res = &ResponseRestoreDetail{
+		BackupName:   backup.Spec.Name,
+		BackupPath:   handlers.GetBackupPath(backup),
+		SnapshotTime: snapshot.Spec.StartAt.Unix(),
+		RestorePath:  handlers.GetRestorePath(restore),
+		Progress:     restore.Spec.Progress,
+		Status:       *restore.Spec.Phase,
 	}
 
 	if restore.Spec.Message != nil {
@@ -411,18 +455,23 @@ func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
 		if err != nil {
 			continue
 		}
+
+		snapshotTime := time.Unix(util.ParseToInt64(d.SnapshotTime), 0)
 		var r = &ResponseRestoreList{
 			Id:         restore.Name,
 			BackupName: d.BackupName,
 			Path:       d.Path,
-			CreateAt:   restore.Spec.CreateAt.UnixMilli(),
-			EndAt:      restore.Spec.EndAt.UnixMilli(),
+			CreateAt:   snapshotTime.Unix(),
 			Status:     *restore.Spec.Phase,
 		}
+
+		if restore.Spec.EndAt != nil {
+			r.EndAt = restore.Spec.EndAt.Unix()
+		}
+
 		result = append(result, r)
 	}
 
-	// res["offset"] = data.Continue
 	res["restores"] = result
 
 	return res

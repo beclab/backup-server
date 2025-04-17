@@ -20,7 +20,7 @@ type StorageRegion struct {
 }
 
 func (s *StorageRegion) GetRegions(ctx context.Context, owner, olaresId string) ([]map[string]string, error) {
-	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, owner, olaresId)
+	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, owner, olaresId) // only for Space
 	if err != nil {
 		err = fmt.Errorf("get space token error: %v", err)
 		return nil, err

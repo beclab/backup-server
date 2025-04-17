@@ -33,22 +33,13 @@ func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 	}
 }
 
-func (o *BackupHandler) GetDefaultSpaceToken(ctx context.Context, backup *sysv1.Backup) (*integration.SpaceToken, error) {
-	integrationName := GetBackupIntegrationName(constant.BackupLocationSpace.String(), backup.Spec.Location)
-	if integrationName == "" {
-		return nil, fmt.Errorf("space integrationName not exists, config: %s", util.ToJSON(backup.Spec.Location))
-	}
-
-	return integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, integrationName)
-}
-
 func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) error {
 	if err := o.handlers.GetSnapshotHandler().DeleteSnapshots(ctx, backup.Name); err != nil {
 		log.Errorf("delete backup %s snapshots error: %v", backup.Name, err)
 		return err
 	}
 
-	spaceToken, err := o.GetDefaultSpaceToken(ctx, backup)
+	spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
 	if err != nil {
 		return err
 	}
