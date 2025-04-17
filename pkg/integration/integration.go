@@ -15,6 +15,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var IntegrationService *Integration
@@ -60,12 +61,20 @@ func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, owner string
 	return token, nil
 }
 
+func (i *Integration) GetDefaultCloudToken(ctx context.Context, owner string) (*SpaceToken, error) {
+	accountName, err := i.GetIntegrationNameByLocation(ctx, owner, constant.BackupLocationSpace.String())
+	if err != nil {
+		return nil, err
+	}
+
+	return i.GetIntegrationSpaceToken(ctx, owner, accountName)
+}
+
 func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, location, integrationName string) (*IntegrationToken, error) {
 	data, err := i.query(ctx, owner, location, integrationName)
 	if err != nil {
 		return nil, err
 	}
-
 	return i.withCloudToken(data), nil
 }
 
@@ -225,6 +234,27 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	return accountResp.Data, nil
 }
 
+func (i *Integration) getOlaresId(ctx context.Context, owner string) (string, error) {
+	dynamicClient, err := i.Factory.DynamicClient()
+	if err != nil {
+		return "", errors.WithStack(fmt.Errorf("get dynamic client error: %v", err))
+	}
+
+	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	unstructuredUser, err := dynamicClient.Resource(constant.UsersGVR).Get(getCtx, owner, metav1.GetOptions{})
+	if err != nil {
+		return "", errors.WithStack(fmt.Errorf("get user error: %v", err))
+	}
+	obj := unstructuredUser.UnstructuredContent()
+	olaresId, _, err := unstructured.NestedString(obj, "spec", "email")
+	if err != nil {
+		return "", errors.WithStack(fmt.Errorf("get user nested string error: %v", err))
+	}
+	return olaresId, nil
+}
+
 func (i *Integration) getSettingsIP(ctx context.Context, onwer string) (ip string, err error) {
 	kubeClient, err := i.Factory.KubeClient()
 	if err != nil {
@@ -287,7 +317,7 @@ func (i *Integration) formatUrl(location, name string) string {
 	case "aws":
 		l = "awss3"
 	case "tencentcloud":
-		l = "tencentcloud" // todo test
+		l = "tencent"
 	}
 	return fmt.Sprintf("integration-account:%s:%s", l, name)
 }

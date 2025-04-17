@@ -11,6 +11,7 @@ import (
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -263,7 +264,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	olaresSpaceToken, err := r.handler.GetBackupHandler().GetDefaultSpaceToken(ctx, backup)
+	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
 	if err != nil {
 		return err
 	}
@@ -287,7 +288,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 }
 
 func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v1.Backup, snapshot *v1.Snapshot) error {
-	spaceToken, err := r.handler.GetBackupHandler().GetDefaultSpaceToken(ctx, backup)
+	spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
 	if err != nil {
 		return fmt.Errorf("get space token error: %v", err)
 	}

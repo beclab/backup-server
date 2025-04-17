@@ -10,6 +10,7 @@ import (
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
@@ -78,7 +79,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	log.Infof("received backup request, id: %s, name: %s, owner: %s, deleted: %v, enabled: %v", req.Name, backup.Spec.Name, backup.Spec.Owner, backup.Spec.Deleted, backup.Spec.BackupPolicy.Enabled)
 
 	if r.isDeleted(backup) {
-		log.Infof("received backup request, id: %s, event: deleted", req.Name)
+		log.Infof("received backup delete request, id: %s, event: deleted", req.Name)
 		worker.GetWorkerPool().CancelBackup(backup.Spec.Owner, backup.Name)
 
 		if err := r.deleteBackup(backup); err != nil {
@@ -211,7 +212,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	olaresSpaceToken, err := r.handler.GetBackupHandler().GetDefaultSpaceToken(ctx, backup)
+	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -229,7 +228,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 		isSpaceBackup = true
 		backupOutput, backupStorageObj, backupTotalSize, backupError = s.backupToSpace()
 	case constant.BackupLocationAwsS3.String():
-		token, err := s.getIntegrationCloud()
+		token, err := s.getIntegrationCloud() // aws backup
 		if err != nil {
 			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
@@ -249,7 +248,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Aws:      options.(*backupssdkoptions.AwsBackupOption),
 		})
 	case constant.BackupLocationTencentCloud.String():
-		token, err := s.getIntegrationCloud()
+		token, err := s.getIntegrationCloud() // cos backup
 		if err != nil {
 			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
 			return
@@ -309,7 +308,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 	for {
 		// TODO loop forever?
-		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
+		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId) // backupToSpace
 		if err != nil {
 			err = fmt.Errorf("get space token error: %v", err)
 			break
@@ -373,7 +372,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 	case *backupssdkoptions.SpaceBackupOption:
 		var location = s.Params.Location
 		var olaresId = location["name"]
-		spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId)
+		spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId) // space  getStats
 		if err != nil {
 			err = fmt.Errorf("get space token error: %v", err)
 			break
@@ -393,7 +392,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 			CloudApiMirror: constant.DefaultSyncServerURL,
 		}
 	case *backupssdkoptions.AwsBackupOption:
-		token, err := s.getIntegrationCloud()
+		token, err := s.getIntegrationCloud() // aws getstats
 		if err != nil {
 			err = fmt.Errorf("get %s token error: %v", token.Type, err)
 			break
@@ -406,7 +405,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 			SecretAccessKey: token.SecretKey,
 		}
 	case *backupssdkoptions.TencentCloudBackupOption:
-		token, err := s.getIntegrationCloud()
+		token, err := s.getIntegrationCloud() // cos getstats
 		if err != nil {
 			err = fmt.Errorf("get %s token error: %v", token.Type, err)
 			break
@@ -487,55 +486,6 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	}
 
 	return s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
-}
-
-func (s *StorageBackup) notifyBackupResult(backupOutput *backupssdkrestic.SummaryOutput,
-	backupStorageObj *backupssdkmodel.StorageInfo, backupError error) error {
-	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, s.Params.Location["name"])
-	if err != nil {
-		return fmt.Errorf("get space token error: %v", err)
-	}
-
-	var status constant.Phase = constant.Completed
-
-	var snapshotRecord = &notify.Snapshot{
-		UserId:       spaceToken.OlaresDid,
-		BackupId:     s.Backup.Name,
-		SnapshotId:   s.Snapshot.Name,
-		Unit:         constant.DefaultSnapshotSizeUnit,
-		SnapshotTime: s.Snapshot.Spec.StartAt.UnixMilli(),
-		Type:         handlers.ParseSnapshotTypeText(s.SnapshotType),
-	}
-
-	if backupStorageObj != nil {
-		snapshotRecord.Url = backupStorageObj.Url
-		snapshotRecord.CloudName = backupStorageObj.CloudName
-		snapshotRecord.RegionId = backupStorageObj.RegionId
-		snapshotRecord.Bucket = backupStorageObj.Bucket
-		snapshotRecord.Prefix = backupStorageObj.Prefix
-	}
-
-	if backupError != nil {
-		if strings.Contains(backupError.Error(), strings.ToLower(constant.Canceled.String())) {
-			status = constant.Canceled
-		} else {
-			status = constant.Failed
-		}
-		snapshotRecord.Status = status.String()
-		snapshotRecord.Message = backupError.Error()
-	} else {
-		snapshotRecord.ResticSnapshotId = backupOutput.SnapshotID
-		snapshotRecord.Size = backupOutput.TotalBytesProcessed
-		snapshotRecord.Status = status.String()
-		snapshotRecord.Message = util.ToJSON(backupOutput)
-	}
-
-	log.Infof("notify backup result: %s", util.ToJSON(snapshotRecord))
-	if err := notify.NotifySnapshot(s.Ctx, constant.DefaultSyncServerURL, snapshotRecord); err != nil { // finished
-		return err
-	}
-
-	return nil
 }
 
 func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, error) {

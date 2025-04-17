@@ -460,6 +460,7 @@ func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	result := handlers.GenericPager(limit, offset, restores)
+	log.Debugf("list restore result length: %d", len(result.Items))
 
 	response.Success(resp, parseResponseRestoreList(result))
 }
@@ -488,7 +489,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	var restoreTypeName = constant.RestoreTypeUrl
-	var backupName, snapshotId, resticSnapshotId, location string
+	var backupName, snapshotId, resticSnapshotId, snapshotTime, backupPath, location string
 	var backupUrlObj *handlers.RestoreBackupUrlDetail
 
 	if b.SnapshotId != "" {
@@ -511,12 +512,12 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 			return
 		}
 
-		LocationConfig, err := handlers.GetBackupLocationConfig(backup)
+		locationConfig, err := handlers.GetBackupLocationConfig(backup)
 		if err != nil {
 			response.HandleError(resp, errors.WithMessage(err, fmt.Sprintf("get backup location config %s error", snapshot.Spec.BackupId)))
 			return
 		}
-		location = LocationConfig["location"]
+		location = locationConfig["location"]
 
 		if apierrors.IsNotFound(err) {
 			response.HandleError(resp, fmt.Errorf("backup %s not found", snapshot.Spec.BackupId))
@@ -525,10 +526,13 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		}
 
 		backupName = backup.Spec.Name
+		backupPath = locationConfig["path"]
 		resticSnapshotId = *snapshot.Spec.SnapshotId
+		snapshotTime = snapshot.Spec.StartAt.String()
+
 	} else {
 		// parse and split BackupURL
-		backupUrlObj, backupName, resticSnapshotId, location, err = handlers.ParseRestoreBackupUrlDetail(b.BackupUrl)
+		backupUrlObj, backupName, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(b.BackupUrl)
 		if err != nil {
 			log.Errorf("parse BackupURL error: %v, url: %s", b.BackupUrl)
 			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
@@ -547,9 +551,11 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		Type:             restoreTypeName,
 		Path:             strings.TrimSpace(b.Path),
 		BackupName:       backupName,
+		BackupPath:       backupPath,
 		BackupUrl:        backupUrlObj, // if snapshot,it will be nil
 		Password:         util.Base64encode([]byte(strings.TrimSpace(b.Password))),
 		SnapshotId:       snapshotId,
+		SnapshotTime:     snapshotTime,
 		ResticSnapshotId: resticSnapshotId,
 		ClusterId:        clusterId,
 		Location:         location,
@@ -604,7 +610,11 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 
 		response.Success(resp, parseResponseRestoreDetail(backup, snapshot, restore))
 	} else {
-		response.Success(resp, parseResponseRestoreDetail(nil, nil, restore))
+		result, err := parseResponseRestoreDetailFromBackupUrl(restore)
+		if err != nil {
+			log.Errorf("get restore %s detail error: %s", restoreId, err)
+		}
+		response.Success(resp, result)
 	}
 }
 

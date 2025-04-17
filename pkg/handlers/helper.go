@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"reflect"
@@ -62,7 +63,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 	}
 
 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
-	client := resty.New().SetTimeout(2 * time.Second).SetDebug(true)
+	client := resty.New().SetTimeout(5 * time.Second).SetDebug(true)
 
 	req := &proxyRequest{
 		Op:       "getAccount",
@@ -160,22 +161,6 @@ func GetClusterId() (string, error) {
 	}
 
 	return clusterId, nil
-}
-
-func GetBackupIntegrationName(location string, locationConfig map[string]string) string {
-	name, ok := locationConfig[constant.BackupLocationFileSystem.String()]
-	if !ok {
-		name, ok = locationConfig[location]
-		if !ok {
-			return ""
-		}
-	}
-
-	var config map[string]string
-	if err := json.Unmarshal([]byte(name), &config); err != nil {
-		return ""
-	}
-	return config["name"]
 }
 
 func ParseSnapshotTypeText(snapshotType *int) string {
@@ -494,193 +479,83 @@ func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
  * app       fs: /rootfs/userspace/pvc-userspace-zhaoyu001-sehp80bzd9xzttwl/Home/Download?backupName={backupName}&snapshotId={resticSnapshotId}
  * cli       fs: ^^^
  */
-func ParseRestoreBackupUrlDetail(u string) (*RestoreBackupUrlDetail, string, string, string, error) {
-	// backupUrlObj, backupName,resticSnapshotId, location, err
+func ParseRestoreBackupUrlDetail(u string) (storage *RestoreBackupUrlDetail, backupName string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
 	if u == "" {
-		return nil, "", "", "", fmt.Errorf("backupUrl is empty")
+		err = fmt.Errorf("backupUrl is empty")
+		return
 	}
 
-	var err error
-	var storage *RestoreBackupUrlDetail
-
-	var location string = constant.BackupLocationSpace.String()
-
-	var backupNamePos = strings.Index(u, "?backupName=")
-	var backupName = u[backupNamePos+len("?backupName="):]
-	if backupName == "" {
-		return nil, "", "", "", fmt.Errorf("backupName is empty")
+	u = strings.TrimPrefix(u, "s3:")
+	backupUrlType, e := parseBackupUrl(u)
+	if e != nil {
+		err = errors.WithMessage(e, fmt.Sprintf("parse backupUrl failed, backupUrl: %s", u))
+		return
 	}
 
-	var resticSnapshotIdPos = strings.Index(u, "?snapshotId=")
-	var resticSnapshotId = u[resticSnapshotIdPos+len("?snapshotId="):]
-	if resticSnapshotId == "" {
-		return nil, "", "", "", fmt.Errorf("snapshotId is empty")
+	if backupName = backupUrlType.Values.Get("backupName"); backupName == "" {
+		err = errors.WithStack(fmt.Errorf("backupName is empty, backupUrl: %s", u))
+		return
 	}
 
-	url := u[:backupNamePos]
-	url = strings.ReplaceAll(strings.ReplaceAll(url, "https://", ""), "http://", "")
-
-	if !strings.Contains(url, "did:key") {
-		switch {
-		case strings.Contains(url, "cos."):
-			location = constant.BackupLocationTencentCloud.String()
-			storage, err = splitAwsS3Repository(url)
-		case strings.Contains(url, "s3."):
-			location = constant.BackupLocationAwsS3.String()
-			storage, err = splitTencentCloudRepository(url)
-		default:
-			err = errors.New("url invalid")
-		}
-	} else {
-		storage, err = splitSpaceRepository(url) // space
+	if resticSnapshotId = backupUrlType.Values.Get("snapshotId"); resticSnapshotId == "" {
+		err = errors.WithStack(fmt.Errorf("snapshotId is empty, backupUrl: %s", u))
+		return
 	}
 
+	if snapshotTime = backupUrlType.Values.Get("snapshotTime"); snapshotTime == "" {
+		err = errors.WithStack(fmt.Errorf("snapshotTime is empty, backupUrl: %s", u))
+		return
+	}
+
+	if backupPath = backupUrlType.Values.Get("backupPath"); backupPath == "" {
+		err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
+		return
+	}
+
+	location = backupUrlType.Location
+	storage, err = backupUrlType.GetStorage()
 	if err != nil {
-		return nil, "", "", "", err
+		return
 	}
 
-	return storage, backupName, resticSnapshotId, location, nil
+	return
 }
 
-func splitAwsS3Repository(u string) (*RestoreBackupUrlDetail, error) {
-	// s3.<region>.amazonaws.com/<bucket>/<prefix>/<repoName>
-	var s = strings.Split(u, "/")
-	if len(s) < 3 {
-		return nil, errors.New("url invalid")
-	}
-
-	var domain = s[0]
-	var hs = strings.Split(domain, ".")
-	if len(hs) != 4 {
-		return nil, errors.New("domain invalid")
-	}
-	var regionId = hs[1]
-	var bucket = s[1]
-	var prefix string
-	var backupId string
-	if len(s) == 3 {
-		backupId = s[2]
-	} else {
-		prefix = strings.Join(s[2:len(s)-2], "/")
-		backupId = s[len(s)-1]
-	}
-
-	return &RestoreBackupUrlDetail{
-		BackupId:  backupId,
-		CloudName: constant.BackupLocationAwsS3.String(),
-		RegionId:  regionId,
-		Bucket:    bucket,
-		Prefix:    prefix,
-	}, nil
-}
-
-func splitTencentCloudRepository(u string) (*RestoreBackupUrlDetail, error) {
-	// s3.<region>.myqcloud.com/<bucket>/<prefix>/<repoName>
-	var s = strings.Split(u, "/")
-	if len(s) < 3 {
-		return nil, errors.New("url invalid")
-	}
-
-	var domain = s[0]
-	var hs = strings.Split(domain, ".")
-	if len(hs) != 4 {
-		return nil, errors.New("domain invalid")
-	}
-	var regionId = hs[1]
-	var bucket = s[1]
-	var prefix string
-	var backupId string
-	if len(s) == 3 {
-		backupId = s[2]
-	} else {
-		prefix = strings.Join(s[2:len(s)-2], "/")
-		backupId = s[len(s)-1]
-	}
-
-	return &RestoreBackupUrlDetail{
-		BackupId:  backupId,
-		CloudName: constant.BackupLocationTencentCloud.String(),
-		RegionId:  regionId,
-		Bucket:    bucket,
-		Prefix:    prefix,
-	}, nil
-}
-
-func splitFileSystemRepository(u string) *RestoreBackupUrlDetail {
-	_ = u
-	return &RestoreBackupUrlDetail{}
-}
-
-func splitSpaceRepository(u string) (*RestoreBackupUrlDetail, error) {
-	if strings.Contains(u, "cos.") {
-		return splitSpaceTencentCloud(u)
-	}
-	return splitSpaceAwsS3(u)
-}
-
-func splitSpaceAwsS3(u string) (*RestoreBackupUrlDetail, error) {
-	// s3.<region>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>
-	// prefix = did:xxxx-yyyy
-	var s = strings.Split(u, "/")
-	if len(s) < 5 {
-		return nil, errors.New("url invalid")
-	}
-
-	var domain = s[0]
-	var hs = strings.Split(domain, ".")
-	if len(hs) != 4 {
-		return nil, errors.New("domain invalid")
-	}
-
-	var regionId = hs[1]
-	var bucket = s[1]
-	var prefix = s[2]
-	var backupId = s[4]
-	var suffix, err = util.GetSuffix(prefix, "-")
+func parseBackupUrl(s string) (*BackupUrlType, error) {
+	var u, err = url.Parse(s)
 	if err != nil {
-		return nil, errors.New("space prefix invalid")
+		return nil, err
 	}
 
-	return &RestoreBackupUrlDetail{
-		BackupId:       backupId,
-		CloudName:      constant.BackupLocationAwsS3.String(),
-		RegionId:       regionId,
-		Bucket:         bucket,
-		Prefix:         prefix,
-		TerminusSuffix: suffix,
-	}, nil
-}
-
-func splitSpaceTencentCloud(u string) (*RestoreBackupUrlDetail, error) {
-	// cos.<region>.myqcloud.com/<bucket>/<prefix>/restic/<backupId>
-	// prefix = did:xxxx-yyyy
-	var s = strings.Split(u, "/")
-	if len(s) < 5 {
-		return nil, errors.New("url invalid")
+	var location string
+	if strings.Contains(u.Path, "/restic/") {
+		location = constant.BackupLocationSpace.String()
+	} else if strings.Contains(u.Host, "s3.") {
+		location = constant.BackupLocationAwsS3.String()
+	} else if strings.Contains(u.Host, "cos.") {
+		location = constant.BackupLocationTencentCloud.String()
+	} else if u.Scheme == "fs" {
+		location = constant.BackupLocationFileSystem.String()
 	}
 
-	var domain = s[0]
-	var hs = strings.Split(domain, ".")
-	if len(hs) != 4 {
-		return nil, errors.New("domain invalid")
-	}
-	var regionId = hs[1]
-	var bucket = s[1]
-	var prefix = s[2]
-	var backupId = s[4]
-	suffix, err := util.GetSuffix(prefix, "-") // did:key:xxx-yyy
-	if err != nil {
-		return nil, errors.New("space prefix invalid")
+	if location == "" {
+		return nil, fmt.Errorf("location is empty, host: %s", u.Host)
 	}
 
-	return &RestoreBackupUrlDetail{
-		BackupId:       backupId,
-		CloudName:      constant.BackupLocationTencentCloud.String(),
-		RegionId:       regionId,
-		Bucket:         bucket,
-		Prefix:         prefix,
-		TerminusSuffix: suffix,
-	}, nil
+	if strings.TrimPrefix(u.Path, "/") == "" {
+		return nil, errors.New("path is empty")
+	}
+
+	var res = &BackupUrlType{
+		Schema:               u.Scheme,
+		Host:                 u.Host,
+		Path:                 strings.TrimPrefix(u.Path, "/"),
+		Values:               u.Query(),
+		Location:             location,
+		IsBackupToSpace:      strings.Contains(u.Path, "did:key"),
+		IsBackupToFilesystem: strings.Contains(u.Scheme, "fs"),
+	}
+	return res, nil
 }
 
 func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T {

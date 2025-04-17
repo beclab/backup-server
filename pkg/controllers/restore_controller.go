@@ -75,7 +75,7 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				log.Infof("hit restore create event %s, %s, %s", restore.Name, *restore.Spec.Phase, restoreType.Type)
+				log.Infof("hit restore create event %s, phase: %s, restoreType: %s", restore.Name, *restore.Spec.Phase, restoreType.Type)
 
 				var phase = *restore.Spec.Phase
 				switch phase {
@@ -86,14 +86,14 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 						if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Rejected); err != nil {
 							log.Errorf("update restore %s phase %s to Rejected error: %v", restore.Name, phase, err)
 						}
+					} else {
+						log.Infof("restore %s, type: %s, add to queue success", restore.Name, restoreType.Type)
 					}
 				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String(), constant.Rejected.String():
-					return false
 				default:
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
 					}
-					return false
 				}
 				return false
 			},
@@ -107,6 +107,8 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				if !(ok1 && ok2) || reflect.DeepEqual(oldRestore.Spec, newRestore.Spec) {
 					return false
 				}
+
+				log.Infof("hit restore update event, name: %s, phase: %s", newRestore.Name, *newRestore.Spec.Phase)
 
 				if r.isRunningProgress(oldRestore, newRestore) {
 					return false
