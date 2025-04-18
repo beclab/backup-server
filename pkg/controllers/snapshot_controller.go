@@ -275,7 +275,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 		SnapshotId:   snapshot.Name,
 		Size:         0,
 		Unit:         constant.DefaultSnapshotSizeUnit,
-		SnapshotTime: snapshot.Spec.StartAt.UnixMilli(),
+		SnapshotTime: snapshot.Spec.CreateAt.Unix(),
 		Status:       status,
 		Type:         handlers.ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
 	}
@@ -300,7 +300,7 @@ func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v
 		BackupId:     backup.Name,
 		SnapshotId:   snapshot.Name,
 		Unit:         constant.DefaultSnapshotSizeUnit,
-		SnapshotTime: snapshot.Spec.StartAt.UnixMilli(),
+		SnapshotTime: snapshot.Spec.CreateAt.Unix(),
 		Type:         handlers.ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
 		Status:       *snapshot.Spec.Phase,
 	}

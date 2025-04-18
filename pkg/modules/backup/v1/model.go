@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -135,13 +136,14 @@ type ResponseRestoreDetail struct {
 }
 
 type ResponseRestoreList struct {
-	Id         string  `json:"id"`
-	BackupName string  `json:"name"`
-	Path       string  `json:"path"`
-	CreateAt   int64   `json:"createAt"` // snapshotTime
-	EndAt      int64   `json:"endAt"`
-	Status     string  `json:"status"`
-	Progress   float64 `json:"progress,omitempty"`
+	Id           string  `json:"id"`
+	BackupName   string  `json:"name"`
+	Path         string  `json:"path"`
+	CreateAt     int64   `json:"createAt"`     // restore createAt
+	SnapshotTime int64   `json:"snapshotTime"` // snapshotTime createAt
+	EndAt        int64   `json:"endAt"`
+	Status       string  `json:"status"`
+	Progress     float64 `json:"progress,omitempty"`
 }
 
 type SnapshotDetails struct {
@@ -257,21 +259,22 @@ type SyncBackup struct {
 
 type SyncBackupList []*SyncBackup
 
-func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interface{} {
+func parseResponseSnapshotList(snapshots *sysv1.SnapshotList, currentPage, totalPage, totalCount int64) map[string]interface{} {
+	_ = currentPage
 	var data = make(map[string]interface{})
 
 	if snapshots == nil || len(snapshots.Items) == 0 {
+		data["totalPage"] = 1
+		data["totalCount"] = 0
 		data["snapshots"] = []struct{}{}
 		return data
 	}
 
-	data["totalPage"] = 0
-	data["currentPage"] = 1
 	var ss []*ResponseSnapshotList
 	for _, snapshot := range snapshots.Items {
 		var item = &ResponseSnapshotList{
 			Id:       snapshot.Name,
-			CreateAt: snapshot.Spec.StartAt.UnixMilli(),
+			CreateAt: snapshot.Spec.CreateAt.Unix(),
 			Size:     handlers.ParseSnapshotSize(snapshot.Spec.Size),
 			Status:   parseMessage(snapshot.Spec.Phase),
 		}
@@ -279,6 +282,19 @@ func parseResponseSnapshotList(snapshots *sysv1.SnapshotList) map[string]interfa
 	}
 
 	data["snapshots"] = ss
+	data["totalPage"] = totalPage
+	data["totalCount"] = totalCount
+
+	return data
+}
+
+func parseResponseSnapshotOne(snapshot *sysv1.Snapshot) map[string]interface{} {
+	var data = make(map[string]interface{})
+
+	data["id"] = snapshot.Name
+	data["createAt"] = snapshot.Spec.CreateAt.Unix()
+	data["size"] = handlers.ParseSnapshotSize(snapshot.Spec.Size)
+	data["status"] = parseMessage(snapshot.Spec.Phase)
 
 	return data
 }
@@ -304,7 +320,61 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	}
 }
 
-func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList) map[string]interface{} {
+func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
+	var data = make(map[string]interface{})
+
+	locationConfig, err := handlers.GetBackupLocationConfig(backup)
+	if err != nil {
+		return data
+	}
+
+	var location = locationConfig["location"]
+	var locationConfigName = locationConfig["name"]
+	var nextBackupTimestamp = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
+
+	data["id"] = backup.Name
+	data["name"] = backup.Spec.Name
+	data["nextBackupTimestamp"] = *nextBackupTimestamp
+	data["location"] = location
+	data["locationConfigName"] = locationConfigName
+	data["size"] = "0"
+	data["path"] = handlers.ParseBackupTypePath(backup.Spec.BackupType)
+	data["status"] = constant.Pending.String()
+
+	return data
+}
+
+func parseResponseBackupOne(backup *sysv1.Backup, snapshot *sysv1.Snapshot) (map[string]interface{}, error) {
+	var result = make(map[string]interface{})
+
+	locationConfig, err := handlers.GetBackupLocationConfig(backup)
+	if err != nil {
+		return nil, err
+	}
+
+	location := locationConfig["location"]
+	locationConfigName := locationConfig["name"]
+	if location == constant.BackupLocationFileSystem.String() {
+		locationConfigName = locationConfig["path"]
+	}
+
+	result["id"] = backup.Name
+	result["name"] = backup.Spec.Name
+	result["nextBackupTimestamp"] = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
+	result["location"] = location
+	result["locationConfigName"] = locationConfigName
+	result["size"] = fmt.Sprintf("%d", *backup.Spec.Size)
+	result["path"] = handlers.ParseBackupTypePath(backup.Spec.BackupType)
+	if snapshot != nil {
+		result["status"] = *snapshot.Spec.Phase
+	} else {
+		result["status"] = constant.Pending.String()
+	}
+
+	return result, nil
+}
+
+func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList, totalPage int64) map[string]interface{} {
 	var result = make(map[string]interface{})
 	if data == nil || data.Items == nil || len(data.Items) == 0 {
 		result["backups"] = []struct{}{}
@@ -354,7 +424,7 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 		res = append(res, r)
 	}
 
-	// result["offset"] = data.Continue
+	result["totalPage"] = totalPage
 	result["backups"] = res
 
 	return result
@@ -429,7 +499,7 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 	var res = &ResponseRestoreDetail{
 		BackupName:   backup.Spec.Name,
 		BackupPath:   handlers.GetBackupPath(backup),
-		SnapshotTime: snapshot.Spec.StartAt.Unix(),
+		SnapshotTime: snapshot.Spec.CreateAt.Unix(),
 		RestorePath:  handlers.GetRestorePath(restore),
 		Progress:     restore.Spec.Progress,
 		Status:       *restore.Spec.Phase,
@@ -441,10 +511,43 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 	return res
 }
 
-func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
+func parseResponseRestoreCreate(restore *sysv1.Restore, backupName, snapshotTime, restorePath string) map[string]interface{} {
+	var data = make(map[string]interface{})
+	data["id"] = restore.Name
+	data["name"] = backupName
+	data["path"] = restorePath
+	data["createAt"] = restore.Spec.CreateAt.Unix()
+	data["snapshotTime"] = time.Unix(util.ParseToInt64(snapshotTime), 0).Unix()
+	data["endAt"] = 0
+	data["progress"] = 0
+	data["status"] = constant.Pending.String()
+
+	return data
+}
+
+func parseResponseRestoreOne(restore *sysv1.Restore, backupName string, snapshotTime string, restorePath string) map[string]interface{} {
+	var res = make(map[string]interface{})
+
+	res["id"] = restore.Name
+	res["name"] = backupName
+	res["path"] = restorePath
+	res["createAt"] = restore.Spec.CreateAt.Unix()
+	res["snapshotTime"] = time.Unix(util.ParseToInt64(snapshotTime), 0)
+	res["progress"] = restore.Spec.Progress
+	res["status"] = *restore.Spec.Phase
+
+	if restore.Spec.EndAt != nil {
+		res["endAt"] = restore.Spec.EndAt.Unix()
+	}
+
+	return res
+}
+
+func parseResponseRestoreList(data *sysv1.RestoreList, totalPage int64) map[string]interface{} {
 	var res = make(map[string]interface{})
 
 	if data == nil || data.Items == nil || len(data.Items) == 0 {
+		res["totalPage"] = totalPage
 		res["restores"] = []struct{}{}
 		return res
 	}
@@ -458,11 +561,12 @@ func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
 
 		snapshotTime := time.Unix(util.ParseToInt64(d.SnapshotTime), 0)
 		var r = &ResponseRestoreList{
-			Id:         restore.Name,
-			BackupName: d.BackupName,
-			Path:       d.Path,
-			CreateAt:   snapshotTime.Unix(),
-			Status:     *restore.Spec.Phase,
+			Id:           restore.Name,
+			BackupName:   d.BackupName,
+			Path:         d.Path,
+			CreateAt:     restore.Spec.CreateAt.Unix(),
+			SnapshotTime: snapshotTime.Unix(),
+			Status:       *restore.Spec.Phase,
 		}
 
 		if restore.Spec.EndAt != nil {
@@ -472,6 +576,7 @@ func parseResponseRestoreList(data *sysv1.RestoreList) map[string]interface{} {
 		result = append(result, r)
 	}
 
+	res["totalPage"] = totalPage
 	res["restores"] = result
 
 	return res

@@ -167,18 +167,6 @@ func ParseTimestampToLocal(value string) (string, error) {
 	return fmt.Sprintf("%.2d:%.2d", utcTime.Hour(), utcTime.Minute()), nil
 }
 
-func ParseLocalToTimestamp(value string) (string, error) {
-	var fmtValue = fmt.Sprintf("1970-01-01 %s:00", value)
-	var fmtTime, err = time.Parse("2006-01-02 15:04:05", fmtValue)
-	if err != nil {
-		return "", err
-	}
-	_, localoffset := time.Now().Zone()
-	utcTime := fmtTime.Add(-time.Duration(localoffset) * time.Second)
-	var utcTimeStr = strconv.FormatInt(utcTime.UnixMilli(), 10)
-	return utcTimeStr, nil
-}
-
 func ParseToNextUnixTime(frequency, timesOfDay string, dayOfWeek int, dateOfMonth int) int64 {
 	switch frequency {
 	case "@daily":

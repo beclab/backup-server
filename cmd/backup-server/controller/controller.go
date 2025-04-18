@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 
+	"bytetrade.io/web3os/backup-server/cmd/backup-server/controller/options"
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
@@ -44,12 +45,14 @@ func init() {
 }
 
 func NewControllerCommand() *cobra.Command {
+	o := options.NewControllerServerRunOptions()
+
 	cmd := cobra.Command{
 		Use:   "controller",
 		Short: "start controller",
 		Long:  dedent.Dedent(`controller for backup and restore`),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := Run(); err != nil {
+			if err := Run(o); err != nil {
 				return err
 			}
 			return nil
@@ -74,7 +77,7 @@ func addFlags(fs *pflag.FlagSet) {
 
 }
 
-func Run() error {
+func Run(o *options.ControllerServerRunOptions) error {
 	log.InitLog("debug")
 
 	f, err := client.NewFactory()
@@ -82,10 +85,10 @@ func Run() error {
 		return err
 	}
 
-	return run(f)
+	return run(o, f)
 }
 
-func run(factory client.Factory) error {
+func run(o *options.ControllerServerRunOptions, factory client.Factory) error {
 	c, err := factory.ClientConfig()
 	if err != nil {
 		return err

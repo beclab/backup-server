@@ -42,17 +42,14 @@ func NewBackupPlan(owner string, factory client.Factory, handler handlers.Interf
 	}
 }
 
-func (o *BackupPlan) Apply(ctx context.Context, c *BackupCreate) error {
+func (o *BackupPlan) Apply(ctx context.Context, c *BackupCreate) (*sysv1.Backup, error) {
 	var err error
 	o.c = c
 
 	if err = o.validate(ctx); err != nil {
-		return errors.WithStack(err)
+		return nil, errors.WithStack(err)
 	}
-	if err = o.apply(ctx); err != nil { // new backup plan
-		return err
-	}
-	return nil
+	return o.apply(ctx)
 }
 
 func (o *BackupPlan) Update(ctx context.Context, c *BackupCreate, backup *sysv1.Backup) error {
@@ -127,14 +124,14 @@ func (o *BackupPlan) update(ctx context.Context, backup *sysv1.Backup) error {
 	return o.handler.GetBackupHandler().UpdateBackupPolicy(ctx, backup)
 }
 
-func (o *BackupPlan) apply(ctx context.Context) error {
+func (o *BackupPlan) apply(ctx context.Context) (*sysv1.Backup, error) {
 	var (
 		backupSpec *sysv1.BackupSpec
 	)
 
 	clusterId, err := o.getClusterId(ctx)
 	if err != nil {
-		return errors.WithStack(fmt.Errorf("get cluster id error: %v", err))
+		return nil, errors.WithStack(fmt.Errorf("get cluster id error: %v", err))
 	}
 
 	backupSpec = o.mergeConfig(clusterId)
@@ -149,12 +146,12 @@ func (o *BackupPlan) apply(ctx context.Context) error {
 
 	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, backupSpec)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	log.Infof("create backup %s, id %s", backup.Spec.Name, backup.Name)
 
-	return nil
+	return backup, nil
 }
 
 // func (o *BackupPlan) createFullySysBackup(ctx context.Context, config, name, owner string) error {

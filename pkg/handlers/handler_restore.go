@@ -93,7 +93,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 		return nil, err
 	}
 
-	var startAt = pointer.Time()
+	var createAt = pointer.Time()
 	var phase = constant.Pending.String()
 
 	var restore = &sysv1.Restore{
@@ -110,8 +110,8 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 			RestoreType: map[string]string{
 				restoreTypeName: util.ToJSON(restoreType),
 			},
-			CreateAt: startAt,
-			StartAt:  startAt,
+			CreateAt: createAt,
+			StartAt:  createAt,
 			Progress: 0,
 			Phase:    &phase,
 		},
@@ -229,13 +229,15 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 		}
 
 		r.Spec.Phase = pointer.String(phase.String())
+		r.Spec.EndAt = pointer.Time()
 
-		// TODO
 		switch phase {
 		case constant.Canceled:
 			r.Spec.Message = pointer.String("Restore canceled")
 		case constant.Rejected:
 			r.Spec.Message = pointer.String(fmt.Sprintf("Restore queue has reached capacity, maximum queue size is %d tasks", constant.RestoreQueueSize))
+		case constant.Failed:
+			r.Spec.Message = pointer.String("Backup service restarted, restoration task terminated")
 		}
 
 		_, err = c.SysV1().Restores(constant.DefaultOsSystemNamespace).

@@ -116,10 +116,12 @@ func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, ph
 
 	snapshot.Spec.Phase = pointer.String(phase)
 
-	// TODO
 	switch phase {
 	case constant.Running.String():
 		snapshot.Spec.StartAt = now
+	case constant.Failed.String():
+		snapshot.Spec.Message = pointer.String("Backup service restarted, backup task terminated")
+		fallthrough
 	case constant.Canceled.String():
 		snapshot.Spec.Message = pointer.String("Backup canceled")
 		fallthrough
@@ -218,7 +220,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 	if err != nil {
 		return nil, err
 	}
-	var startAt = pointer.Time()
+	var createAt = pointer.Time()
 	var name = uuid.NewUUID()
 	var phase = constant.Pending.String()
 	var parseSnapshotType = ParseSnapshotType(constant.UnKnownBackup)
@@ -244,8 +246,8 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			BackupId:     backup.Name,
 			Location:     location,
 			SnapshotType: parseSnapshotType,
-			CreateAt:     startAt,
-			StartAt:      startAt,
+			CreateAt:     createAt,
+			StartAt:      createAt,
 			Progress:     0,
 			Phase:        &phase,
 			Extra: map[string]string{

@@ -35,7 +35,7 @@ type Snapshot struct {
 	ResticSnapshotId string `json:"restic_snapshot_id"`
 	Size             uint64 `json:"size"`          // snapshot size
 	Unit             string `json:"unit"`          // "byte"
-	SnapshotTime     int64  `json:"snapshot_time"` // StartAt
+	SnapshotTime     int64  `json:"snapshot_time"` // createAt
 	Status           string `json:"status"`        // snapshot phase
 	Type             string `json:"type"`          // fully / incremental
 	Url              string `json:"url"`           // repo URL
