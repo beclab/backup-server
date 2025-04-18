@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/interfaces"
+	"bytetrade.io/web3os/backup-server/pkg/monitor"
 )
 
 var _ Interface = &handlers{}
@@ -18,6 +19,7 @@ type handlers struct {
 	BackupHandler   *BackupHandler
 	SnapshotHandler *SnapshotHandler
 	RestoreHandler  *RestoreHandler
+	Monitor         monitor.MonitorInterface
 }
 
 func NewHandler(factory client.Factory) Interface {

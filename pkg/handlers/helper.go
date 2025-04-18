@@ -298,7 +298,7 @@ func ParseBackupLocation(l string) string {
 
 func ParseSnapshotSize(size *uint64) string {
 	if size == nil {
-		return ""
+		return "0"
 	}
 
 	return fmt.Sprintf("%d", *size)
@@ -427,11 +427,6 @@ func getNextBackupTimeByHourly(minutes int) time.Time {
 	return nextTime
 }
 
-func ParseSnapshotName(startAt int64) string {
-	t := time.UnixMilli(startAt)
-	return t.Format("2006-01-02 15:04")
-}
-
 func ParseRestoreType(restore *sysv1.Restore) (*RestoreType, error) {
 	var m *RestoreType
 	var data = restore.Spec.RestoreType
@@ -558,7 +553,7 @@ func parseBackupUrl(s string) (*BackupUrlType, error) {
 	return res, nil
 }
 
-func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T {
+func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) (T, int64, int64) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -573,7 +568,7 @@ func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T
 
 	itemsField := listValue.FieldByName("Items")
 	if !itemsField.IsValid() || itemsField.Kind() != reflect.Slice {
-		return resourceList
+		return resourceList, 1, 1
 	}
 
 	total := int64(itemsField.Len())
@@ -611,7 +606,13 @@ func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) T
 		resultList.FieldByName("Items").Set(newItemsSlice)
 	}
 
-	return resultList.Addr().Interface().(T)
+	currentPage := offset/limit + 1
+	totalPages := (total + limit - 1) / limit
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	return resultList.Addr().Interface().(T), currentPage, totalPages
 }
 
 func GetUserspacePvc(owner string) (string, error) {

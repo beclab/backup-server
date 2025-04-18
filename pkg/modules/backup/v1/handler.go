@@ -49,11 +49,11 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, offset, limit)
 	if err != nil {
 		log.Errorf("get backups error: %v", err)
-		response.Success(resp, parseResponseBackupList(backups, nil))
+		response.Success(resp, parseResponseBackupList(backups, nil, 1))
 		return
 	}
 
-	result := handlers.GenericPager(limit, offset, backups)
+	result, _, totalPage := handlers.GenericPager(limit, offset, backups)
 
 	labelsSelector := h.handler.GetBackupHandler().GetBackupIdForLabels(result)
 	var allSnapshots = new(sysv1.SnapshotList)
@@ -69,7 +69,7 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 		allSnapshots.Items = append(allSnapshots.Items, snapshots.Items...)
 	}
 
-	response.Success(resp, parseResponseBackupList(result, allSnapshots))
+	response.Success(resp, parseResponseBackupList(result, allSnapshots, totalPage))
 }
 
 func (h *Handler) get(req *restful.Request, resp *restful.Response) {
@@ -89,6 +89,40 @@ func (h *Handler) get(req *restful.Request, resp *restful.Response) {
 	}
 
 	response.Success(resp, parseResponseBackupDetail(backup))
+}
+
+func (h *Handler) getBackupPlan(req *restful.Request, resp *restful.Response) {
+	ctx, backupId := req.Request.Context(), req.PathParameter("id")
+	owner := req.HeaderParameter(constant.BflUserKey)
+	_ = owner
+
+	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
+	if err != nil && !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessage(err, fmt.Sprintf("get backup %s error", backupId)))
+		return
+	}
+
+	if apierrors.IsNotFound(err) {
+		response.HandleError(resp, fmt.Errorf("backup %s not found", backupId))
+		return
+	}
+
+	var snapshotSelectLabel = fmt.Sprintf("backup-id=%s", backup.Name)
+	var snapshot *sysv1.Snapshot
+
+	snapshots, _ := h.handler.GetSnapshotHandler().ListSnapshots(ctx, 0, 0, snapshotSelectLabel, "")
+
+	if snapshots != nil && len(snapshots.Items) > 0 {
+		snapshot = &snapshots.Items[0]
+	}
+
+	result, err := parseResponseBackupOne(backup, snapshot)
+	if err != nil {
+		response.HandleError(resp, fmt.Errorf("backup %s %v", backup.Name, err))
+		return
+	}
+
+	response.Success(resp, result)
 }
 
 func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
@@ -141,12 +175,13 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err = NewBackupPlan(owner, h.factory, h.handler).Apply(ctx, &b); err != nil {
+	createBackup, err := NewBackupPlan(owner, h.factory, h.handler).Apply(ctx, &b)
+	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
 		return
 	}
 
-	response.SuccessNoData(resp)
+	response.Success(resp, parseResponseBackupCreate(createBackup))
 }
 
 func (h *Handler) update(req *restful.Request, resp *restful.Response) {
@@ -335,13 +370,13 @@ func (h *Handler) listSnapshots(req *restful.Request, resp *restful.Response) {
 	}
 
 	if snapshots == nil || len(snapshots.Items) == 0 {
-		response.Success(resp, parseResponseSnapshotList(snapshots))
+		response.Success(resp, parseResponseSnapshotList(snapshots, 1, 1, 0))
 		return
 	}
+	totalCount := int64(len(snapshots.Items))
+	result, currentPage, totalPage := handlers.GenericPager(limit, offset, snapshots)
 
-	result := handlers.GenericPager(limit, offset, snapshots)
-
-	response.Success(resp, parseResponseSnapshotList(result))
+	response.Success(resp, parseResponseSnapshotList(result, currentPage, totalPage, totalCount))
 }
 
 func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
@@ -360,6 +395,24 @@ func (h *Handler) getSnapshot(req *restful.Request, resp *restful.Response) {
 	}
 
 	response.Success(resp, parseResponseSnapshotDetail(snapshot))
+}
+
+func (h *Handler) getSnapshotOne(req *restful.Request, resp *restful.Response) {
+	ctx := req.Request.Context()
+	snapshotId := req.PathParameter("snapshotId")
+
+	snapshot, err := h.handler.GetSnapshotHandler().GetById(ctx, snapshotId)
+	if err != nil && !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessage(err, fmt.Sprintf("snapshot %s get error", snapshotId)))
+		return
+	}
+
+	if apierrors.IsNotFound(err) {
+		response.HandleError(resp, fmt.Errorf("snapshot %s not found", snapshotId))
+		return
+	}
+
+	response.Success(resp, parseResponseSnapshotOne(snapshot))
 }
 
 func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
@@ -455,14 +508,14 @@ func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	restores, err := h.handler.GetRestoreHandler().ListRestores(ctx, owner, offset, limit)
 	if err != nil {
 		log.Errorf("get restores error: %v", err)
-		response.Success(resp, parseResponseRestoreList(restores))
+		response.Success(resp, parseResponseRestoreList(restores, 1))
 		return
 	}
 
-	result := handlers.GenericPager(limit, offset, restores)
+	result, _, totalPage := handlers.GenericPager(limit, offset, restores)
 	log.Debugf("list restore result length: %d", len(result.Items))
 
-	response.Success(resp, parseResponseRestoreList(result))
+	response.Success(resp, parseResponseRestoreList(result, totalPage))
 }
 
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
@@ -528,8 +581,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		backupName = backup.Spec.Name
 		backupPath = locationConfig["path"]
 		resticSnapshotId = *snapshot.Spec.SnapshotId
-		snapshotTime = snapshot.Spec.StartAt.String()
-
+		snapshotTime = fmt.Sprintf("%d", snapshot.Spec.CreateAt.Unix())
 	} else {
 		// parse and split BackupURL
 		backupUrlObj, backupName, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(b.BackupUrl)
@@ -561,13 +613,13 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		Location:         location,
 	}
 
-	_, err = h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
+	restore, err := h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("create restore task failed: %v", err))
 		return
 	}
 
-	response.SuccessNoData(resp)
+	response.Success(resp, parseResponseRestoreCreate(restore, backupName, snapshotTime, restoreType.Path))
 }
 
 func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
@@ -616,6 +668,31 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 		}
 		response.Success(resp, result)
 	}
+}
+
+func (h *Handler) getRestoreOne(req *restful.Request, resp *restful.Response) {
+	ctx, restoreId := req.Request.Context(), req.PathParameter("id")
+	owner := req.HeaderParameter(constant.BflUserKey)
+	_ = owner
+
+	restore, err := h.handler.GetRestoreHandler().GetById(ctx, restoreId)
+	if err != nil && !apierrors.IsNotFound(err) {
+		response.HandleError(resp, errors.WithMessagef(err, "get restore %s error", restoreId))
+		return
+	}
+
+	restoreType, err := handlers.ParseRestoreType(restore)
+	if err != nil {
+		response.HandleError(resp, fmt.Errorf("parse %s restore type error: %v", restoreId, err))
+		return
+	}
+
+	if apierrors.IsNotFound(err) {
+		response.HandleError(resp, fmt.Errorf("restore %s not found", restoreId))
+		return
+	}
+
+	response.Success(resp, parseResponseRestoreOne(restore, restoreType.BackupName, restoreType.SnapshotTime, restoreType.Path))
 }
 
 func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {

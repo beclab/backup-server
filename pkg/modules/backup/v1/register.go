@@ -68,6 +68,13 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
+	ws.Route(ws.GET("/plans/backup/one/{id}").
+		To(handler.getBackupPlan).
+		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
+		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
+		Doc("describe backup plan").Metadata(restfulspec.KeyOpenAPITags, tags).
+		Returns(http.StatusOK, "", ""))
+
 	ws.Route(ws.DELETE("/plans/backup/{id}").
 		To(handler.deleteBackupPlan).
 		Param(ws.PathParameter("id", "backup plan id").DataType("string").Required(true)).
@@ -109,6 +116,14 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("get backup snapshot details").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
+	ws.Route(ws.GET("/plans/backup/{id}/snapshots/one/{snapshotId}").
+		To(handler.getSnapshotOne).
+		Param(ws.PathParameter("id", "backup id").DataType("string").Required(true)).
+		Param(ws.PathParameter("snapshotId", "snapshot id").DataType("string").Required(true)).
+		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
+		Doc("get backup snapshot details").Metadata(restfulspec.KeyOpenAPITags, tags).
+		Returns(http.StatusOK, "", ""))
+
 	ws.Route(ws.DELETE("/plans/backup/{id}/snapshots/{snapshotId}").
 		To(handler.cancelSnapshot).
 		Reads(SnapshotCancel{}).
@@ -137,6 +152,13 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 
 	ws.Route(ws.GET("/plans/restore/{id}").
 		To(handler.getRestore).
+		Param(ws.PathParameter("id", "restore id").DataType("string").Required(true)).
+		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
+		Doc("describe restore plan").Metadata(restfulspec.KeyOpenAPITags, tags).
+		Returns(http.StatusOK, "", ""))
+
+	ws.Route(ws.GET("/plans/restore/one/{id}").
+		To(handler.getRestoreOne).
 		Param(ws.PathParameter("id", "restore id").DataType("string").Required(true)).
 		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
 		Doc("describe restore plan").Metadata(restfulspec.KeyOpenAPITags, tags).

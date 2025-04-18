@@ -16,6 +16,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var client *http.Client
+
 func RequestJSON(method, url string, headers map[string]string, body, to any) (statusCode int, err error) {
 	var (
 		reqBytes []byte
@@ -92,4 +94,49 @@ func Post[T any](ctx context.Context, url string, headers map[string]string, dat
 	}
 
 	return &result, nil
+}
+
+func GetHttpClient() *http.Client {
+	return client
+}
+
+func SendHttpRequestWithMethod(method, url string, reader io.Reader) (string, error) {
+	httpReq, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return "", err
+	}
+	if reader != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+
+	return SendHttpRequest(httpReq)
+}
+
+func SendHttpRequest(req *http.Request) (string, error) {
+	resp, err := GetHttpClient().Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return "", err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if len(body) != 0 {
+			return string(body), errors.New(string(body))
+		}
+		return string(body), fmt.Errorf("http status not 200 %d msg:%s", resp.StatusCode, string(body))
+	}
+
+	debugBody := string(body)
+	if len(debugBody) > 256 {
+		debugBody = debugBody[:256]
+	}
+
+	return string(body), nil
 }

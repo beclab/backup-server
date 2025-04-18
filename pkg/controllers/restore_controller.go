@@ -82,7 +82,6 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				case constant.Pending.String():
 					err := worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
 					if err != nil && strings.Contains(err.Error(), "queue is full") {
-						// TODO
 						if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Rejected); err != nil {
 							log.Errorf("update restore %s phase %s to Rejected error: %v", restore.Name, phase, err)
 						}
