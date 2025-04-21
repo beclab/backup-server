@@ -314,7 +314,7 @@ func (i *Integration) formatUrl(location, name string) string {
 	switch location {
 	case "space":
 		l = "space"
-	case "aws":
+	case "awss3":
 		l = "awss3"
 	case "tencentcloud":
 		l = "tencent"
