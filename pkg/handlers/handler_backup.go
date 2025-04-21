@@ -109,6 +109,19 @@ func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset, l
 		return nil, fmt.Errorf("backups not exists")
 	}
 
+	var filteredItems []sysv1.Backup
+	for _, item := range backups.Items {
+		if !item.Spec.Deleted {
+			filteredItems = append(filteredItems, item)
+		}
+	}
+
+	backups.Items = filteredItems
+
+	if len(backups.Items) == 0 {
+		return nil, fmt.Errorf("no active backups exist")
+	}
+
 	sort.Slice(backups.Items, func(i, j int) bool {
 		return !backups.Items[i].ObjectMeta.CreationTimestamp.Before(&backups.Items[j].ObjectMeta.CreationTimestamp)
 	})

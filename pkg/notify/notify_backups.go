@@ -143,12 +143,12 @@ func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, 
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 
-		result, err := http.Post[Response](ctx, url, headers, data, false)
+		result, err := http.Post[Response](ctx, url, headers, data, true)
 		if err != nil {
 			return err
 		}
 
-		if result.Code != 200 {
+		if result.Code != 200 && result.Code != 501 {
 			return fmt.Errorf("[notify] delete backup record failed %s", result.Message)
 		}
 		return nil

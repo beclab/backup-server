@@ -5,7 +5,7 @@ go 1.23.0
 toolchain go1.23.7
 
 replace (
-	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.8
+	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.10
 	k8s.io/api => k8s.io/api v0.25.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.25.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.25.6
@@ -90,6 +90,7 @@ require (
 	github.com/imdario/mergo v0.3.13 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
