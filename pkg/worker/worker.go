@@ -185,7 +185,7 @@ func (w *WorkerPool) AddBackupTask(owner, backupId, snapshotId string) error {
 	if !ok {
 		cancelTask()
 		taskPool.tasks.Delete(taskId)
-		return fmt.Errorf("[worker] backup task queue is full for owner: %s", owner)
+		return fmt.Errorf("[worker] backup task queue is full for owner: %s, queuesize: %d, waitings: %d", owner, taskPool.pool.QueueSize(), taskPool.pool.WaitingTasks())
 	}
 
 	return nil

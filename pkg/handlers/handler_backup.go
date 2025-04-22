@@ -44,9 +44,7 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 		return err
 	}
 
-	if err := notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name); err != nil {
-		return err
-	}
+	_ = notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
 
 	return o.delete(ctx, backup)
 }
@@ -161,7 +159,7 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 	return &backups.Items[0], nil
 }
 
-func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
 	var backupId = uuid.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
@@ -171,6 +169,7 @@ RETRY:
 			Labels: map[string]string{
 				"owner":  owner,
 				"name":   util.MD5(backupName),
+				"path":   util.MD5(backupPath),
 				"policy": util.MD5(backupSpec.BackupPolicy.TimesOfDay),
 			},
 		},

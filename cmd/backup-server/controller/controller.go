@@ -3,13 +3,13 @@ package controller
 import (
 	"context"
 
-	"bytetrade.io/web3os/backup-server/cmd/backup-server/controller/options"
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"bytetrade.io/web3os/backup-server/pkg/watchers"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/lithammer/dedent"
 	pkgerrors "github.com/pkg/errors"
@@ -45,14 +45,12 @@ func init() {
 }
 
 func NewControllerCommand() *cobra.Command {
-	o := options.NewControllerServerRunOptions()
-
 	cmd := cobra.Command{
 		Use:   "controller",
 		Short: "start controller",
 		Long:  dedent.Dedent(`controller for backup and restore`),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := Run(o); err != nil {
+			if err := Run(); err != nil {
 				return err
 			}
 			return nil
@@ -77,7 +75,7 @@ func addFlags(fs *pflag.FlagSet) {
 
 }
 
-func Run(o *options.ControllerServerRunOptions) error {
+func Run() error {
 	log.InitLog("debug")
 
 	f, err := client.NewFactory()
@@ -85,10 +83,10 @@ func Run(o *options.ControllerServerRunOptions) error {
 		return err
 	}
 
-	return run(o, f)
+	return run(f)
 }
 
-func run(o *options.ControllerServerRunOptions, factory client.Factory) error {
+func run(factory client.Factory) error {
 	c, err := factory.ClientConfig()
 	if err != nil {
 		return err
@@ -125,7 +123,12 @@ func run(o *options.ControllerServerRunOptions, factory client.Factory) error {
 	}
 
 	integration.NewIntegrationManager(factory)
-	var handler = handlers.NewHandler(factory)
+
+	notification := &watchers.Notification{
+		Factory: factory,
+	}
+
+	var handler = handlers.NewHandler(factory, notification)
 
 	worker.NewWorkerPool(context.TODO(), handler)
 

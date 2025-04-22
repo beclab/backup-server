@@ -5,7 +5,7 @@ go 1.23.0
 toolchain go1.23.7
 
 replace (
-	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.10
+	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.11
 	k8s.io/api => k8s.io/api v0.25.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.25.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.25.6
@@ -33,6 +33,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.13.27
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.11.72
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.37.0
+	github.com/emicklei/go-restful v2.9.5+incompatible
 	github.com/emicklei/go-restful-openapi/v2 v2.9.1
 	github.com/emicklei/go-restful/v3 v3.12.1
 	github.com/go-openapi/spec v0.20.7
@@ -46,6 +47,7 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/pflag v1.0.5
 	go.uber.org/zap v1.24.0
+	golang.org/x/crypto v0.31.0
 	golang.org/x/text v0.21.0
 	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.1

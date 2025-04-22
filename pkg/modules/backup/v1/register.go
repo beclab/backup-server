@@ -8,6 +8,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/watchers"
 	restfulspec "github.com/emicklei/go-restful-openapi/v2"
 	"github.com/emicklei/go-restful/v3"
 )
@@ -22,7 +23,11 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	ws.Produces(restful.MIME_JSON)
 	var factory = client.ClientFactory()
 
-	handler := New(cfg, factory, handlers.NewHandler(factory))
+	notification := &watchers.Notification{
+		Factory: factory,
+	}
+
+	handler := New(cfg, factory, handlers.NewHandler(factory, notification))
 
 	ws.Route(ws.GET("/ready").
 		To(handler.ready).

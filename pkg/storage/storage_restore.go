@@ -197,6 +197,13 @@ func (s *StorageRestore) prepareRestoreParams() error {
 }
 
 func (s *StorageRestore) prepareForRun() error {
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+		"id":       s.Restore.Name,
+		"progress": 0,
+		"status":   constant.Running.String(),
+		"message":  "",
+	})
+
 	return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
 }
 
@@ -212,14 +219,32 @@ func (s *StorageRestore) progressCallback(percentDone float64) {
 
 	if percent == progressDone {
 		percent = progressDone - 1
+
 		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
+
+		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
+			"id":       s.RestoreId,
+			"progress": percent,
+			"status":   constant.Running.String(),
+			"message":  "",
+		})
+
 		return
 	}
 
 	if time.Since(s.LastProgressTime) >= progressInterval*time.Second && s.LastProgressPercent != percent {
-		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
+
 		s.LastProgressPercent = percent
 		s.LastProgressTime = time.Now()
+
+		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
+
+		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
+			"id":       s.RestoreId,
+			"progress": percent,
+			"status":   constant.Running.String(),
+			"message":  "",
+		})
 	}
 }
 
@@ -369,24 +394,37 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 }
 
 func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) error {
+	var msg, phase string
+
 	restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
 	if err != nil {
 		return err
 	}
 
 	if restoreError != nil {
+		msg = restoreError.Error()
+		phase = constant.Failed.String()
 		restore.Spec.Phase = pointer.String(constant.Failed.String())
 		restore.Spec.Message = pointer.String(restoreError.Error())
-		restore.Spec.ResticPhase = pointer.String(constant.Failed.String())
+		restore.Spec.ResticPhase = pointer.String(phase)
 	} else {
+		msg = constant.Completed.String()
+		phase = constant.Completed.String()
 		restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
 		restore.Spec.Progress = progressDone
-		restore.Spec.Phase = pointer.String(constant.Completed.String())
-		restore.Spec.ResticPhase = pointer.String(constant.Completed.String())
+		restore.Spec.Phase = pointer.String(phase)
+		restore.Spec.ResticPhase = pointer.String(phase)
 		restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
 	}
 
 	restore.Spec.EndAt = pointer.Time()
+
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
+		"id":       s.Restore.Name,
+		"progress": restore.Spec.Progress,
+		"status":   phase,
+		"message":  msg,
+	})
 
 	return s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec)
 }
