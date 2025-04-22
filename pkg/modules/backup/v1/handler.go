@@ -28,7 +28,7 @@ func New(cfg *config.Config, factory client.Factory, handler handlers.Interface)
 	return &Handler{
 		cfg:     cfg,
 		factory: factory,
-		handler: handlers.NewHandler(factory),
+		handler: handler,
 	}
 }
 
@@ -167,6 +167,18 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		response.HandleError(resp, errors.New("backup plan "+b.Name+" already exists"))
 		return
 	}
+
+	// getLabel = "path=" + util.MD5(b.Path) + ",owner=" + owner
+	// backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
+	// if err != nil && !apierrors.IsNotFound(err) {
+	// 	response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
+	// 	return
+	// }
+
+	// if backup != nil {
+	// 	response.HandleError(resp, errors.New("backup path "+b.Path+" already exists"))
+	// 	return
+	// }
 
 	getLabel = "owner=" + owner + ",policy=" + util.MD5(b.BackupPolicies.TimesOfDay)
 	backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)

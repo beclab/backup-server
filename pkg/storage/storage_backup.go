@@ -183,6 +183,15 @@ func (s *StorageBackup) prepareBackupParams() error {
 }
 
 func (s *StorageBackup) prepareForRun() error {
+
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+		"id":       s.Snapshot.Name,
+		"backupId": s.Backup.Name,
+		"progress": 0,
+		"status":   constant.Running.String(),
+		"message":  "",
+	})
+
 	return s.Handlers.GetSnapshotHandler().UpdatePhase(s.Ctx, s.Snapshot.Name, constant.Running.String())
 }
 
@@ -199,13 +208,31 @@ func (s *StorageBackup) progressCallback(percentDone float64) {
 	if percent == progressDone {
 		percent = progressDone - 1
 		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
+
+		s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+			"id":       s.Snapshot.Name,
+			"backupId": s.Backup.Name,
+			"progress": percent,
+			"status":   constant.Running.String(),
+			"message":  "",
+		})
+
 		return
 	}
 
 	if time.Since(s.LastProgressTime) >= progressInterval*time.Second && s.LastProgressPercent != percent {
-		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
 		s.LastProgressPercent = percent
 		s.LastProgressTime = time.Now()
+
+		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
+
+		s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+			"id":       s.Snapshot.Name,
+			"backupId": s.Backup.Name,
+			"progress": percent,
+			"status":   constant.Running.String(),
+			"message":  "",
+		})
 	}
 }
 
@@ -432,6 +459,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 // TODO review
 func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.SummaryOutput,
 	backupStorageObj *backupssdkmodel.StorageInfo, backupTotalSize uint64, backupError error) error {
+	var msg string
 
 	backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, s.Backup.Name)
 	if err != nil {
@@ -446,18 +474,20 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	var phase constant.Phase = constant.Completed
 
 	if backupError != nil {
+		msg = backupError.Error()
 		if strings.Contains(backupError.Error(), strings.ToLower(constant.Canceled.String())) {
 			phase = constant.Canceled
 		} else {
 			phase = constant.Failed
 		}
 		snapshot.Spec.Phase = pointer.String(phase.String())
-		snapshot.Spec.Message = pointer.String(backupError.Error())
+		snapshot.Spec.Message = pointer.String(msg)
 		snapshot.Spec.ResticPhase = pointer.String(phase.String())
 		if s.SnapshotType != nil {
 			snapshot.Spec.SnapshotType = s.SnapshotType
 		}
 	} else {
+		msg = phase.String()
 		snapshot.Spec.SnapshotType = s.SnapshotType
 		snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 		snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
@@ -484,6 +514,14 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 			log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
 		}
 	}
+
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+		"id":       s.Snapshot.Name,
+		"backupId": s.Backup.Name,
+		"progress": snapshot.Spec.Progress,
+		"status":   phase.String(),
+		"message":  msg,
+	})
 
 	return s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
 }

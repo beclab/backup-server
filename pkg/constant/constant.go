@@ -40,6 +40,9 @@ const (
 
 	StorageOperatorCli string = "cli"
 	StorageOperatorApp string = "app"
+
+	EventBackup  string = "backup-state-event"
+	EventRestore string = "restore-state-event"
 )
 
 type BackupLocation string

@@ -96,6 +96,7 @@ type ResponseBackupList struct {
 	LocationConfigName  string `json:"locationConfigName"` // olaresDid / cloudAccessKey
 	SnapshotId          string `json:"snapshotId"`
 	NextBackupTimestamp *int64 `json:"nextBackupTimestamp,omitempty"`
+	CreateAt            int64  `json:"createAt"`
 	Status              string `json:"status"`
 	Size                string `json:"size"`
 	Path                string `json:"path"`
@@ -337,6 +338,7 @@ func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
 	data["nextBackupTimestamp"] = *nextBackupTimestamp
 	data["location"] = location
 	data["locationConfigName"] = locationConfigName
+	data["createAt"] = backup.Spec.CreateAt.Unix()
 	data["size"] = "0"
 	data["path"] = handlers.ParseBackupTypePath(backup.Spec.BackupType)
 	data["status"] = constant.Pending.String()
@@ -364,6 +366,7 @@ func parseResponseBackupOne(backup *sysv1.Backup, snapshot *sysv1.Snapshot) (map
 	result["location"] = location
 	result["locationConfigName"] = locationConfigName
 	result["size"] = fmt.Sprintf("%d", *backup.Spec.Size)
+	result["createAt"] = backup.Spec.CreateAt.Unix()
 	result["path"] = handlers.ParseBackupTypePath(backup.Spec.BackupType)
 	if snapshot != nil {
 		result["status"] = *snapshot.Spec.Phase
@@ -394,7 +397,7 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 
 	for _, backup := range data.Items {
 		locationConfig, err := handlers.GetBackupLocationConfig(&backup)
-		if err != nil { // || locationConfig == nil
+		if err != nil {
 			continue
 		}
 
@@ -408,6 +411,7 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 			Name:                backup.Spec.Name,
 			SnapshotFrequency:   handlers.ParseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
 			NextBackupTimestamp: handlers.GetNextBackupTime(*backup.Spec.BackupPolicy),
+			CreateAt:            backup.Spec.CreateAt.Unix(),
 			Location:            location,
 			LocationConfigName:  locationConfigName, // filesystem is target
 			Path:                handlers.ParseBackupTypePath(backup.Spec.BackupType),

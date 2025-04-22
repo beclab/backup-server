@@ -98,6 +98,7 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		BackupType: backupType,
 		Notified:   false,
 		Size:       pointer.UInt64Ptr(0),
+		CreateAt:   pointer.Time(),
 		Extra: map[string]string{
 			"size_updated": fmt.Sprintf("%d", time.Now().Unix()),
 		},
@@ -144,7 +145,7 @@ func (o *BackupPlan) apply(ctx context.Context) (*sysv1.Backup, error) {
 
 	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
-	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, backupSpec)
+	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupSpec)
 	if err != nil {
 		return nil, err
 	}

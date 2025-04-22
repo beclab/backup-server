@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -97,10 +98,8 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			err := r.addToWorkerManager(backup, snapshot)
 			if err != nil {
 				log.Errorf("add snapshot to worker error: %v, id: %s", err, snapshot.Name)
-				if err.Error() == "queue is full" {
+				if strings.Contains(err.Error(), "queue is full") {
 					r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Rejected.String())
-				} else {
-					return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 				}
 			}
 		} else {
@@ -145,7 +144,7 @@ func (r *SnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				var phase = *snapshot.Spec.Phase
 
 				switch phase {
-				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String():
+				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String(), constant.Rejected.String():
 					snapshotNotified, err := handlers.CheckSnapshotNotifyState(snapshot, "result")
 					if err != nil {
 						log.Errorf("hit snapshot create event, check snapshot push state error: %v, id: %s", err, snapshot.Name)
@@ -244,13 +243,14 @@ func (r *SnapshotReconciler) isCanceled(newSnapshot *v1.Snapshot) bool {
 func (r *SnapshotReconciler) addToWorkerManager(backup *sysapiv1.Backup, snapshot *sysapiv1.Snapshot) error {
 	if err := r.notifySnapshot(backup, snapshot, constant.Pending.String()); err != nil {
 		log.Errorf("[notify] snapshot error: %v, id: %s, phase: Pending", err, snapshot.Name)
-		return err
+		// return err
 	} else {
 		log.Infof("[notify] snapshot success, id: %s, phase: Pending", snapshot.Name)
 	}
 
 	if err := worker.GetWorkerPool().AddBackupTask(backup.Spec.Owner, backup.Name, snapshot.Name); err != nil {
-		return fmt.Errorf("queue is full")
+		return err
+		// return fmt.Errorf("queue is full")
 	}
 
 	return nil

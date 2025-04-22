@@ -91,7 +91,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		Duration: 2 * time.Second,
 		Factor:   2,
 		Jitter:   0.1,
-		Steps:    5,
+		Steps:    2,
 	}
 
 	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
@@ -115,7 +115,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		}
 
 		if result.Code != 200 {
-			return fmt.Errorf("[notify] snapshot record failed %s", result.Message)
+			return fmt.Errorf("[notify] snapshot record failed, code: %d, message: %s", result.Code, result.Message)
 		}
 		return nil
 	}); err != nil {
@@ -129,7 +129,7 @@ func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, 
 		Duration: 2 * time.Second,
 		Factor:   2,
 		Jitter:   0.1,
-		Steps:    5,
+		Steps:    3,
 	}
 
 	var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s", userId, token, backupId)
@@ -145,14 +145,16 @@ func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, 
 
 		result, err := http.Post[Response](ctx, url, headers, data, true)
 		if err != nil {
+			log.Errorf("[notify] delete backup record failed: %v", err)
 			return err
 		}
 
-		if result.Code != 200 && result.Code != 501 {
-			return fmt.Errorf("[notify] delete backup record failed %s", result.Message)
+		if result.Code != 200 {
+			return fmt.Errorf("[notify] delete backup record failed, code: %d, msg: %s", result.Code, result.Message)
 		}
 		return nil
 	}); err != nil {
+		log.Errorf(err.Error())
 		return err
 	}
 
