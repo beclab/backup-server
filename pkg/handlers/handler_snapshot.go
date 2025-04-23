@@ -106,7 +106,7 @@ func (o *SnapshotHandler) UpdateNotifyResultState(ctx context.Context, snapshot 
 	return o.update(ctx, snapshot)
 }
 
-func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, phase string) error {
+func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, phase string, msg string) error {
 	snapshot, err := o.GetById(ctx, snapshotId)
 	if err != nil {
 		return err
@@ -114,25 +114,16 @@ func (o *SnapshotHandler) UpdatePhase(ctx context.Context, snapshotId string, ph
 
 	var now = pointer.Time()
 
-	snapshot.Spec.Phase = pointer.String(phase)
-
-	switch phase {
-	case constant.Running.String():
+	if phase == constant.Running.String() {
 		snapshot.Spec.StartAt = now
-	case constant.Failed.String():
-		snapshot.Spec.Message = pointer.String("Backup service restarted, backup task terminated")
-		fallthrough
-	case constant.Canceled.String():
-		snapshot.Spec.Message = pointer.String("Backup canceled")
-		fallthrough
-	case constant.Rejected.String():
-		snapshot.Spec.Message = pointer.String(fmt.Sprintf("Backup queue has reached capacity, maximum queue size is %d tasks", constant.BackupQueueSize))
-		fallthrough
-	default:
+	} else {
 		snapshot.Spec.EndAt = now
 	}
 
-	return o.update(ctx, snapshot) // updatePhase
+	snapshot.Spec.Phase = pointer.String(phase)
+	snapshot.Spec.Message = pointer.String(msg)
+
+	return o.update(ctx, snapshot)
 }
 
 func (o *SnapshotHandler) ListSnapshots(ctx context.Context, offset, limit int64, labelSelector string, fieldSelector string) (*sysv1.SnapshotList, error) {

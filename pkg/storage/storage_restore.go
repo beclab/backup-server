@@ -217,23 +217,7 @@ func (s *StorageRestore) progressCallback(percentDone float64) {
 
 	var percent = int(percentDone * progressDone)
 
-	if percent == progressDone {
-		percent = progressDone - 1
-
-		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
-
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
-			"id":       s.RestoreId,
-			"progress": percent,
-			"status":   constant.Running.String(),
-			"message":  "",
-		})
-
-		return
-	}
-
 	if time.Since(s.LastProgressTime) >= progressInterval*time.Second && s.LastProgressPercent != percent {
-
 		s.LastProgressPercent = percent
 		s.LastProgressTime = time.Now()
 
@@ -395,6 +379,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 
 func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) error {
 	var msg, phase string
+	var notifyProgress int
 
 	restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
 	if err != nil {
@@ -404,15 +389,18 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 	if restoreError != nil {
 		msg = restoreError.Error()
 		phase = constant.Failed.String()
+		notifyProgress = restore.Spec.Progress
 		restore.Spec.Phase = pointer.String(constant.Failed.String())
 		restore.Spec.Message = pointer.String(restoreError.Error())
 		restore.Spec.ResticPhase = pointer.String(phase)
 	} else {
 		msg = constant.Completed.String()
 		phase = constant.Completed.String()
+		notifyProgress = progressDone
 		restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
 		restore.Spec.Progress = progressDone
 		restore.Spec.Phase = pointer.String(phase)
+		restore.Spec.Message = pointer.String(phase)
 		restore.Spec.ResticPhase = pointer.String(phase)
 		restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
 	}
@@ -421,7 +409,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 
 	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
 		"id":       s.Restore.Name,
-		"progress": restore.Spec.Progress,
+		"progress": notifyProgress,
 		"status":   phase,
 		"message":  msg,
 	})

@@ -99,16 +99,16 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if err != nil {
 				log.Errorf("add snapshot to worker error: %v, id: %s", err, snapshot.Name)
 				if strings.Contains(err.Error(), "queue is full") {
-					r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Rejected.String())
+					r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Rejected.String(), err.Error())
 				}
 			}
 		} else {
-			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String())
+			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String(), constant.MessageBackupServerRestart)
 		}
 	case constant.Running.String():
 		isNewlyCreated := snapshot.CreationTimestamp.After(r.controllerStartTime.Time)
 		if !isNewlyCreated {
-			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String())
+			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String(), constant.MessageBackupServerRestart)
 		}
 	case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String(), constant.Rejected.String():
 		if phase == constant.Canceled.String() {
@@ -116,7 +116,7 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil {
 			log.Errorf("[notify] snapshot error: %v, id: %s, phase: %s", err, snapshot.Name, *snapshot.Spec.Phase)
-			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+			// return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 		} else {
 			log.Infof("[notify] snapshot success, id: %s, phase: %s", snapshot.Name, *snapshot.Spec.Phase)
 		}
@@ -250,7 +250,6 @@ func (r *SnapshotReconciler) addToWorkerManager(backup *sysapiv1.Backup, snapsho
 
 	if err := worker.GetWorkerPool().AddBackupTask(backup.Spec.Owner, backup.Name, snapshot.Name); err != nil {
 		return err
-		// return fmt.Errorf("queue is full")
 	}
 
 	return nil

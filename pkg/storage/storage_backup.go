@@ -91,14 +91,10 @@ func (s *StorageBackup) RunBackup() error {
 	if backupErr != nil {
 		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
 	} else {
-		log.Infof("Backup %s,%s, success", backupName, snapshotId)
+		log.Infof("Backup %s,%s, success, result: %s, storageObj: %s, totalSize: %d", backupName, snapshotId,
+			util.ToJSON(backupResult), util.ToJSON(backupStorageObj), backupTotalSize)
 	}
 
-	// if err := s.notifyBackupResult(backupResult, backupStorageObj, backupErr); err != nil {
-	// 	log.Errorf("Backup %s,%s notify backup result error: %v", backupName, snapshotId, err)
-	// } else {
-	// 	log.Infof("Backup %s,%s notify backup result success", backupName, snapshotId)
-	// }
 	if err := s.updateBackupResult(backupResult, backupStorageObj, backupTotalSize, backupErr); err != nil {
 		return errors.WithStack(err)
 	}
@@ -192,7 +188,7 @@ func (s *StorageBackup) prepareForRun() error {
 		"message":  "",
 	})
 
-	return s.Handlers.GetSnapshotHandler().UpdatePhase(s.Ctx, s.Snapshot.Name, constant.Running.String())
+	return s.Handlers.GetSnapshotHandler().UpdatePhase(s.Ctx, s.Snapshot.Name, constant.Running.String(), "Backup start running")
 }
 
 func (s *StorageBackup) progressCallback(percentDone float64) {
@@ -277,7 +273,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud() // cos backup
 		if err != nil {
-			backupError = fmt.Errorf("get %s token error: %v", token.Type, err)
+			backupError = fmt.Errorf("get tencentcloud token error: %v", err)
 			return
 		}
 		options = &backupssdkoptions.TencentCloudBackupOption{
@@ -519,7 +515,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		"id":       s.Snapshot.Name,
 		"backupId": s.Backup.Name,
 		"progress": snapshot.Spec.Progress,
-		"status":   phase.String(),
+		"status":   *snapshot.Spec.Phase,
 		"message":  msg,
 	})
 
