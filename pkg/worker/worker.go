@@ -130,11 +130,12 @@ func (w *WorkerPool) AddBackupTask(owner, backupId, snapshotId string) error {
 	taskPool := userPool.backupPool
 
 	var ctxTask, cancelTask = context.WithCancel(w.ctx)
+	var c = context.WithValue(ctxTask, constant.TraceId, snapshotId)
 
 	taskId := fmt.Sprintf("%s_%s", backupId, snapshotId)
 
 	baseTask := &BaseTask{
-		ctx:      ctxTask,
+		ctx:      c,
 		cancel:   cancelTask,
 		owner:    owner,
 		id:       taskId,
@@ -142,7 +143,7 @@ func (w *WorkerPool) AddBackupTask(owner, backupId, snapshotId string) error {
 	}
 
 	backup := &storage.StorageBackup{
-		Ctx:              ctxTask,
+		Ctx:              c,
 		Handlers:         w.handlers,
 		SnapshotId:       snapshotId,
 		LastProgressTime: time.Now(),
@@ -251,7 +252,7 @@ func (w *WorkerPool) AddRestoreTask(owner, restoreId string) error {
 	if !ok {
 		cancelTask()
 		taskPool.tasks.Delete(taskId)
-		return fmt.Errorf("[worker] restore task queue is full for owner: %s", owner)
+		return fmt.Errorf("[worker] restore task queue is full for owner: %s, queuesize: %d, waitings: %d", owner, taskPool.pool.QueueSize(), taskPool.pool.WaitingTasks())
 	}
 
 	return nil

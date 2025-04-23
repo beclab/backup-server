@@ -219,7 +219,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	accountResp := resp.Result().(*accountResponse)
 
 	if accountResp.Code == 1 && accountResp.Message == "" {
-		err = errors.WithStack(fmt.Errorf("olres space is not enabled"))
+		err = errors.WithStack(fmt.Errorf("olares space is not enabled"))
 		return nil, err
 	} else if accountResp.Code != 0 {
 		err = errors.WithStack(fmt.Errorf("request account api response error, status: %d, message: %s", accountResp.Code, accountResp.Message))

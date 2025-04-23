@@ -43,6 +43,12 @@ const (
 
 	EventBackup  string = "backup-state-event"
 	EventRestore string = "restore-state-event"
+
+	TraceId string = "traceId"
+)
+
+const (
+	MessageBackupServerRestart = "Backup service restarted, backup task terminated"
 )
 
 type BackupLocation string
