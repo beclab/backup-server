@@ -161,6 +161,13 @@ func StringDeref(ptr *string, def string) string {
 	return def
 }
 
+func StringDerefJoin(ptr *string, def string) string {
+	if ptr != nil {
+		return *ptr + ", " + def
+	}
+	return def
+}
+
 var StringPtrDerefOr = StringDeref // for back-compat
 
 // StringEqual returns true if both arguments are nil or both arguments

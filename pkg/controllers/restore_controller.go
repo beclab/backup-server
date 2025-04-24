@@ -80,6 +80,14 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				var phase = *restore.Spec.Phase
 				switch phase {
 				case constant.Pending.String():
+					isNewlyCreated := restore.CreationTimestamp.After(r.controllerStartTime.Time)
+					if !isNewlyCreated {
+						if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
+							log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
+						}
+						return false
+					}
+
 					err := worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
 					if err != nil && strings.Contains(err.Error(), "queue is full") {
 						if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Rejected); err != nil {

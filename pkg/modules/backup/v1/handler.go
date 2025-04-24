@@ -259,7 +259,7 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response) {
 	ctx, backupId := req.Request.Context(), req.PathParameter("id")
 
-	log.Debugf("delete backup %q", backupId)
+	log.Infof("delete backup: %s", backupId)
 
 	backup, err := h.handler.GetBackupHandler().GetById(ctx, backupId)
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -290,6 +290,8 @@ func (h *Handler) enabledBackupPlan(req *restful.Request, resp *restful.Response
 		response.HandleError(resp, errors.WithStack(err))
 		return
 	}
+
+	log.Infof("enabled backup plan request: %s", util.PrettyJSON(b))
 
 	if !util.ListContains([]string{constant.BackupPause, constant.BackupResume}, strings.ToLower(b.Event)) {
 		response.HandleError(resp, errors.WithMessagef(err, "backup event invalid, event: %s", b.Event))
@@ -592,11 +594,10 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		if apierrors.IsNotFound(err) {
 			response.HandleError(resp, fmt.Errorf("backup %s not found", snapshot.Spec.BackupId))
 			return
-
 		}
 
 		backupName = backup.Spec.Name
-		backupPath = locationConfig["path"]
+		backupPath = handlers.GetBackupPath(backup)
 		resticSnapshotId = *snapshot.Spec.SnapshotId
 		snapshotTime = fmt.Sprintf("%d", snapshot.Spec.CreateAt.Unix())
 	} else {
@@ -655,36 +656,11 @@ func (h *Handler) getRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	restoreType, err := handlers.ParseRestoreType(restore)
+	result, err := parseResponseRestoreDetailFromBackupUrl(restore)
 	if err != nil {
-		response.HandleError(resp, fmt.Errorf("parse %s restore type error: %v", restoreId, err))
-		return
+		log.Errorf("get restore %s detail error: %s", restoreId, err)
 	}
-
-	var backup *sysv1.Backup
-	var snapshot *sysv1.Snapshot
-
-	if restoreType.Type == constant.RestoreTypeSnapshot {
-		snapshot, err = h.handler.GetSnapshotHandler().GetById(ctx, restoreType.SnapshotId)
-		if err != nil {
-			response.HandleError(resp, fmt.Errorf("get restore %s snapshot %s error", restoreId, restoreType.SnapshotId))
-			return
-		}
-
-		backup, err = h.handler.GetBackupHandler().GetById(ctx, snapshot.Spec.BackupId)
-		if err != nil {
-			response.HandleError(resp, fmt.Errorf("get restore %s backup %s error", restoreId, snapshot.Spec.BackupId))
-			return
-		}
-
-		response.Success(resp, parseResponseRestoreDetail(backup, snapshot, restore))
-	} else {
-		result, err := parseResponseRestoreDetailFromBackupUrl(restore)
-		if err != nil {
-			log.Errorf("get restore %s detail error: %s", restoreId, err)
-		}
-		response.Success(resp, result)
-	}
+	response.Success(resp, result)
 }
 
 func (h *Handler) getRestoreOne(req *restful.Request, resp *restful.Response) {

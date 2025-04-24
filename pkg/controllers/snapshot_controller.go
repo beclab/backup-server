@@ -16,6 +16,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -114,9 +115,9 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if phase == constant.Canceled.String() {
 			worker.GetWorkerPool().CancelSnapshot(backup.Spec.Owner, snapshot.Name)
 		}
-		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil {
+		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil { // TODO
 			log.Errorf("[notify] snapshot error: %v, id: %s, phase: %s", err, snapshot.Name, *snapshot.Spec.Phase)
-			// return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
+			snapshot.Spec.Message = pointer.String(pointer.StringDerefJoin(snapshot.Spec.Message, fmt.Sprintf("notify snapshot error: %v", err)))
 		} else {
 			log.Infof("[notify] snapshot success, id: %s, phase: %s", snapshot.Name, *snapshot.Spec.Phase)
 		}

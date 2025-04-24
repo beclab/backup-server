@@ -214,7 +214,7 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 		Duration: 1 * time.Second,
 		Factor:   2,
 		Jitter:   0.1,
-		Steps:    10,
+		Steps:    5,
 	}
 
 	if err = retry.OnError(backoff, func(err error) bool {
