@@ -197,7 +197,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 }
 
 func (s *StorageRestore) prepareForRun() error {
-	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
 		"id":       s.Restore.Name,
 		"progress": 0,
 		"status":   constant.Running.String(),
@@ -223,7 +223,7 @@ func (s *StorageRestore) progressCallback(percentDone float64) {
 
 		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
 
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
+		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
 			"id":       s.RestoreId,
 			"progress": percent,
 			"status":   constant.Running.String(),
@@ -407,7 +407,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 
 	restore.Spec.EndAt = pointer.Time()
 
-	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.Backup.Spec.Owner, "restore running", map[string]interface{}{
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
 		"id":       s.Restore.Name,
 		"progress": notifyProgress,
 		"status":   phase,
