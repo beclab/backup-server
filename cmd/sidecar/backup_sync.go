@@ -1,0 +1,158 @@
+package sidecar
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/sidecar/syncbackup/v1/db"
+	"bytetrade.io/web3os/backup-server/pkg/signals"
+	"bytetrade.io/web3os/backup-server/pkg/util"
+	httputil "bytetrade.io/web3os/backup-server/pkg/util/http"
+	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/util/wait"
+)
+
+var (
+	logLevel string
+
+	syncInterval uint
+
+	syncServerURL string
+
+	syncServerToken string
+
+	backupServer string
+
+	defaultClient *http.Client
+)
+
+func main() {
+	fmt.Println("---main---")
+	pflag.StringVarP(&logLevel, "log-level", "", "debug", "log level")
+	pflag.StringVarP(&backupServer, "backup-server", "a",
+		util.EnvOrDefault("BACKUP_SERVER", "http://127.0.0.1:8082"), "backup api server")
+	pflag.UintVarP(&syncInterval, "sync-interval", "i",
+		5, "sync backup interval seconds")
+	pflag.StringVarP(&syncServerURL, "sync-server-url", "",
+		util.EnvOrDefault(constant.EnvSpaceUrl, constant.DefaultSyncServerURL), "sync server api token")
+	pflag.StringVarP(&syncServerToken, "sync-server-token", "",
+		util.EnvOrDefault("BACKUP_SECRET", ""), "sync server api token")
+	pflag.Parse()
+
+	log.InitLog(logLevel)
+
+	ctx := signals.SetupSignalContext()
+	dbOperator, err := db.NewDbOperator()
+	if err != nil {
+		log.Errorf("new db operator error: %+v", err)
+		os.Exit(1)
+	}
+	// syncManager = syncbackupv1.NewSyncManager(ctx, syncServerURL, syncServerToken, defaultClient, dbOperator)
+
+	log.Debugf("startup sync backup, with intervals %d", syncInterval)
+	go wait.Until(syncBackup, time.Duration(syncInterval)*time.Second, ctx.Done())
+
+	<-ctx.Done()
+	log.Info("exiting...")
+	dbOperator.Close()
+}
+
+func syncBackup() {
+	log.Info("cache and syncing backups")
+
+	var err error
+
+	if err = available(); err != nil {
+		log.Warnf("check available: %v", err)
+		return
+	}
+
+	// backup server list
+	backupPlanListUrl := backupServer + "/apis/backup/v1/plans/backup"
+	var plansResp struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			Totals int                      `json:"totalPage"`
+			Items  []map[string]interface{} `json:"backups"`
+		} `json:"data"`
+	}
+
+	_, err = httputil.RequestJSON("GET", backupPlanListUrl, nil, nil, &plansResp)
+	if err != nil {
+		log.Errorf("list backup plan error: %+v", err)
+		return
+	}
+
+	if plansResp.Code != 0 {
+		log.Errorf("list backup plan: %q", plansResp.Message)
+		return
+	}
+
+	for _, p := range plansResp.Data.Items {
+		var backupId = p["id"].(string)
+		snapshotListUrl := backupServer + "/apis/backup/v1/plans/backup/" + backupId + "/snapshots"
+
+		var r struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Data    struct {
+				TotalCount int                      `json:"totalCount"`
+				TotalPage  int                      `json:"totalPage"`
+				Items      []map[string]interface{} `json:"items"`
+			} `json:"data"`
+		}
+
+		_, err = httputil.RequestJSON("GET", snapshotListUrl, nil, nil, &r)
+		if err != nil {
+			log.Errorf("list backup error: %+v", err)
+			return
+		}
+
+		if r.Code != 0 {
+			log.Errorf("list backup: %s", r.Message)
+			return
+		}
+
+		log.Debugf("got backup totals: %d, result: %v", r.Data.Items, util.ToJSON(r))
+
+		fmt.Println("---for backup---", backupId)
+		fmt.Println("---snapshot---", r.Data.Items)
+		// for _, backup := range r.Data.Items {
+		// 	log.Infof("syncing backup %q ...", backup.Name)
+		// 	err = syncManager.StoreAndSync(backup)
+		// 	if err != nil {
+		// 		log.Warnf("backup %q, %v", backup.Name, err)
+		// 		continue
+		// 	}
+		// 	log.Infof("successfully cache and synced %q", backup.Name)
+		// }
+
+	}
+
+}
+
+func available() error {
+	if syncServerToken == "" {
+		return errors.New("backup sync secret not found")
+	}
+
+	var res response.Response
+
+	url := backupServer + "/apis/backup/v1/available"
+	_, err := httputil.RequestJSON("GET", url, nil, nil, &res)
+	if err != nil {
+		return err
+	}
+
+	if res.Code != 0 {
+		return errors.New(res.Message)
+	}
+	return nil
+}

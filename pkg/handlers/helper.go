@@ -554,8 +554,8 @@ func parseBackupUrl(s string) (*BackupUrlType, error) {
 }
 
 func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) (T, int64, int64) {
-	if limit <= 0 {
-		limit = 5
+	if limit < 0 {
+		limit = 0
 	}
 	if offset < 0 {
 		offset = 0

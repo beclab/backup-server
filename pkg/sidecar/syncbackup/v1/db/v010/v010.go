@@ -17,9 +17,10 @@ var (
 create table if not exists sync_backups (
 	id integer primary key autoincrement,
 	uid char(36) not null,
-	name varchar(128) not null,
+	name varchar(256) not null,
  	owner varchar(128) not null,
 	phase varchar(16) not null,
+	size INTEGER not null default 0,
 	synced tinyint(1) not null default 0,
 	create_time datetime default CURRENT_TIMESTAMP
 );
