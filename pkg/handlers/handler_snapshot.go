@@ -11,6 +11,7 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -204,6 +205,16 @@ func (o *SnapshotHandler) CreateSchedule(ctx context.Context, backup *sysv1.Back
 	}
 
 	return err
+}
+
+func (o *SnapshotHandler) CreateToSql(ctx context.Context, backup *postgres.Backup, location string) (*postgres.Snapshot, error) {
+	var owner = backup.Owner
+	var snapshotId = uuid.NewUUID()
+	var backupId = backup.BackupId
+	var phase = constant.Pending.String()
+	var parseSnapshotType = ParseSnapshotType(constant.UnKnownBackup)
+
+	return postgres.CreateSnapshot(owner, snapshotId, backupId, location, phase, *parseSnapshotType)
 }
 
 func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, location string) (*sysv1.Snapshot, error) {

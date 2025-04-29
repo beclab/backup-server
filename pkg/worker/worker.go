@@ -9,10 +9,13 @@ import (
 
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/interfaces"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	pond "github.com/alitto/pond/v2"
 )
+
+var _ interfaces.WorkerInterface = &WorkerPool{}
 
 var workerPool *WorkerPool
 

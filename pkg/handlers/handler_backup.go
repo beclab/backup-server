@@ -12,6 +12,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/converter"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/notify"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
@@ -157,6 +158,23 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 	}
 
 	return &backups.Items[0], nil
+}
+
+func (o *BackupHandler) CreateToSql(ctx context.Context, owner string, backupName string, backupPath string, backupSpec *sysv1.BackupSpec) (*postgres.Backup, error) {
+	var backupId = uuid.NewUUID()
+	var location = backupSpec.Location
+	var backupType = backupSpec.BackupType
+	var backupPolicy = new(postgres.BackupPolicy)
+	backupPolicy.Enabled = backupSpec.BackupPolicy.Enabled
+	backupPolicy.SnapshotFrequency = backupSpec.BackupPolicy.SnapshotFrequency
+	backupPolicy.TimesOfDay = backupSpec.BackupPolicy.TimesOfDay
+	backupPolicy.TimespanOfDay = backupSpec.BackupPolicy.TimespanOfDay
+	backupPolicy.DayOfWeek = backupSpec.BackupPolicy.DayOfWeek
+	backupPolicy.DateOfMonth = backupSpec.BackupPolicy.DateOfMonth
+
+	var createAt = time.Now()
+
+	return postgres.CreateBackup(owner, backupId, backupName, location, backupType, backupPolicy, createAt)
 }
 
 func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {

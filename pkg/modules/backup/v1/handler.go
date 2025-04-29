@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/cron"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
@@ -156,17 +158,17 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	var getLabel = "name=" + util.MD5(b.Name) + ",owner=" + owner
-	backup, err := h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-	if err != nil && !apierrors.IsNotFound(err) {
-		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
-		return
-	}
+	// var getLabel = "name=" + util.MD5(b.Name) + ",owner=" + owner
+	// backup, err := h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
+	// if err != nil && !apierrors.IsNotFound(err) {
+	// 	response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
+	// 	return
+	// }
 
-	if backup != nil {
-		response.HandleError(resp, errors.New("backup plan "+b.Name+" already exists"))
-		return
-	}
+	// if backup != nil {
+	// 	response.HandleError(resp, errors.New("backup plan "+b.Name+" already exists"))
+	// 	return
+	// }
 
 	// getLabel = "path=" + util.MD5(b.Path) + ",owner=" + owner
 	// backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
@@ -180,25 +182,29 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 	// 	return
 	// }
 
-	getLabel = "owner=" + owner + ",policy=" + util.MD5(b.BackupPolicies.TimesOfDay)
-	backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-	if err != nil && !apierrors.IsNotFound(err) {
-		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
-		return
-	}
+	// getLabel = "owner=" + owner + ",policy=" + util.MD5(b.BackupPolicies.TimesOfDay)
+	// backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
+	// if err != nil && !apierrors.IsNotFound(err) {
+	// 	response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
+	// 	return
+	// }
 
-	if backup != nil {
-		response.HandleError(resp, fmt.Errorf("there are other backup tasks at the same time: %s", b.BackupPolicies.TimesOfDay))
-		return
-	}
+	// if backup != nil {
+	// 	response.HandleError(resp, fmt.Errorf("there are other backup tasks at the same time: %s", b.BackupPolicies.TimesOfDay))
+	// 	return
+	// }
 
-	createBackup, err := NewBackupPlan(owner, h.factory, h.handler).Apply(ctx, &b)
+	newBackup, err := NewBackupPlan(owner, h.factory, h.handler).Apply(ctx, &b)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
 		return
 	}
 
-	response.Success(resp, parseResponseBackupCreate(createBackup))
+	cronSchedule, _ := util.ParseToCron(newBackup.BackupPolicy.SnapshotFrequency, newBackup.BackupPolicy.TimesOfDay, newBackup.BackupPolicy.DayOfWeek, newBackup.BackupPolicy.DateOfMonth)
+
+	cron.NewSchedule(context.TODO(), newBackup, cronSchedule, !newBackup.BackupPolicy.Enabled)
+
+	response.Success(resp, parseResponseBackupCreateX(newBackup))
 }
 
 func (h *Handler) update(req *restful.Request, resp *restful.Response) {

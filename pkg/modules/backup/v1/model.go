@@ -10,6 +10,7 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"k8s.io/klog/v2"
 )
@@ -321,26 +322,26 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	}
 }
 
-func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
+func parseResponseBackupCreateX(backup *postgres.Backup) map[string]interface{} {
 	var data = make(map[string]interface{})
 
-	locationConfig, err := handlers.GetBackupLocationConfig(backup)
+	locationConfig, err := handlers.GetBackupLocationConfigX(backup)
 	if err != nil {
 		return data
 	}
 
 	var location = locationConfig["location"]
 	var locationConfigName = locationConfig["name"]
-	var nextBackupTimestamp = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
+	var nextBackupTimestamp = handlers.GetNextBackupTimeX(backup.BackupPolicy)
 
-	data["id"] = backup.Name
-	data["name"] = backup.Spec.Name
+	data["id"] = backup.BackupId
+	data["name"] = backup.BackupName
 	data["nextBackupTimestamp"] = *nextBackupTimestamp
 	data["location"] = location
 	data["locationConfigName"] = locationConfigName
-	data["createAt"] = backup.Spec.CreateAt.Unix()
+	data["createAt"] = backup.CreateTime.Unix()
 	data["size"] = "0"
-	data["path"] = handlers.ParseBackupTypePath(backup.Spec.BackupType)
+	data["path"] = handlers.ParseBackupTypePath(backup.BackupType)
 	data["status"] = constant.Pending.String()
 
 	return data

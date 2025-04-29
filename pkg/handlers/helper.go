@@ -16,6 +16,7 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	utilstring "bytetrade.io/web3os/backup-server/pkg/util/string"
@@ -235,6 +236,35 @@ func GetRestorePath(restore *sysv1.Restore) string {
 	return p
 }
 
+func GetBackupLocationConfigX(backup *postgres.Backup) (map[string]string, error) {
+	var locationConfig map[string]string
+	var err error
+
+	for k, v := range backup.Location {
+		if err = json.Unmarshal([]byte(v), &locationConfig); err != nil {
+			return nil, err
+		}
+		_, ok := locationConfig["name"]
+		if util.ListContains([]string{
+			constant.BackupLocationSpace.String(),
+			constant.BackupLocationAwsS3.String(),
+			constant.BackupLocationTencentCloud.String(),
+		}, k) && !ok {
+			return nil, fmt.Errorf("location %s config name not exsits, config: %s", k, v)
+		}
+
+		_, ok = locationConfig["path"]
+		if k == constant.BackupLocationFileSystem.String() && !ok {
+			return nil, fmt.Errorf("location %s config path not exsits, config: %s", k, v)
+		}
+
+		locationConfig["location"] = k
+		break
+	}
+
+	return locationConfig, nil
+}
+
 func GetBackupLocationConfig(backup *sysv1.Backup) (map[string]string, error) {
 	var locationConfig map[string]string
 	var err error
@@ -319,6 +349,33 @@ func ParseBackupTypePath(backupType map[string]string) string {
 		return backupTypeValue["path"]
 	}
 	return ""
+}
+
+func GetNextBackupTimeX(bp *postgres.BackupPolicy) *int64 {
+	var res int64
+
+	timeParts := strings.Split(bp.TimesOfDay, ":")
+	if len(timeParts) != 2 {
+		return nil
+	}
+
+	hours, errHour := strconv.Atoi(timeParts[0])
+	minutes, errMin := strconv.Atoi(timeParts[1])
+	if errHour != nil || errMin != nil {
+		return nil
+	}
+
+	switch bp.SnapshotFrequency {
+	case "@hourly":
+		res = getNextBackupTimeByHourly(minutes).Unix()
+	case "@weekly":
+		res = getNextBackupTimeByWeekly(hours, minutes, bp.DayOfWeek).Unix()
+	case "@monthly":
+		res = getNextBackupTimeByMonthly(hours, minutes, bp.DateOfMonth).Unix()
+	default:
+		res = getNextBackupTimeByDaily(hours, minutes).Unix()
+	}
+	return &res
 }
 
 func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {

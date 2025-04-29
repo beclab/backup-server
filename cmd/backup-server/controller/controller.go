@@ -6,8 +6,10 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
+	"bytetrade.io/web3os/backup-server/pkg/cron"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/watchers"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
@@ -122,6 +124,8 @@ func run(factory client.Factory) error {
 		return pkgerrors.Errorf("unable to setup ready check: %v", err)
 	}
 
+	postgres.InitPostgres()
+
 	integration.NewIntegrationManager(factory)
 
 	notification := &watchers.Notification{
@@ -130,6 +134,7 @@ func run(factory client.Factory) error {
 
 	var handler = handlers.NewHandler(factory, notification)
 
+	cron.NewCronJob(handler.GetSnapshotHandler())
 	worker.NewWorkerPool(context.TODO(), handler)
 
 	enabledControllers := map[string]struct{}{
