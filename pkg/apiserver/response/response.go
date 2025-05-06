@@ -70,7 +70,13 @@ func HandleConflict(w *restful.Response, err error) {
 }
 
 func HandleError(w *restful.Response, err error) {
-	errHandle(http.StatusInternalServerError, w, err)
+	// errHandle(http.StatusInternalServerError, w, err)
+	w.WriteHeaderAndEntity(http.StatusOK, Response{
+		Header: Header{
+			Code:    1,
+			Message: err.Error(),
+		},
+	})
 }
 
 func Success(w *restful.Response, v any) {
