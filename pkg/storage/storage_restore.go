@@ -127,6 +127,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	var password string
 	var locationConfig = make(map[string]string)
 	var err error
+	var external bool
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
 		backupId = s.Backup.Name
@@ -152,8 +153,13 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		location := locationConfig["location"]
 		if location == constant.BackupLocationFileSystem.String() {
 			locPath := locationConfig["path"]
-			locPath = handlers.TrimPathPrefix(locPath)
-			locationConfig["path"] = path.Join(userspacePath, locPath)
+			external, locPath = handlers.TrimPathPrefix(locPath)
+			if external {
+				locationConfig["path"] = path.Join(constant.ExternalPath, locPath)
+			} else {
+				locationConfig["path"] = path.Join(userspacePath, locPath)
+			}
+
 		}
 	} else {
 		// backupUrl
@@ -183,7 +189,13 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		return err
 	}
 
-	var restorePath = path.Join(userspacePvc, handlers.TrimPathPrefix(s.RestoreType.Path))
+	var restorePath string
+	var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(s.RestoreType.Path)
+	if tmpRestoreExternal {
+		restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
+	} else {
+		restorePath = path.Join(userspacePvc, tmpRestorePath)
+	}
 
 	log.Infof("restore: %s, locationConfig: %v", s.RestoreId, util.ToJSON(locationConfig))
 	s.Params = &RestoreParameters{

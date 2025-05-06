@@ -9,12 +9,41 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
 )
+
+func DirSize(path string) (uint64, error) {
+	var size int64 = 0
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+
+	var res = uint64(size)
+
+	return res, err
+}
+
+func GetDiskFreeSpace(path string) (uint64, error) {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(path, &stat)
+	if err != nil {
+		return 0, err
+	}
+	free := stat.Bavail * uint64(stat.Bsize)
+	return free, nil
+}
 
 func Base64encode(s []byte) string {
 	return base64.StdEncoding.EncodeToString(s)
@@ -207,4 +236,29 @@ func GetSuffix(c string, s string) (string, error) {
 		return "", fmt.Errorf("get suffix invalid, context: %s", c)
 	}
 	return r[1], nil
+}
+
+func FormatBytes(bytes uint64) string {
+	const (
+		KB = 1 << 10
+		MB = 1 << 20
+		GB = 1 << 30
+		TB = 1 << 40
+	)
+
+	var result string
+	switch {
+	case bytes >= TB:
+		result = fmt.Sprintf("%.2f TB", float64(bytes)/TB)
+	case bytes >= GB:
+		result = fmt.Sprintf("%.2f GB", float64(bytes)/GB)
+	case bytes >= MB:
+		result = fmt.Sprintf("%.2f MB", float64(bytes)/MB)
+	case bytes >= KB:
+		result = fmt.Sprintf("%.2f KB", float64(bytes)/KB)
+	default:
+		result = fmt.Sprintf("%d Byte", bytes)
+	}
+
+	return result
 }

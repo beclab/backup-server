@@ -45,6 +45,10 @@ const (
 	EventRestore string = "restore-state-event"
 
 	TraceId string = "traceId"
+
+	ExternalPath string = "/shares"
+
+	FreeSpaceStorage uint64 = 2 * 1024 * 1024 * 1024
 )
 
 const (

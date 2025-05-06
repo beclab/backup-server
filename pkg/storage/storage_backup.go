@@ -33,6 +33,8 @@ type StorageBackup struct {
 	Params       *BackupParameters
 	SnapshotType *int
 
+	UserspacePvcPath string
+
 	LastProgressPercent int
 	LastProgressTime    time.Time
 }
@@ -54,6 +56,10 @@ func (s *StorageBackup) RunBackup() error {
 
 	var f = func() error {
 		var e error
+		if e = s.getUserspacePvc(); e != nil {
+			return errors.WithStack(e)
+		}
+
 		if e = s.validateSnapshotPreconditions(); e != nil {
 			return errors.WithStack(e)
 		}
@@ -118,6 +124,20 @@ func (s *StorageBackup) checkBackupExists() error {
 	return nil
 }
 
+func (s *StorageBackup) getUserspacePvc() error {
+	var backupName = s.Backup.Spec.Name
+	var snapshotId = s.Snapshot.Name
+
+	userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
+	if err != nil {
+		return fmt.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
+	}
+
+	s.UserspacePvcPath = userspacePath
+
+	return nil
+}
+
 func (s *StorageBackup) validateSnapshotPreconditions() error {
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
@@ -139,16 +159,12 @@ func (s *StorageBackup) checkSnapshotType() error {
 }
 
 func (s *StorageBackup) prepareBackupParams() error {
+	var external bool
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 	password, err := handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
 	if err != nil {
 		return fmt.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
-	}
-
-	userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
-	if err != nil {
-		return fmt.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
 	}
 
 	location, err := handlers.GetBackupLocationConfig(s.Backup)
@@ -163,11 +179,23 @@ func (s *StorageBackup) prepareBackupParams() error {
 	loc := location["location"]
 	if loc == constant.BackupLocationFileSystem.String() {
 		locPath := location["path"]
-		locPath = handlers.TrimPathPrefix(locPath)
-		location["path"] = path.Join(userspacePath, locPath)
+
+		external, locPath = handlers.TrimPathPrefix(locPath)
+		if external {
+			location["path"] = path.Join(constant.ExternalPath, locPath)
+		} else {
+			location["path"] = path.Join(s.UserspacePvcPath, locPath)
+		}
 	}
 
-	var backupPath = path.Join(userspacePath, handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup)))
+	var backupPath string
+
+	var tmpBackupExternal, tmpBackupPath = handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup))
+	if tmpBackupExternal {
+		backupPath = path.Join(constant.ExternalPath, tmpBackupPath)
+	} else {
+		backupPath = path.Join(s.UserspacePvcPath, tmpBackupPath)
+	}
 
 	s.Params = &BackupParameters{
 		Path:     backupPath,

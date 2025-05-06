@@ -208,6 +208,10 @@ func (o *BackupPlan) validLocation() error {
 		if locationConfig.Path == "" {
 			return errors.Errorf("backup %s location %s path %s invalid, please check target path", o.c.Name, location, locationConfig.Path)
 		}
+
+		if strings.HasPrefix(locationConfig.Path, o.c.Path) {
+			return errors.Errorf("the path %s to be backed up contains the backup storage path %s", o.c.Path, locationConfig.Path)
+		}
 	}
 
 	return nil
