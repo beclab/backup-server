@@ -305,7 +305,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 			Ctx:      s.Ctx,
 			Logger:   logger,
 			Filesystem: &backupssdkoptions.FilesystemRestoreOption{
-				RepoName:   s.Params.BackupId,
+				RepoName:   fmt.Sprintf("olares-backup-%s", s.RestoreType.BackupName), //s.Params.BackupId,
 				SnapshotId: resticSnapshotId,
 				Endpoint:   s.Params.Location["path"],
 				Path:       s.Params.Path,
@@ -422,6 +422,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
 		"id":       s.Restore.Name,
 		"progress": notifyProgress,
+		"endat":    restore.Spec.EndAt.Unix(),
 		"status":   phase,
 		"message":  msg,
 	})
