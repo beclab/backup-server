@@ -162,6 +162,7 @@ type ResponseRestoreDetail struct {
 	RestorePath  string `json:"restorePath"`
 	Progress     int    `json:"progress,omitempty"`
 	Status       string `json:"status"`
+	EndAt        int64  `json:"endAt,omitempty"`
 	Message      string `json:"message"`
 }
 
@@ -523,6 +524,10 @@ func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseR
 		RestorePath:  restorePath,
 		Progress:     restore.Spec.Progress,
 		Status:       *restore.Spec.Phase,
+	}
+
+	if restore.Spec.EndAt != nil {
+		result.EndAt = restore.Spec.EndAt.Unix()
 	}
 
 	if restore.Spec.Message != nil {
