@@ -9,9 +9,11 @@ import (
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	k8sclient "bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/cron"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/notify"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
@@ -78,6 +80,22 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	log.Infof("received backup request, id: %s, name: %s, owner: %s, deleted: %v, enabled: %v", req.Name, backup.Spec.Name, backup.Spec.Owner, backup.Spec.Deleted, backup.Spec.BackupPolicy.Enabled)
 
+	ok, _ := r.checkBackupExists(req.Name)
+	// if err != nil {
+	// 	log.Errorf("check backup exists error: %v, id: %s", err, req.Name)
+	// 	return ctrl.Result{}, errors.WithStack(err)
+	// }
+
+	if !ok {
+		if err = r.newBackup(backup); err != nil {
+			return ctrl.Result{}, errors.WithStack(err)
+		}
+	}
+
+	// todo update?
+
+	return ctrl.Result{}, nil
+
 	if r.isDeleted(backup) {
 		log.Infof("received backup delete request, id: %s, event: deleted", req.Name)
 		worker.GetWorkerPool().CancelBackup(backup.Spec.Owner, backup.Name)
@@ -136,6 +154,8 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
+				return false
+
 				flag, err := r.isSizeUpdated(bc1, bc2)
 				if err != nil {
 					log.Errorf("backup size updated error: %v", err)
@@ -156,6 +176,57 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return nil
+}
+
+func (r *BackupReconciler) checkBackupExists(backupId string) (bool, error) {
+	var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	backupExists, err := postgres.GetBackupById(ctx, backupId)
+	fmt.Println("---1---", backupExists)
+	if err != nil {
+		return false, err
+	}
+
+	if backupExists != nil {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (r *BackupReconciler) newBackup(backup *sysv1.Backup) error {
+	var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var backupId = backup.Name
+
+	backupExists, err := postgres.GetBackupById(ctx, backupId)
+	if err != nil {
+		return err
+	}
+
+	if backupExists != nil {
+		return nil
+	}
+
+	var policy = &postgres.BackupPolicy{
+		Enabled:           backup.Spec.BackupPolicy.Enabled,
+		SnapshotFrequency: backup.Spec.BackupPolicy.SnapshotFrequency,
+		TimesOfDay:        backup.Spec.BackupPolicy.TimesOfDay,
+		TimespanOfDay:     backup.Spec.BackupPolicy.TimespanOfDay,
+		DayOfWeek:         backup.Spec.BackupPolicy.DayOfWeek,
+		DateOfMonth:       backup.Spec.BackupPolicy.DateOfMonth,
+	}
+
+	createdBackup, err := postgres.CreateBackup(backup.Spec.Owner, backupId, backup.Spec.Name, backup.Spec.Location, backup.Spec.BackupType, policy, backup.Spec.CreateAt.Time)
+	if err != nil {
+		return err
+	}
+
+	cronSchedule, _ := util.ParseToCron(policy.SnapshotFrequency, policy.TimesOfDay, policy.DayOfWeek, policy.DateOfMonth)
+
+	return cron.NewSchedule(context.TODO(), createdBackup, cronSchedule, !policy.Enabled)
 }
 
 func (r *BackupReconciler) isNotified(backup *sysv1.Backup) bool {

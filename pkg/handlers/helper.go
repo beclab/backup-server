@@ -241,7 +241,7 @@ func GetBackupLocationConfigX(backup *postgres.Backup) (map[string]string, error
 	var err error
 
 	for k, v := range backup.Location {
-		if err = json.Unmarshal([]byte(v), &locationConfig); err != nil {
+		if err = json.Unmarshal([]byte(v.(string)), &locationConfig); err != nil {
 			return nil, err
 		}
 		_, ok := locationConfig["name"]
@@ -332,6 +332,23 @@ func ParseSnapshotSize(size *uint64) string {
 	}
 
 	return fmt.Sprintf("%d", *size)
+}
+
+func ParseBackupTypePath1(backupType map[string]interface{}) string {
+	if backupType == nil {
+		return ""
+	}
+	var backupTypeValue map[string]string
+	for k, v := range backupType {
+		if k != "file" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(v.(string)), &backupTypeValue); err != nil {
+			return ""
+		}
+		return backupTypeValue["path"]
+	}
+	return ""
 }
 
 func ParseBackupTypePath(backupType map[string]string) string {
@@ -482,6 +499,24 @@ func getNextBackupTimeByHourly(minutes int) time.Time {
 		Truncate(time.Minute)
 
 	return nextTime
+}
+
+func ParseRestoreType1(restore *postgres.Restore) (*RestoreType, error) {
+	var m *RestoreType
+	var data = restore.RestoreType
+	val, ok := data[constant.BackupTypeFile]
+	if !ok {
+		return nil, errors.WithStack(fmt.Errorf("restore file type data not found"))
+	}
+
+	v, err := json.Marshal(val)
+	if err != nil {
+		return nil, errors.WithStack(fmt.Errorf("marshal restore type error: %v", err))
+	}
+	if err := json.Unmarshal(v, &m); err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return m, nil
 }
 
 func ParseRestoreType(restore *sysv1.Restore) (*RestoreType, error) {

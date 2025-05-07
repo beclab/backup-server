@@ -1,7 +1,6 @@
 package v1
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -10,7 +9,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/client"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/cron"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/storage"
 	"bytetrade.io/web3os/backup-server/pkg/util"
@@ -200,11 +198,17 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	cronSchedule, _ := util.ParseToCron(newBackup.BackupPolicy.SnapshotFrequency, newBackup.BackupPolicy.TimesOfDay, newBackup.BackupPolicy.DayOfWeek, newBackup.BackupPolicy.DateOfMonth)
+	// policy, err := postgres.ParseBackupPolicy(newBackup.BackupPolicy)
+	// if err != nil {
+	// 	response.HandleError(resp, errors.Errorf("failed to create backup %q: %v", b.Name, err))
+	// 	return
+	// }
 
-	cron.NewSchedule(context.TODO(), newBackup, cronSchedule, !newBackup.BackupPolicy.Enabled)
+	// cronSchedule, _ := util.ParseToCron(policy.SnapshotFrequency, policy.TimesOfDay, policy.DayOfWeek, policy.DateOfMonth)
 
-	response.Success(resp, parseResponseBackupCreateX(newBackup))
+	// cron.NewSchedule(context.TODO(), newBackup, cronSchedule, !policy.Enabled)
+
+	response.Success(resp, parseResponseBackupCreate(newBackup))
 }
 
 func (h *Handler) update(req *restful.Request, resp *restful.Response) {

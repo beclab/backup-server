@@ -11,6 +11,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -27,6 +28,9 @@ type StorageBackup struct {
 	SnapshotId string
 	Ctx        context.Context
 	Cancel     context.CancelFunc
+
+	Backup1   *postgres.Backup
+	Snapshot1 *postgres.Snapshot
 
 	Backup       *sysv1.Backup
 	Snapshot     *sysv1.Snapshot
@@ -45,28 +49,29 @@ type BackupParameters struct {
 }
 
 func (s *StorageBackup) RunBackup() error {
-	if err := s.checkBackupExists(); err != nil {
+	if err := s.checkBackupExists1(); err != nil {
 		return errors.WithStack(err)
 	}
 
-	var backupName = s.Backup.Spec.Name
-	var snapshotId = s.Snapshot.Name
+	var backupId = s.Backup1.BackupId
+	var backupName = s.Backup1.BackupName   //s.Backup.Spec.Name
+	var snapshotId = s.Snapshot1.SnapshotId //s.Snapshot.Name
 
 	var f = func() error {
 		var e error
-		if e = s.validateSnapshotPreconditions(); e != nil {
+		if e = s.validateSnapshotPreconditions1(); e != nil {
 			return errors.WithStack(e)
 		}
 
-		if e = s.checkSnapshotType(); e != nil {
+		if e = s.checkSnapshotType1(); e != nil {
 			return errors.WithStack(e)
 		}
 
-		if e = s.prepareBackupParams(); e != nil {
+		if e = s.prepareBackupParams1(); e != nil {
 			return errors.WithStack(e)
 		}
 
-		if e = s.prepareForRun(); e != nil {
+		if e = s.prepareForRun1(); e != nil {
 			return errors.WithStack(e)
 		}
 
@@ -78,8 +83,13 @@ func (s *StorageBackup) RunBackup() error {
 		// } else {
 		// 	log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
 		// }
+
+		// ~
+		// if e := s.updateBackupResult(nil, nil, 0, err); e != nil {
+		// 	return errors.WithStack(e)
+		// }
 		log.Errorf("Backup %s,%s, prepare for run error: %v", backupName, snapshotId, err)
-		if e := s.updateBackupResult(nil, nil, 0, err); e != nil {
+		if e := postgres.UpdateSnapshotFailed(s.Ctx, s.SnapshotId, constant.Failed.String(), err.Error()); e != nil {
 			return errors.WithStack(e)
 		}
 
@@ -88,16 +98,41 @@ func (s *StorageBackup) RunBackup() error {
 
 	log.Infof("Backup %s,%s, locationConfig: %s", backupName, snapshotId, util.ToJSON(s.Params.Location))
 	backupResult, backupStorageObj, backupTotalSize, backupErr := s.execute()
+
 	if backupErr != nil {
 		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
-	} else {
-		log.Infof("Backup %s,%s, success, result: %s, storageObj: %s, totalSize: %d", backupName, snapshotId,
-			util.ToJSON(backupResult), util.ToJSON(backupStorageObj), backupTotalSize)
+		return postgres.UpdateSnapshotFailed(s.Ctx, s.SnapshotId, constant.Failed.String(), backupErr.Error())
 	}
 
-	if err := s.updateBackupResult(backupResult, backupStorageObj, backupTotalSize, backupErr); err != nil {
-		return errors.WithStack(err)
+	log.Infof("Backup %s,%s, success, result: %s, storageObj: %s, totalSize: %d", backupName, snapshotId,
+		util.ToJSON(backupResult), util.ToJSON(backupStorageObj), backupTotalSize)
+	return postgres.UpdateSnapshotCompleted(s.Ctx, backupId, snapshotId, *s.SnapshotType, progressDone, backupResult, backupStorageObj, backupTotalSize)
+
+	// if backupErr != nil {
+	// 	log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
+	// } else {
+	// 	log.Infof("Backup %s,%s, success, result: %s, storageObj: %s, totalSize: %d", backupName, snapshotId,
+	// 		util.ToJSON(backupResult), util.ToJSON(backupStorageObj), backupTotalSize)
+	// }
+
+	// if err := s.updateBackupResult(backupResult, backupStorageObj, backupTotalSize, backupErr); err != nil {
+	// 	return errors.WithStack(err)
+	// }
+
+}
+
+func (s *StorageBackup) checkBackupExists1() error {
+	snapshot, err := postgres.GetSnapshotById(s.Ctx, s.SnapshotId)
+	if err != nil {
+		return fmt.Errorf("snapshot not found: %v", err)
 	}
+	backup, err := postgres.GetBackupById(s.Ctx, snapshot.BackupId)
+	if err != nil {
+		return fmt.Errorf("backup not found: %v", err)
+	}
+
+	s.Backup1 = backup
+	s.Snapshot1 = snapshot
 
 	return nil
 }
@@ -118,6 +153,16 @@ func (s *StorageBackup) checkBackupExists() error {
 	return nil
 }
 
+func (s *StorageBackup) validateSnapshotPreconditions1() error {
+	var backupName = s.Backup1.BackupName
+	var snapshotId = s.Snapshot1.SnapshotId
+	var phase = s.Snapshot1.Phase
+	if phase != constant.Pending.String() { // other phase ?
+		return fmt.Errorf("Backup %s,%s, snapshot phase %s invalid", backupName, snapshotId, phase)
+	}
+	return nil
+}
+
 func (s *StorageBackup) validateSnapshotPreconditions() error {
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
@@ -128,6 +173,33 @@ func (s *StorageBackup) validateSnapshotPreconditions() error {
 	return nil
 }
 
+func (s *StorageBackup) checkSnapshotType1() error {
+	snapshots, err := postgres.GetSnapshotsByBackupId(s.Ctx, s.Backup1.BackupId)
+	if err != nil {
+		return fmt.Errorf("Backup %s,%s, get snapshot type error: %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
+	}
+
+	var snapshotType = constant.FullyBackup
+	for _, snapshot := range snapshots {
+		if snapshot.Phase == constant.Completed.String() {
+			snapshotType = constant.IncrementalBackup
+			break
+		}
+	}
+
+	s.SnapshotType = handlers.ParseSnapshotType(snapshotType)
+
+	return nil
+
+	// snapshotType, err := s.Handlers.GetSnapshotHandler().GetSnapshotType(s.Ctx, s.Backup.Name)
+	// if err != nil {
+	// 	return fmt.Errorf("Backup %s,%s, get snapshot type error: %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
+	// }
+
+	// s.SnapshotType = handlers.ParseSnapshotType(snapshotType)
+	// return nil
+}
+
 func (s *StorageBackup) checkSnapshotType() error {
 	snapshotType, err := s.Handlers.GetSnapshotHandler().GetSnapshotType(s.Ctx, s.Backup.Name)
 	if err != nil {
@@ -135,6 +207,47 @@ func (s *StorageBackup) checkSnapshotType() error {
 	}
 
 	s.SnapshotType = handlers.ParseSnapshotType(snapshotType)
+	return nil
+}
+
+func (s *StorageBackup) prepareBackupParams1() error {
+	var owner = s.Backup1.Owner
+	var backupName = s.Backup1.BackupName
+	var snapshotId = s.Snapshot1.SnapshotId
+	password, err := handlers.GetBackupPassword(s.Ctx, owner, backupName)
+	if err != nil {
+		return fmt.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
+	}
+
+	userspacePath, err := handlers.GetUserspacePvc(owner)
+	if err != nil {
+		return fmt.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
+	}
+
+	location, err := handlers.GetBackupLocationConfigX(s.Backup1)
+	if err != nil {
+		return fmt.Errorf("Backup %s,%s, get location config error: %v", backupName, snapshotId, err)
+	}
+
+	if location == nil {
+		return fmt.Errorf("Backup %s,%s, location config not exists", backupName, snapshotId)
+	}
+
+	loc := location["location"]
+	if loc == constant.BackupLocationFileSystem.String() {
+		locPath := location["path"]
+		locPath = handlers.TrimPathPrefix(locPath)
+		location["path"] = path.Join(userspacePath, locPath)
+	}
+
+	var backupPath = path.Join(userspacePath, handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup)))
+
+	s.Params = &BackupParameters{
+		Path:     backupPath,
+		Password: password,
+		Location: location,
+	}
+
 	return nil
 }
 
@@ -176,6 +289,19 @@ func (s *StorageBackup) prepareBackupParams() error {
 	}
 
 	return nil
+}
+
+func (s *StorageBackup) prepareForRun1() error {
+
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+		"id":       s.Snapshot1.SnapshotId,
+		"backupId": s.Backup1.BackupId,
+		"progress": 0,
+		"status":   constant.Running.String(),
+		"message":  "",
+	})
+
+	return postgres.UpdateSnapshotPhase(s.Ctx, s.Snapshot1.SnapshotId, constant.Running.String(), "Backup start running")
 }
 
 func (s *StorageBackup) prepareForRun() error {
@@ -236,9 +362,9 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	backupStorageObj *backupssdkmodel.StorageInfo, backupTotalSize uint64, backupError error) {
 	var isSpaceBackup bool
 	var logger = log.GetLogger()
-	var backupId = s.Backup.Name
-	var backupName = s.Backup.Spec.Name
-	var snapshotId = s.Snapshot.Name
+	var backupId = s.Backup1.BackupId       // s.Backup.Name
+	var backupName = s.Backup1.BackupName   // s.Backup.Spec.Name
+	var snapshotId = s.Snapshot1.SnapshotId // s.Snapshot.Name
 	var location = s.Params.Location["location"]
 
 	log.Infof("Backup %s,%s, location: %s, prepare", backupName, snapshotId, location)
@@ -322,7 +448,9 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 }
 
 func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryOutput, backupStorageObj *backupssdkmodel.StorageInfo, totalSize uint64, err error) {
-	var backupId = s.Backup.Name
+	var owner = s.Backup1.Owner
+	var backupId = s.Backup1.BackupId //s.Backup.Name
+	var backupName = s.Backup1.BackupName
 	var location = s.Params.Location
 	var olaresId = location["name"]
 
@@ -331,7 +459,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 	for {
 		// TODO loop forever?
-		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId) // backupToSpace
+		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, owner, olaresId) // backupToSpace
 		if err != nil {
 			err = fmt.Errorf("get space token error: %v", err)
 			break
@@ -376,7 +504,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		stats, err := s.getStats(spaceBackupOption)
 		if err != nil {
 
-			log.Errorf("Backup %s,%s, get stats error: %v", s.Backup.Spec.Name, s.SnapshotId, err)
+			log.Errorf("Backup %s,%s, get stats error: %v", backupName, s.SnapshotId, err)
 		} else {
 			totalSize = stats.TotalSize
 		}
@@ -526,5 +654,6 @@ func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, er
 	var l = s.Params.Location
 	var location = l["location"]
 	var locationIntegrationName = l["name"]
-	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
+	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup1.Owner, location, locationIntegrationName)
+	// return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
 }

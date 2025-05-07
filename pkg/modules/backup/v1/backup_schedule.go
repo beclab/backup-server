@@ -11,7 +11,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -43,7 +42,7 @@ func NewBackupPlan(owner string, factory client.Factory, handler handlers.Interf
 	}
 }
 
-func (o *BackupPlan) Apply(ctx context.Context, c *BackupCreate) (*postgres.Backup, error) { // (*sysv1.Backup, error)
+func (o *BackupPlan) Apply(ctx context.Context, c *BackupCreate) (*sysv1.Backup, error) { //  (*postgres.Backup, error)
 	var err error
 	o.c = c
 
@@ -127,7 +126,7 @@ func (o *BackupPlan) update(ctx context.Context, backup *sysv1.Backup) error {
 	return o.handler.GetBackupHandler().UpdateBackupPolicy(ctx, backup)
 }
 
-func (o *BackupPlan) apply(ctx context.Context) (*postgres.Backup, error) { // (*sysv1.Backup, error) {
+func (o *BackupPlan) apply(ctx context.Context) (*sysv1.Backup, error) { // (*postgres.Backup, error) {
 	var (
 		backupSpec *sysv1.BackupSpec
 	)
@@ -147,17 +146,16 @@ func (o *BackupPlan) apply(ctx context.Context) (*postgres.Backup, error) { // (
 
 	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
-	// todo 这里创建完后直接操作 cron
-	// backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupSpec)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	backup, err := o.handler.GetBackupHandler().CreateToSql(ctx, o.owner, o.c.Name, o.c.Path, backupSpec)
+	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupSpec)
 	if err != nil {
 		return nil, err
 	}
+	// backup, err := o.handler.GetBackupHandler().CreateToSql(ctx, o.owner, o.c.Name, o.c.Path, backupSpec)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	log.Infof("create backup %s, id %s", backup.BackupName, backup.BackupId)
+	log.Infof("create backup %s, id %s", backup.Spec.Name, backup.Name)
 
 	return backup, nil
 }

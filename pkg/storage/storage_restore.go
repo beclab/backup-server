@@ -11,12 +11,12 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/postgres"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	backupssdk "bytetrade.io/web3os/backups-sdk"
 	"github.com/pkg/errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	backupssdkoptions "bytetrade.io/web3os/backups-sdk/pkg/options"
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
@@ -28,6 +28,10 @@ type StorageRestore struct {
 	RestoreId string
 	Ctx       context.Context
 	Cancel    context.CancelFunc
+
+	Backup1   *postgres.Backup
+	Snapshot1 *postgres.Snapshot
+	Restore1  *postgres.Restore
 
 	Backup      *sysv1.Backup
 	Snapshot    *sysv1.Snapshot
@@ -65,9 +69,16 @@ func (s *StorageRestore) RunRestore() error {
 	}
 
 	if err := f(); err != nil {
-		if err := s.updateRestoreResult(nil, err); err != nil {
-			return err
+		// if err := s.updateRestoreResult(nil, err); err != nil {
+		// 	return err
+		// }
+		// return nil
+
+		log.Errorf("Restore %s, prepare for run error: %v", s.RestoreId, err)
+		if e := postgres.UpdateRestoreFailed(s.Ctx, s.RestoreId, constant.Failed.String(), err.Error()); e != nil {
+			return errors.WithStack(e)
 		}
+
 		return nil
 	}
 
@@ -75,20 +86,17 @@ func (s *StorageRestore) RunRestore() error {
 
 	if restoreErr != nil {
 		log.Errorf("Restore %s error: %v", s.RestoreId, restoreErr)
-	} else {
-		log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
+		return postgres.UpdateRestoreFailed(s.Ctx, s.RestoreId, constant.Failed.String(), restoreErr.Error())
 	}
 
-	if err := s.updateRestoreResult(restoreResult, restoreErr); err != nil {
-		return errors.WithStack(err)
-	}
+	log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
 
-	return nil
+	return postgres.UpdateRestoreCompleted(s.Ctx, s.RestoreId, progressDone, restoreResult)
 }
 
 func (s *StorageRestore) checkRestoreExists() error {
-	restore, err := s.Handlers.GetRestoreHandler().GetById(s.Ctx, s.RestoreId)
-	if err != nil && !apierrors.IsNotFound(err) {
+	restore, err := postgres.GetRestoreById(s.Ctx, s.RestoreId)
+	if err != nil {
 		return fmt.Errorf("get restore %s error: %v", s.RestoreId, err)
 	}
 
@@ -96,27 +104,27 @@ func (s *StorageRestore) checkRestoreExists() error {
 		return fmt.Errorf("restore %s not exists", s.RestoreId)
 	}
 
-	restoreType, err := handlers.ParseRestoreType(restore)
+	restoreType, err := handlers.ParseRestoreType1(restore)
 	if err != nil {
-		return fmt.Errorf("restore %s type %v invalid", s.RestoreId, restore.Spec.RestoreType)
+		return fmt.Errorf("restore %s type %v invalid", s.RestoreId, restore.RestoreType)
 	}
 
 	log.Infof("restore %s, data: %s", s.RestoreId, util.ToJSON(restoreType))
 	if restoreType.Type == constant.RestoreTypeSnapshot {
-		snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, restoreType.SnapshotId)
+		snapshot, err := postgres.GetSnapshotById(s.Ctx, restoreType.SnapshotId)
 		if err != nil {
 			return fmt.Errorf("snapshot not found: %v", err)
 		}
-		backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, snapshot.Spec.BackupId)
+		backup, err := postgres.GetBackupById(s.Ctx, snapshot.BackupId)
 		if err != nil {
 			return fmt.Errorf("backup not found: %v", err)
 		}
 
-		s.Backup = backup
-		s.Snapshot = snapshot
+		s.Backup1 = backup
+		s.Snapshot1 = snapshot
 	}
 
-	s.Restore = restore
+	s.Restore1 = restore
 	s.RestoreType = restoreType
 
 	return nil
@@ -127,21 +135,23 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	var password string
 	var locationConfig = make(map[string]string)
 	var err error
+	var owner = s.RestoreType.Owner
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
+		var backupName = s.Backup1.BackupName
 		backupId = s.Backup.Name
 
-		password, err = handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
+		password, err = handlers.GetBackupPassword(s.Ctx, owner, backupName)
 		if err != nil {
 			return fmt.Errorf("Restore %s get password error: %v", s.RestoreId, err)
 		}
 
-		userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
+		userspacePath, err := handlers.GetUserspacePvc(owner)
 		if err != nil {
 			return fmt.Errorf("Restore %s, get userspace pvc error: %v", s.RestoreId, err)
 		}
 
-		locationConfig, err = handlers.GetBackupLocationConfig(s.Backup)
+		locationConfig, err = handlers.GetBackupLocationConfigX(s.Backup1)
 		if err != nil {
 			return fmt.Errorf("Restore %s get location config error: %v", s.RestoreId, err)
 		}
@@ -157,8 +167,8 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		}
 	} else {
 		// backupUrl
-		log.Infof("restore from backupUrl, ready to get integration token, owner: %s, location: %s", s.RestoreType.Owner, s.RestoreType.Location)
-		integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(s.Ctx, s.RestoreType.Owner, s.RestoreType.Location)
+		log.Infof("restore from backupUrl, ready to get integration token, owner: %s, location: %s", owner, s.RestoreType.Location)
+		integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(s.Ctx, owner, s.RestoreType.Location)
 		if err != nil {
 			log.Errorf("get restore integration name error: %v", err)
 			return err
@@ -178,7 +188,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		backupId = s.RestoreType.BackupUrl.BackupId
 	}
 
-	userspacePvc, err := handlers.GetUserspacePvc(s.Restore.Spec.Owner)
+	userspacePvc, err := handlers.GetUserspacePvc(owner)
 	if err != nil {
 		return err
 	}
@@ -204,7 +214,8 @@ func (s *StorageRestore) prepareForRun() error {
 		"message":  "",
 	})
 
-	return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
+	return postgres.UpdateRestorePhase(s.Ctx, s.RestoreId, constant.Running.String(), "Restore running")
+	// return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
 }
 
 func (s *StorageRestore) progressCallback(percentDone float64) {

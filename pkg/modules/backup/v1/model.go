@@ -322,6 +322,31 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	}
 }
 
+func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
+	var data = make(map[string]interface{})
+
+	locationConfig, err := handlers.GetBackupLocationConfig(backup)
+	if err != nil {
+		return data
+	}
+
+	var location = locationConfig["location"]
+	var locationConfigName = locationConfig["name"]
+	var nextBackupTimestamp = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
+
+	data["id"] = backup.Name
+	data["name"] = backup.Spec.Name
+	data["nextBackupTimestamp"] = *nextBackupTimestamp
+	data["location"] = location
+	data["locationConfigName"] = locationConfigName
+	data["createAt"] = backup.Spec.CreateAt.Unix()
+	data["size"] = "0"
+	data["path"] = handlers.ParseBackupTypePath(backup.Spec.BackupType)
+	data["status"] = constant.Pending.String()
+
+	return data
+}
+
 func parseResponseBackupCreateX(backup *postgres.Backup) map[string]interface{} {
 	var data = make(map[string]interface{})
 
@@ -332,7 +357,11 @@ func parseResponseBackupCreateX(backup *postgres.Backup) map[string]interface{} 
 
 	var location = locationConfig["location"]
 	var locationConfigName = locationConfig["name"]
-	var nextBackupTimestamp = handlers.GetNextBackupTimeX(backup.BackupPolicy)
+	policy, err := postgres.ParseBackupPolicy(backup.BackupPolicy)
+	if err != nil {
+		return data
+	}
+	var nextBackupTimestamp = handlers.GetNextBackupTimeX(policy)
 
 	data["id"] = backup.BackupId
 	data["name"] = backup.BackupName
@@ -341,7 +370,7 @@ func parseResponseBackupCreateX(backup *postgres.Backup) map[string]interface{} 
 	data["locationConfigName"] = locationConfigName
 	data["createAt"] = backup.CreateTime.Unix()
 	data["size"] = "0"
-	data["path"] = handlers.ParseBackupTypePath(backup.BackupType)
+	data["path"] = handlers.ParseBackupTypePath1(backup.BackupType)
 	data["status"] = constant.Pending.String()
 
 	return data

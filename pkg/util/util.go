@@ -37,6 +37,14 @@ func ParseToInt64(v string) int64 {
 	return i
 }
 
+func ToMap(v map[string]string) map[string]interface{} {
+	r := make(map[string]interface{})
+	for k, v := range v {
+		r[k] = v
+	}
+	return r
+}
+
 // ToJSON returns a json string
 func ToJSON(v any) string {
 	var buf bytes.Buffer

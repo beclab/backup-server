@@ -38,7 +38,12 @@ func NewSchedule(ctx context.Context, backup *postgres.Backup, schedule string, 
 	c.Lock()
 	defer c.Unlock()
 
-	log.Infof("create snapshot schedule, name: %s, frequency: %s, schedule: %s", backup.BackupName, backup.BackupPolicy.SnapshotFrequency, schedule)
+	var policy, err = postgres.ParseBackupPolicy(backup.BackupPolicy)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("create snapshot schedule, name: %s, frequency: %s, schedule: %s", backup.BackupName, policy.SnapshotFrequency, schedule)
 
 	entries := c.cron.Entries()
 	for _, e := range entries {
@@ -48,7 +53,7 @@ func NewSchedule(ctx context.Context, backup *postgres.Backup, schedule string, 
 		}
 	}
 
-	_, err := c.cron.AddJob(schedule, backupJob{
+	_, err = c.cron.AddJob(schedule, backupJob{
 		name: backup.BackupId,
 		f: func() {
 			log.Infof("prepare to create snapshot task, name: %s, id: %s", backup.BackupName, backup.BackupId)
@@ -71,7 +76,7 @@ func NewSchedule(ctx context.Context, backup *postgres.Backup, schedule string, 
 				phase = constant.Rejected.String()
 			}
 
-			if err = postgres.UpdateSnapshotPhase(newSnapshot.SnapshotId, phase, err.Error()); err != nil {
+			if err = postgres.UpdateSnapshotFailed(ctx, newSnapshot.SnapshotId, phase, err.Error()); err != nil {
 				log.Error(err)
 			}
 		},
