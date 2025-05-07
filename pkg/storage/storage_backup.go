@@ -322,7 +322,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			return
 		}
 		options = &backupssdkoptions.AwsBackupOption{
-			RepoName:        backupId,
+			RepoName:        backupName, //backupId,
 			Path:            s.Params.Path,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -357,7 +357,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 		})
 	case constant.BackupLocationFileSystem.String():
 		options = &backupssdkoptions.FilesystemBackupOption{
-			RepoName: backupId,
+			RepoName: fmt.Sprintf("olares-backup-%s", backupName), //backupId,
 			Endpoint: s.Params.Location["path"],
 			Path:     s.Params.Path,
 		}
@@ -579,6 +579,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
 		"id":       s.Snapshot.Name,
 		"backupId": s.Backup.Name,
+		"endat":    snapshot.Spec.EndAt.Unix(),
 		"progress": snapshot.Spec.Progress,
 		"status":   *snapshot.Spec.Phase,
 		"message":  msg,

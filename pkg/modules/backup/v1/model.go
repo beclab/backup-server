@@ -11,6 +11,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
+	stringx "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"k8s.io/klog/v2"
 )
 
@@ -29,6 +30,34 @@ type BackupCreate struct {
 	BackupPolicies  *sysv1.BackupPolicy `json:"backupPolicy,omitempty"`
 	Password        string              `json:"password,omitempty"`
 	ConfirmPassword string              `json:"confirmPassword,omitempty"`
+}
+
+func (b *BackupCreate) verify() error {
+	if len(b.Name) == 0 {
+		return fmt.Errorf("backup name is empty")
+	}
+
+	if stringx.IsOnlyWhitespace(b.Name) {
+		return fmt.Errorf("backup name cannot consist of only spaces")
+	}
+
+	if stringx.IsReservedName(b.Name) {
+		return fmt.Errorf("backup name cannot be a reserved name")
+	}
+
+	if strings.HasPrefix(b.Name, ".") {
+		return fmt.Errorf("backup name must not start with '.'")
+	}
+
+	if strings.ContainsRune(b.Name, '\x00') {
+		return fmt.Errorf("backup name cannot contain null character")
+	}
+
+	if ok, r := stringx.ContainsIllegalChars(b.Name); ok {
+		return fmt.Errorf("backup name cannot contain illegal characters: %v", r)
+	}
+
+	return nil
 }
 
 type BackupEnabled struct {
@@ -331,6 +360,10 @@ func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
 
 	var location = locationConfig["location"]
 	var locationConfigName = locationConfig["name"]
+	if location == constant.BackupLocationFileSystem.String() {
+		locationConfigName = locationConfig["path"]
+	}
+
 	var nextBackupTimestamp = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
 
 	data["id"] = backup.Name

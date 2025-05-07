@@ -141,6 +141,11 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 
 	log.Infof("received backup create request: %s", util.ToJSON(b))
 
+	if err := b.verify(); err != nil {
+		response.HandleError(resp, errors.WithMessage(err, "backup name invalid"))
+		return
+	}
+
 	if b.Path == "" {
 		response.HandleError(resp, errors.New("backup path is required"))
 		return
@@ -165,30 +170,6 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 
 	if backup != nil {
 		response.HandleError(resp, errors.New("backup plan "+b.Name+" already exists"))
-		return
-	}
-
-	// getLabel = "path=" + util.MD5(b.Path) + ",owner=" + owner
-	// backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-	// if err != nil && !apierrors.IsNotFound(err) {
-	// 	response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
-	// 	return
-	// }
-
-	// if backup != nil {
-	// 	response.HandleError(resp, errors.New("backup path "+b.Path+" already exists"))
-	// 	return
-	// }
-
-	getLabel = "owner=" + owner + ",policy=" + util.MD5(b.BackupPolicies.TimesOfDay)
-	backup, err = h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-	if err != nil && !apierrors.IsNotFound(err) {
-		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
-		return
-	}
-
-	if backup != nil {
-		response.HandleError(resp, fmt.Errorf("there are other backup tasks at the same time: %s", b.BackupPolicies.TimesOfDay))
 		return
 	}
 

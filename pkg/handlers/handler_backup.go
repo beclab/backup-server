@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -160,6 +161,7 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 }
 
 func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+	backupName = strings.TrimSpace(backupName)
 	var backupId = uuid.NewUUID()
 RETRY:
 	var backup = &sysv1.Backup{
