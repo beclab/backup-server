@@ -40,10 +40,11 @@ type StorageBackup struct {
 }
 
 type BackupParameters struct {
-	Password     string
-	Path         string
-	Location     map[string]string
-	SnapshotType string
+	Password             string
+	Path                 string
+	Location             map[string]string
+	LocationInFileSystem string
+	SnapshotType         string
 }
 
 func (s *StorageBackup) RunBackup() error {
@@ -69,6 +70,10 @@ func (s *StorageBackup) RunBackup() error {
 		}
 
 		if e = s.prepareBackupParams(); e != nil {
+			return errors.WithStack(e)
+		}
+
+		if e = s.checkDiskSize(); e != nil {
 			return errors.WithStack(e)
 		}
 
@@ -160,6 +165,7 @@ func (s *StorageBackup) checkSnapshotType() error {
 
 func (s *StorageBackup) prepareBackupParams() error {
 	var external bool
+	var locationInFileSystem string
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 	password, err := handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
@@ -179,6 +185,7 @@ func (s *StorageBackup) prepareBackupParams() error {
 	loc := location["location"]
 	if loc == constant.BackupLocationFileSystem.String() {
 		locPath := location["path"]
+		locationInFileSystem = locPath
 
 		external, locPath = handlers.TrimPathPrefix(locPath)
 		if external {
@@ -198,9 +205,39 @@ func (s *StorageBackup) prepareBackupParams() error {
 	}
 
 	s.Params = &BackupParameters{
-		Path:     backupPath,
-		Password: password,
-		Location: location,
+		Path:                 backupPath,
+		Password:             password,
+		Location:             location,
+		LocationInFileSystem: locationInFileSystem,
+	}
+
+	return nil
+}
+
+func (s *StorageBackup) checkDiskSize() error {
+	var backupName = s.Backup.Spec.Name
+	var snapshotId = s.Snapshot.Name
+
+	var location = s.Params.Location["location"]
+
+	if location == constant.BackupLocationFileSystem.String() {
+		var target = s.Params.Location["path"]
+
+		backupSize, err := util.DirSize(s.Params.Path)
+		if err != nil {
+			return fmt.Errorf("Backup %s,%s, get backup disk size error: %v", backupName, snapshotId, err)
+		}
+
+		targetFreeSpace, err := util.GetDiskFreeSpace(target)
+		if err != nil {
+			return fmt.Errorf("Backup %s,%s, get target free space error: %v", backupName, snapshotId, err)
+		}
+
+		requiredSpace := uint64(float64(backupSize) * 1.1)
+		if targetFreeSpace < requiredSpace {
+			return errors.Errorf("Backup %s,%s, not enough free space on target disk, required: %s, available: %s, location: %s",
+				s.Backup.Spec.Name, s.Snapshot.Name, util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
+		}
 	}
 
 	return nil
