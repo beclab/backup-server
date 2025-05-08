@@ -225,12 +225,12 @@ func (s *StorageBackup) checkDiskSize() error {
 
 		backupSize, err := util.DirSize(s.Params.Path)
 		if err != nil {
-			return fmt.Errorf("Backup %s,%s, get backup disk size error: %v", backupName, snapshotId, err)
+			return fmt.Errorf("Backup %s,%s, get backup disk size error: %v, path: %s", backupName, snapshotId, err, s.Params.Path)
 		}
 
 		targetFreeSpace, err := util.GetDiskFreeSpace(target)
 		if err != nil {
-			return fmt.Errorf("Backup %s,%s, get target free space error: %v", backupName, snapshotId, err)
+			return fmt.Errorf("Backup %s,%s, get target free space error: %v, path: %s", backupName, snapshotId, err, target)
 		}
 
 		requiredSpace := uint64(float64(backupSize) * 1.1)
@@ -249,6 +249,7 @@ func (s *StorageBackup) prepareForRun() error {
 		"id":       s.Snapshot.Name,
 		"backupId": s.Backup.Name,
 		"progress": 0,
+		"size":     "0",
 		"status":   constant.Running.String(),
 		"message":  "",
 	})
@@ -322,7 +323,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			return
 		}
 		options = &backupssdkoptions.AwsBackupOption{
-			RepoName:        backupName, //backupId,
+			RepoName:        backupId,
 			Path:            s.Params.Path,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -521,6 +522,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.SummaryOutput,
 	backupStorageObj *backupssdkmodel.StorageInfo, backupTotalSize uint64, backupError error) error {
 	var msg string
+	var endAt = pointer.Time()
 
 	backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, s.Backup.Name)
 	if err != nil {
@@ -531,6 +533,11 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	if err != nil {
 		return err
 	}
+
+	var eventData = make(map[string]interface{})
+	eventData["id"] = s.Snapshot.Name
+	eventData["backupId"] = s.Backup.Name
+	eventData["endat"] = endAt.Unix()
 
 	var phase constant.Phase = constant.Completed
 
@@ -547,8 +554,15 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		if s.SnapshotType != nil {
 			snapshot.Spec.SnapshotType = s.SnapshotType
 		}
+		eventData["status"] = phase.String()
+		eventData["message"] = msg
 	} else {
 		msg = phase.String()
+		eventData["size"] = fmt.Sprintf("%d", backupOutput.TotalBytesProcessed)
+		eventData["totalSize"] = fmt.Sprintf("%d", backupTotalSize)
+		eventData["progress"] = progressDone
+		eventData["status"] = phase.String()
+		eventData["message"] = msg
 		snapshot.Spec.SnapshotType = s.SnapshotType
 		snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
 		snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
@@ -559,7 +573,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
 	}
 
-	snapshot.Spec.EndAt = pointer.Time()
+	snapshot.Spec.EndAt = endAt
 
 	if backupStorageObj != nil {
 		var extra = snapshot.Spec.Extra
@@ -576,14 +590,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		}
 	}
 
-	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
-		"id":       s.Snapshot.Name,
-		"backupId": s.Backup.Name,
-		"endat":    snapshot.Spec.EndAt.Unix(),
-		"progress": snapshot.Spec.Progress,
-		"status":   *snapshot.Spec.Phase,
-		"message":  msg,
-	})
+	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", eventData)
 
 	return s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
 }
