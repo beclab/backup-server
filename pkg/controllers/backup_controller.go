@@ -90,18 +90,18 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	if !r.isPaused(backup) {
-		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
-		return ctrl.Result{}, nil
-	}
-
-	if !r.isNotified(backup) {
+	if !r.isNotified(backup) { // todo notify size update
 		err = r.notify(backup)
 		if err != nil {
 			log.Errorf("notify backup error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, nil
 		}
 		log.Infof("notify backup success, id: %s, name: %s", backup.Name, backup.Spec.Name)
+	}
+
+	if !r.isEnabled(backup) {
+		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
+		return ctrl.Result{}, nil
 	}
 
 	if !backup.Spec.Deleted && backup.Spec.BackupPolicy.Enabled {
@@ -142,9 +142,9 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 				if flag {
-					return false
+					return true
 				}
-				return true
+				return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit backup delete event")
@@ -173,7 +173,7 @@ func (r *BackupReconciler) isDeleted(newBackup *sysv1.Backup) bool {
 	return newBackup.Spec.Deleted
 }
 
-func (r *BackupReconciler) isPaused(newBackup *sysv1.Backup) bool {
+func (r *BackupReconciler) isEnabled(newBackup *sysv1.Backup) bool {
 	return newBackup.Spec.BackupPolicy.Enabled
 }
 
