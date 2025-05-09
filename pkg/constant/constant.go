@@ -48,6 +48,8 @@ const (
 
 	ExternalPath string = "/shares"
 
+	DefaultStoragePrefix = "olares-backup/"
+
 	FreeSpaceStorage uint64 = 2 * 1024 * 1024 * 1024
 )
 

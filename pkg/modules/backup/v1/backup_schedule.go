@@ -28,10 +28,11 @@ const (
 )
 
 type BackupPlan struct {
-	owner   string
-	c       *BackupCreate
-	factory client.Factory
-	handler handlers.Interface
+	owner    string
+	endpoint string
+	c        *BackupCreate
+	factory  client.Factory
+	handler  handlers.Interface
 }
 
 func NewBackupPlan(owner string, factory client.Factory, handler handlers.Interface) *BackupPlan {
@@ -237,6 +238,15 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 		return fmt.Errorf("backup config %s does not match integration in location: %s", locationConfig.Name, location)
 	}
 
+	if location == constant.BackupLocationAwsS3.String() || location == constant.BackupLocationTencentCloud.String() {
+		integrationToken, err := integration.IntegrationManager().GetIntegrationCloudToken(ctx, owner, location, integrationName)
+		if err != nil {
+			log.Errorf("integration: %s, location: %s, token get error: %v", integrationName, location, err)
+			return errors.WithStack(err)
+		}
+		o.endpoint = integrationToken.Endpoint
+	}
+
 	return nil
 }
 
@@ -354,6 +364,9 @@ func (o *BackupPlan) buildLocationConfig(location string, clusterId string, conf
 		data["cloudName"] = config.CloudName
 		data["regionId"] = config.RegionId
 		data["clusterId"] = clusterId
+	case constant.BackupLocationAwsS3.String(),
+		constant.BackupLocationTencentCloud.String():
+		data["endpoint"] = o.endpoint
 	}
 
 	data["name"] = config.Name

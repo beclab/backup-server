@@ -81,14 +81,20 @@ func (o *BackupHandler) UpdateNotifyState(ctx context.Context, backupId string, 
 
 }
 
-func (o *BackupHandler) UpdateTotalSize(ctx context.Context, backup *sysv1.Backup, totalSize uint64) error {
+func (o *BackupHandler) UpdateTotalSize(ctx context.Context, backup *sysv1.Backup, totalSize uint64, newLocation, newLocationData string) error {
 	extra := backup.Spec.Extra
 	if extra == nil {
 		extra = make(map[string]string)
 	}
 	extra["size_updated"] = fmt.Sprintf("%d", time.Now().Unix())
 	backup.Spec.Size = &totalSize
+	backup.Spec.Notified = false
 	backup.Spec.Extra = extra
+
+	if newLocation != "" {
+		backup.Spec.Location[newLocation] = newLocationData
+	}
+
 	return o.update(ctx, backup)
 }
 
@@ -98,7 +104,9 @@ func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset, l
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{})
+	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("owner=%s", owner),
+	})
 
 	if err != nil {
 		return nil, err

@@ -70,7 +70,9 @@ func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, offset 
 		return nil, err
 	}
 
-	restores, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{})
+	restores, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("owner=%s", owner),
+	})
 
 	if err != nil {
 		return nil, err
@@ -104,6 +106,9 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      uuid.NewUUID(),
 			Namespace: constant.DefaultOsSystemNamespace,
+			Labels: map[string]string{
+				"owner": restoreType.Owner,
+			},
 		},
 		Spec: sysv1.RestoreSpec{
 			Owner: restoreType.Owner,

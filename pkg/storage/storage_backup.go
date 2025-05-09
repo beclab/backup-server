@@ -28,10 +28,13 @@ type StorageBackup struct {
 	Ctx        context.Context
 	Cancel     context.CancelFunc
 
-	Backup       *sysv1.Backup
-	Snapshot     *sysv1.Snapshot
-	Params       *BackupParameters
-	SnapshotType *int
+	Backup              *sysv1.Backup
+	Snapshot            *sysv1.Snapshot
+	Params              *BackupParameters
+	SnapshotType        *int
+	IntegrationChanged  bool
+	IntegrationName     string
+	IntegrationEndpoint string
 
 	UserspacePvcPath string
 
@@ -97,7 +100,7 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 
-	log.Infof("Backup %s,%s, locationConfig: %s", backupName, snapshotId, util.ToJSON(s.Params.Location))
+	log.Infof("Backup %s,%s, locationConfig: %s, integrationChanged: %v", backupName, snapshotId, util.ToJSON(s.Params.Location), s.IntegrationChanged)
 	backupResult, backupStorageObj, backupTotalSize, backupErr := s.execute()
 	if backupErr != nil {
 		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
@@ -585,7 +588,8 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	}
 
 	if backupOutput != nil {
-		if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize); err != nil {
+		var newLocation, newLocationData = s.buildLocation()
+		if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize, newLocation, newLocationData); err != nil {
 			log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
 		}
 	}
@@ -599,5 +603,78 @@ func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, er
 	var l = s.Params.Location
 	var location = l["location"]
 	var locationIntegrationName = l["name"]
-	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
+	var endpoint = l["endpoint"]
+
+	accounts, err := integration.IntegrationManager().GetIntegrationAccountsByLocation(s.Ctx, s.Backup.Spec.Owner, location)
+	if err != nil {
+		return nil, err
+	}
+
+	var tokens []*integration.IntegrationToken
+
+	for _, account := range accounts {
+		token, _ := integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, account)
+		tokens = append(tokens, token)
+	}
+
+	if tokens == nil || len(tokens) == 0 {
+		return nil, fmt.Errorf("no integration cloud tokens found")
+	}
+
+	var result *integration.IntegrationToken
+
+	for _, t := range tokens {
+		if t.AccessKey == locationIntegrationName {
+			result = t
+			break
+		}
+	}
+
+	if result != nil {
+		s.IntegrationChanged = false
+		return result, nil
+	}
+
+	for _, t := range tokens {
+		if t.Endpoint == endpoint {
+			result = t
+			break
+		}
+	}
+
+	if result == nil {
+		return nil, fmt.Errorf("no integration cloud token found")
+	}
+
+	s.IntegrationChanged = true
+	s.IntegrationName = result.AccessKey
+	s.IntegrationEndpoint = result.Endpoint
+
+	return result, nil
 }
+
+func (s *StorageBackup) buildLocation() (string, string) {
+	var l = s.Params.Location
+	var location = l["location"]
+
+	if !s.IntegrationChanged {
+		return "", ""
+	}
+
+	if location == constant.BackupLocationSpace.String() || location == constant.BackupLocationFileSystem.String() {
+		return "", ""
+	}
+
+	var locationData = make(map[string]string)
+	locationData["name"] = s.IntegrationName
+	locationData["endpoint"] = s.IntegrationEndpoint
+
+	return location, util.ToJSON(locationData)
+}
+
+// func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, error) {
+// 	var l = s.Params.Location
+// 	var location = l["location"]
+// 	var locationIntegrationName = l["name"]
+// 	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
+// }

@@ -487,6 +487,8 @@ func ParseRestoreBackupUrlDetail(u string) (storage *RestoreBackupUrlDetail, bac
 		return
 	}
 
+	log.Infof("backup url type: %s", util.ToJSON(backupUrlType))
+
 	if backupName = backupUrlType.Values.Get("backupName"); backupName == "" {
 		err = errors.WithStack(fmt.Errorf("backupName is empty, backupUrl: %s", u))
 		return
@@ -523,15 +525,17 @@ func parseBackupUrl(s string) (*BackupUrlType, error) {
 	}
 
 	var location string
-	if strings.Contains(u.Path, "/restic/") {
-		location = constant.BackupLocationSpace.String()
+	if u.Scheme == "fs" {
+		location = constant.BackupLocationFileSystem.String()
 	} else if strings.Contains(u.Host, "s3.") {
 		location = constant.BackupLocationAwsS3.String()
 	} else if strings.Contains(u.Host, "cos.") {
 		location = constant.BackupLocationTencentCloud.String()
-	} else if u.Scheme == "fs" {
-		location = constant.BackupLocationFileSystem.String()
 	}
+
+	// else if strings.Contains(u.Path, "did:key:") {
+	// 	location = constant.BackupLocationSpace.String()
+	// }
 
 	if location == "" {
 		return nil, fmt.Errorf("location is empty, host: %s", u.Host)

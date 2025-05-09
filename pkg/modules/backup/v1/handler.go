@@ -585,7 +585,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		// parse and split BackupURL
 		backupUrlObj, backupName, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(b.BackupUrl)
 		if err != nil {
-			log.Errorf("parse BackupURL error: %v, url: %s", b.BackupUrl)
+			log.Errorf("parse BackupURL error: %v, url: %s", err, b.BackupUrl)
 			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
 			return
 		}

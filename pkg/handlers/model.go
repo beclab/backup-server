@@ -64,13 +64,13 @@ type passwordResponseData struct {
 }
 
 type BackupUrlType struct {
-	Schema               string
-	Host                 string
-	Path                 string
-	Values               url.Values
-	Location             string
-	IsBackupToSpace      bool
-	IsBackupToFilesystem bool
+	Schema               string     `json:"schema"`
+	Host                 string     `json:"host"`
+	Path                 string     `json:"path"`
+	Values               url.Values `json:"values"`
+	Location             string     `json:"location"`
+	IsBackupToSpace      bool       `json:"is_backup_to_space"`
+	IsBackupToFilesystem bool       `json:"is_backup_to_file_system"`
 }
 
 func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
@@ -182,9 +182,12 @@ func (u *BackupUrlType) getBackupName() (string, error) {
 }
 
 func (u *BackupUrlType) getRegionId() (string, error) {
+	if u.IsBackupToFilesystem {
+		return "", nil
+	}
 	var h = strings.Split(u.Host, ".")
 	if len(h) != 4 {
-		return "", fmt.Errorf("region invalid invalid, host: %s", u.Host)
+		return "", fmt.Errorf("region invalid, host: %s", u.Host)
 	}
 
 	return h[1], nil
