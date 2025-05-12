@@ -131,7 +131,6 @@ func (s *StorageRestore) prepareRestoreParams() error {
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
 		backupId = s.Backup.Name
-
 		password, err = handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
 		if err != nil {
 			return fmt.Errorf("Restore %s get password error: %v", s.RestoreId, err)
@@ -250,6 +249,8 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	var resticSnapshotId = s.RestoreType.ResticSnapshotId
 	var location = s.Params.Location["location"]
 
+	var repoName = handlers.FormatRepoName(s.Params.BackupId)
+
 	log.Infof("Restore %s prepare: %s, resticSnapshotId: %s, location: %s", s.RestoreId, s.RestoreType.Type, resticSnapshotId, location)
 
 	var restoreService *backupssdkstorage.RestoreService
@@ -270,7 +271,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 			Ctx:      s.Ctx,
 			Logger:   logger,
 			Aws: &backupssdkoptions.AwsRestoreOption{
-				RepoName:        s.Params.BackupId,
+				RepoName:        repoName,
 				SnapshotId:      resticSnapshotId,
 				Path:            s.Params.Path,
 				Endpoint:        token.Endpoint,
@@ -290,7 +291,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 			Ctx:      s.Ctx,
 			Logger:   logger,
 			TencentCloud: &backupssdkoptions.TencentCloudRestoreOption{
-				RepoName:        s.Params.BackupId,
+				RepoName:        repoName,
 				SnapshotId:      resticSnapshotId,
 				Path:            s.Params.Path,
 				Endpoint:        token.Endpoint,
@@ -305,7 +306,7 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 			Ctx:      s.Ctx,
 			Logger:   logger,
 			Filesystem: &backupssdkoptions.FilesystemRestoreOption{
-				RepoName:   fmt.Sprintf("olares-backup-%s", s.RestoreType.BackupName), //s.Params.BackupId,
+				RepoName:   repoName,
 				SnapshotId: resticSnapshotId,
 				Endpoint:   s.Params.Location["path"],
 				Path:       s.Params.Path,
@@ -331,6 +332,8 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 		terminusSuffix = s.RestoreType.BackupUrl.TerminusSuffix
 	}
 
+	var repoName = handlers.FormatRepoName(backupId)
+
 	var spaceToken *integration.SpaceToken
 	var resticSnapshotId = s.RestoreType.ResticSnapshotId
 	var location = s.Params.Location
@@ -348,7 +351,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 		}
 
 		var spaceRestoreOption = &backupssdkoptions.SpaceRestoreOption{
-			RepoName:       backupId,
+			RepoName:       repoName,
 			RepoSuffix:     terminusSuffix, // only used for backupUrl
 			SnapshotId:     resticSnapshotId,
 			Path:           s.Params.Path,

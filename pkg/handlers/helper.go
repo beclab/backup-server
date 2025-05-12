@@ -654,3 +654,7 @@ func TrimPathPrefix(p string) (bool, string) {
 		return false, p
 	}
 }
+
+func FormatRepoName(backupId string) string {
+	return fmt.Sprintf("olares-backup-%s", backupId)
+}

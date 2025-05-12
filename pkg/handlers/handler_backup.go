@@ -40,12 +40,16 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 		return err
 	}
 
-	spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
-	if err != nil {
-		return err
-	}
+	locationConfig, _ := GetBackupLocationConfig(backup)
+	location := locationConfig["location"]
+	if location == constant.BackupLocationSpace.String() {
+		spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+		if err != nil {
+			return err
+		}
 
-	_ = notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
+		_ = notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
+	}
 
 	return o.delete(ctx, backup)
 }

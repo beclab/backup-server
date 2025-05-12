@@ -64,7 +64,7 @@ func IsReservedName(name string) bool {
 }
 
 func ContainsIllegalChars(name string) (bool, rune) {
-	illegalChars := []rune{'\\', '/', '@', '!'}
+	illegalChars := []rune{'\\', '/', '@', '!', '#'}
 	for _, r := range name {
 		for _, illegal := range illegalChars {
 			if r == illegal {

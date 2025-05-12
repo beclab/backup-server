@@ -220,7 +220,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	var data = make(map[string]string)
 	data["name"] = i.formatUrl(integrationLocation, integrationName)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
-	resp, err := client.R().SetDebug(true).SetContext(ctx).
+	resp, err := client.R().SetDebug(false).SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
 		SetHeader("Terminus-Nonce", headerNonce).
 		SetBody(data).

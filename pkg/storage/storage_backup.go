@@ -309,6 +309,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 	var location = s.Params.Location["location"]
+	var repoName = handlers.FormatRepoName(backupId)
 
 	log.Infof("Backup %s,%s, location: %s, prepare", backupName, snapshotId, location)
 
@@ -326,7 +327,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			return
 		}
 		options = &backupssdkoptions.AwsBackupOption{
-			RepoName:        backupId,
+			RepoName:        repoName,
 			Path:            s.Params.Path,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -346,7 +347,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			return
 		}
 		options = &backupssdkoptions.TencentCloudBackupOption{
-			RepoName:        backupId,
+			RepoName:        repoName,
 			Path:            s.Params.Path,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -361,7 +362,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 		})
 	case constant.BackupLocationFileSystem.String():
 		options = &backupssdkoptions.FilesystemBackupOption{
-			RepoName: fmt.Sprintf("olares-backup-%s", backupName), //backupId,
+			RepoName: repoName,
 			Endpoint: s.Params.Location["path"],
 			Path:     s.Params.Path,
 		}
@@ -394,6 +395,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	var backupId = s.Backup.Name
 	var location = s.Params.Location
 	var olaresId = location["name"]
+	var repoName = handlers.FormatRepoName(backupId)
 
 	var spaceToken *integration.SpaceToken
 	var spaceBackupOption backupssdkoptions.Option
@@ -411,7 +413,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		}
 
 		spaceBackupOption = &backupssdkoptions.SpaceBackupOption{
-			RepoName:       backupId,
+			RepoName:       repoName,
 			Path:           s.Params.Path,
 			OlaresDid:      spaceToken.OlaresDid,
 			AccessToken:    spaceToken.AccessToken,
@@ -643,7 +645,7 @@ func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, er
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("no integration cloud token found")
+		return nil, fmt.Errorf("the integration token was not found, or the endpoint does not match. please check the integration configuration, endpoint: %s", endpoint)
 	}
 
 	s.IntegrationChanged = true

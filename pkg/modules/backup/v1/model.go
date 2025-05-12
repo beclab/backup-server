@@ -54,7 +54,7 @@ func (b *BackupCreate) verify() error {
 	}
 
 	if ok, r := stringx.ContainsIllegalChars(b.Name); ok {
-		return fmt.Errorf("backup name cannot contain illegal characters: %v", r)
+		return fmt.Errorf("backup name cannot contain illegal characters: %c", r)
 	}
 
 	return nil
