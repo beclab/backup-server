@@ -21,6 +21,7 @@ type RestoreType struct {
 	Owner            string                  `json:"owner"`
 	Type             string                  `json:"type"` // snapshot or url
 	Path             string                  `json:"path"` // restore target path
+	BackupId         string                  `json:"backupId"`
 	BackupName       string                  `json:"backupName"`
 	BackupPath       string                  `json:"backupPath"` // from backupUrl
 	Password         string                  `json:"p"`
@@ -33,7 +34,6 @@ type RestoreType struct {
 }
 
 type RestoreBackupUrlDetail struct {
-	BackupId       string `json:"backupId"`  // space(backupId) / custom repoName
 	CloudName      string `json:"cloudName"` // awss3 tencentcloud filesystem
 	RegionId       string `json:"regionId"`
 	Bucket         string `json:"bucket"`
@@ -64,48 +64,44 @@ type passwordResponseData struct {
 }
 
 type BackupUrlType struct {
-	Schema               string     `json:"schema"`
-	Host                 string     `json:"host"`
-	Path                 string     `json:"path"`
-	Values               url.Values `json:"values"`
-	Location             string     `json:"location"`
-	IsBackupToSpace      bool       `json:"is_backup_to_space"`
-	IsBackupToFilesystem bool       `json:"is_backup_to_file_system"`
+	Schema     string     `json:"schema"`
+	Host       string     `json:"host"`
+	Path       string     `json:"path"`
+	Values     url.Values `json:"values"`
+	Location   string     `json:"location"`
+	Endpoint   string     `json:"endpoint"`
+	BackupId   string     `json:"backup_id"`
+	BackupName string     `json:"backup_name"`
+	PvcPath    string     `json:"pvc_path"`
 }
 
 func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
-	backupName, err := u.getBackupName()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
+	var region, bucket, prefix, suffix string
+	// var fsBackupPath string
+	var err error
 
-	regionId, err := u.getRegionId()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	bucket, prefix, suffix, err := u.getBucketAndPrefix()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	fsBackupPath, err := u.getFsBackupPath()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	location := u.getLocation()
-	if location == "" {
-		return nil, errors.WithStack(fmt.Errorf("location invalid, host: %s, schema: %s", u.Host, u.Schema))
+	if u.Location != constant.BackupLocationFileSystem.String() {
+		// fsBackupPath, err = u.getFsBackupPath()
+		// if err != nil {
+		// 	return nil, errors.WithStack(err)
+		// }
+		region, err = u.getRegionId()
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		bucket, prefix, suffix, err = u.getBucketAndPrefix()
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
 	}
 
 	return &RestoreBackupUrlDetail{
-		BackupId:       backupName,
-		CloudName:      location,
-		RegionId:       regionId,
+		CloudName:      u.Location,
+		RegionId:       region,
 		Bucket:         bucket,
 		Prefix:         prefix,
 		TerminusSuffix: suffix,
-		FilesystemPath: fsBackupPath,
+		FilesystemPath: u.Endpoint,
 	}, nil
 }
 
@@ -127,22 +123,16 @@ func (u *BackupUrlType) getFsBackupPath() (p string, err error) {
 		return
 	}
 
-	if u.Path == "" {
-		err = errors.New("path is empty")
-		return
-	}
-
-	if u.Path[0] != '/' {
-		p = "/" + u.Path
-	}
+	p = u.Path
 
 	return
 }
 
 func (u *BackupUrlType) getBucketAndPrefix() (bucket string, prefix string, suffix string, err error) {
-	paths := strings.Split(u.Path, "/")
+	path := strings.Trim(u.Path, "/")
+	paths := strings.Split(path, "/")
 
-	if u.IsBackupToSpace {
+	if u.Location == constant.BackupLocationSpace.String() {
 		if len(paths) != 4 {
 			err = fmt.Errorf("path invalid, path: %s", u.Path)
 			return
@@ -165,10 +155,10 @@ func (u *BackupUrlType) getBucketAndPrefix() (bucket string, prefix string, suff
 	}
 }
 
-func (u *BackupUrlType) getBackupName() (string, error) {
+func (u *BackupUrlType) getBackupId() (string, error) {
 	paths := strings.Split(u.Path, "/")
 
-	if u.IsBackupToSpace {
+	if u.Location == constant.BackupLocationSpace.String() {
 		if len(paths) != 4 {
 			return "", fmt.Errorf("path invalid, path: %s", u.Path)
 		}
@@ -182,9 +172,6 @@ func (u *BackupUrlType) getBackupName() (string, error) {
 }
 
 func (u *BackupUrlType) getRegionId() (string, error) {
-	if u.IsBackupToFilesystem {
-		return "", nil
-	}
 	var h = strings.Split(u.Host, ".")
 	if len(h) != 4 {
 		return "", fmt.Errorf("region invalid, host: %s", u.Host)

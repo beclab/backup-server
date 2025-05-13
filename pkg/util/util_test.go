@@ -2,14 +2,28 @@ package util
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestT(t *testing.T) {
-	var a = ""
-	var b = Base64encode([]byte(a))
-	fmt.Println(b)
+	// var u = "/Files/Home/Documents/space-cos"
+	var u = "https://cos.ap-beijing.myqcloud.com/olares-test-zy-1254615039/olares备份/olares-backups/xxx-uuid"
+	pp, _ := url.Parse(u)
+	fmt.Println("---1 / scheme---", pp.Scheme)
+	fmt.Println("---2 / path---", pp.Path)
+	fmt.Println("---3 / host---", pp.Host)
+	fmt.Println("---4 / first c---", pp.Path[:1])
+
+	var i = strings.Index(pp.Path, "olares-backups/")
+	var jj = pp.Path[i:]
+	fmt.Println("---5---", jj)
+
+	// var a = ""
+	// var b = Base64encode([]byte(a))
+	// fmt.Println(b)
 }
 
 func TestS(t *testing.T) {

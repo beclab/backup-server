@@ -18,6 +18,20 @@ import (
 	"github.com/pkg/errors"
 )
 
+func IsExist(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		if os.IsNotExist(err) {
+			return false
+		}
+		return false
+	}
+	return true
+}
+
 func DirSize(path string) (uint64, error) {
 	var size int64 = 0
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
@@ -230,12 +244,32 @@ func ParseUnixMilliToDate(targetTimestamp int64) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
+func ParseTimeText(timeStr string) int64 {
+	t, err := time.Parse(time.RFC3339Nano, timeStr)
+	if err != nil {
+		return 0
+	}
+
+	return t.Unix()
+}
+
 func GetSuffix(c string, s string) (string, error) {
 	var r = strings.Split(c, s)
 	if len(r) != 2 {
 		return "", fmt.Errorf("get suffix invalid, context: %s", c)
 	}
 	return r[1], nil
+}
+
+func ReplacePathPrefix(s string, prefix1 string, prefix2 string) (result string) {
+	pos := strings.Index(s, prefix1)
+	if pos >= 0 {
+		result = strings.Replace(s, prefix1, "/Files", 1)
+		return
+	}
+
+	result = strings.Replace(s, prefix2, "/Files.External", 1)
+	return
 }
 
 func FormatBytes(bytes uint64) string {

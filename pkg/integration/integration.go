@@ -78,6 +78,36 @@ func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, locat
 	return i.withCloudToken(data), nil
 }
 
+// todo
+func (i *Integration) GetIntegrationCloudAccount(ctx context.Context, owner, location string) (*IntegrationToken, error) {
+	accounts, err := i.queryIntegrationAccounts(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+
+	var token *IntegrationToken
+	for _, account := range accounts {
+		if account.Type == "space" {
+			continue
+		}
+		if strings.Contains(location, account.Type) {
+			token, err = i.GetIntegrationCloudToken(ctx, owner, location, account.Name)
+			if err != nil {
+				return nil, err
+			}
+			if token != nil {
+				break
+			}
+		}
+	}
+
+	if token == nil {
+		return nil, fmt.Errorf("integration token not found")
+	}
+
+	return token, nil
+}
+
 func (i *Integration) GetIntegrationAccountsByLocation(ctx context.Context, owner, location string) ([]string, error) {
 
 	accounts, err := i.queryIntegrationAccounts(ctx, owner)

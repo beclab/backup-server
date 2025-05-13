@@ -148,6 +148,13 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 		Doc("list restore plans").Metadata(restfulspec.KeyOpenAPITags, tags).
 		Returns(http.StatusOK, "", ""))
 
+	ws.Route(ws.POST("/plans/restore/checkurl").
+		To(handler.checkBackupUrl).
+		Reads(RestoreCheckBackupUrl{}).
+		Param(ws.HeaderParameter(constant.BflUserKey, "backup owner").DataType("string").Required(true)).
+		Doc("check restore backup url").Metadata(restfulspec.KeyOpenAPITags, tags).
+		Returns(http.StatusOK, "", "success"))
+
 	ws.Route(ws.POST("/plans/restore").
 		To(handler.addRestore).
 		Reads(RestoreCreate{}).

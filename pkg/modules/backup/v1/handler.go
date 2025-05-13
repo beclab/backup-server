@@ -518,6 +518,45 @@ func (h *Handler) listRestore(req *restful.Request, resp *restful.Response) {
 	response.Success(resp, parseResponseRestoreList(result, totalPage))
 }
 
+func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
+	var (
+		err error
+		b   RestoreCheckBackupUrl
+	)
+
+	if err = req.ReadEntity(&b); err != nil {
+		log.Errorf("check backup url read entity error: %v", err)
+		response.HandleError(resp, errors.WithStack(err))
+		return
+	}
+
+	ctx := req.Request.Context()
+	owner := req.HeaderParameter(constant.BflUserKey)
+
+	log.Infof("received restore check backup url request: %s", util.ToJSON(b))
+
+	urlInfo, err := handlers.ParseBackupUrl(owner, b.BackupUrl)
+
+	if urlInfo.Location == constant.BackupLocationSpace.String() {
+		response.HandleError(resp, errors.Errorf("backup location is space, no need to check url snapshots, url: %s", b.BackupUrl))
+		return
+	}
+
+	log.Infof("format backup url info: %s", util.ToJSON(urlInfo))
+
+	var storageSnapshots = &storage.StorageSnapshots{
+		Handlers: h.handler,
+	}
+	snapshots, err := storageSnapshots.GetSnapshots(ctx, b.Password, owner, urlInfo.Location, urlInfo.Endpoint, urlInfo.BackupName, urlInfo.BackupId)
+	if err != nil {
+		log.Errorf("check backup url snapshots error: %v", err)
+		response.HandleError(resp, err)
+		return
+	}
+
+	response.Success(resp, parseCheckBackupUrl(snapshots, urlInfo.BackupName, urlInfo.Location, urlInfo.PvcPath))
+}
+
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
@@ -542,8 +581,8 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	var restoreTypeName = constant.RestoreTypeUrl
-	var backupName, snapshotId, resticSnapshotId, snapshotTime, backupPath, location string
-	var backupUrlObj *handlers.RestoreBackupUrlDetail
+	var backupId, backupName, snapshotId, resticSnapshotId, snapshotTime, backupPath, location string
+	var backupStorageInfo *handlers.RestoreBackupUrlDetail
 
 	if b.SnapshotId != "" {
 		snapshotId = b.SnapshotId
@@ -577,13 +616,14 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 			return
 		}
 
+		backupId = backup.Name
 		backupName = backup.Spec.Name
 		backupPath = handlers.GetBackupPath(backup)
 		resticSnapshotId = *snapshot.Spec.SnapshotId
 		snapshotTime = fmt.Sprintf("%d", snapshot.Spec.CreateAt.Unix())
 	} else {
-		// parse and split BackupURL
-		backupUrlObj, backupName, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(b.BackupUrl)
+		// ~ parse and split BackupURL
+		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(owner, b.BackupUrl)
 		if err != nil {
 			log.Errorf("parse BackupURL error: %v, url: %s", err, b.BackupUrl)
 			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
@@ -601,14 +641,15 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		Owner:            owner,
 		Type:             restoreTypeName,
 		Path:             strings.TrimSpace(b.Path),
+		BackupId:         backupId,
 		BackupName:       backupName,
 		BackupPath:       backupPath,
-		BackupUrl:        backupUrlObj, // if snapshot,it will be nil
+		BackupUrl:        backupStorageInfo, // if snapshot,it will be nil
 		Password:         util.Base64encode([]byte(strings.TrimSpace(b.Password))),
-		SnapshotId:       snapshotId,
+		SnapshotId:       snapshotId, // backupUrl is nil
 		SnapshotTime:     snapshotTime,
 		ResticSnapshotId: resticSnapshotId,
-		ClusterId:        clusterId,
+		ClusterId:        clusterId, // backupUrl is nil
 		Location:         location,
 	}
 
