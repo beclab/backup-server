@@ -40,12 +40,16 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 		return err
 	}
 
-	spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
-	if err != nil {
-		return err
-	}
+	locationConfig, _ := GetBackupLocationConfig(backup)
+	location := locationConfig["location"]
+	if location == constant.BackupLocationSpace.String() {
+		spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+		if err != nil {
+			return err
+		}
 
-	_ = notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
+		_ = notify.NotifyDeleteBackup(ctx, constant.DefaultSyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
+	}
 
 	return o.delete(ctx, backup)
 }
@@ -268,38 +272,4 @@ RETRY:
 	}
 
 	return nil
-}
-
-func (o *BackupHandler) Pager(limit int64, offset int64, backups *sysv1.BackupList) *sysv1.BackupList {
-	if limit < 0 {
-		limit = 5
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
-	var total = int64(len(backups.Items))
-
-	result := &sysv1.BackupList{
-		TypeMeta: backups.TypeMeta,
-		ListMeta: metav1.ListMeta{
-			ResourceVersion: backups.ResourceVersion,
-		},
-	}
-
-	startIndex := offset
-	endIndex := offset + limit
-
-	if startIndex >= total {
-		result.Items = []sysv1.Backup{}
-		return result
-	}
-
-	if endIndex > total {
-		endIndex = total
-	}
-
-	result.Items = backups.Items[startIndex:endIndex]
-
-	return result
 }

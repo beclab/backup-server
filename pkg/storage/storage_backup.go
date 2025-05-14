@@ -326,7 +326,8 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			return
 		}
 		options = &backupssdkoptions.AwsBackupOption{
-			RepoName:        backupId,
+			RepoId:          backupId,
+			RepoName:        backupName,
 			Path:            s.Params.Path,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -346,7 +347,8 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			return
 		}
 		options = &backupssdkoptions.TencentCloudBackupOption{
-			RepoName:        backupId,
+			RepoId:          backupId,
+			RepoName:        backupName,
 			Path:            s.Params.Path,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -361,7 +363,8 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 		})
 	case constant.BackupLocationFileSystem.String():
 		options = &backupssdkoptions.FilesystemBackupOption{
-			RepoName: fmt.Sprintf("olares-backup-%s", backupName), //backupId,
+			RepoId:   backupId,
+			RepoName: backupName,
 			Endpoint: s.Params.Location["path"],
 			Path:     s.Params.Path,
 		}
@@ -392,6 +395,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 
 func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryOutput, backupStorageObj *backupssdkmodel.StorageInfo, totalSize uint64, err error) {
 	var backupId = s.Backup.Name
+	var backupName = s.Backup.Spec.Name
 	var location = s.Params.Location
 	var olaresId = location["name"]
 
@@ -411,7 +415,8 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		}
 
 		spaceBackupOption = &backupssdkoptions.SpaceBackupOption{
-			RepoName:       backupId,
+			RepoId:         backupId,
+			RepoName:       backupName,
 			Path:           s.Params.Path,
 			OlaresDid:      spaceToken.OlaresDid,
 			AccessToken:    spaceToken.AccessToken,
@@ -475,6 +480,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 		}
 		o := opt.(*backupssdkoptions.SpaceBackupOption)
 		options.Space = &backupssdkoptions.SpaceSnapshotsOption{
+			RepoId:         o.RepoId,
 			RepoName:       o.RepoName,
 			OlaresDid:      spaceToken.OlaresDid,
 			AccessToken:    spaceToken.AccessToken,
@@ -491,6 +497,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 		}
 		o := opt.(*backupssdkoptions.AwsBackupOption)
 		options.Aws = &backupssdkoptions.AwsSnapshotsOption{
+			RepoId:          o.RepoId,
 			RepoName:        o.RepoName,
 			Endpoint:        o.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -504,6 +511,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 		}
 		o := opt.(*backupssdkoptions.TencentCloudBackupOption)
 		options.TencentCloud = &backupssdkoptions.TencentCloudSnapshotsOption{
+			RepoId:          o.RepoId,
 			RepoName:        o.RepoName,
 			Endpoint:        o.Endpoint,
 			AccessKey:       token.AccessKey,
@@ -512,6 +520,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 	case *backupssdkoptions.FilesystemBackupOption:
 		o := opt.(*backupssdkoptions.FilesystemBackupOption)
 		options.Filesystem = &backupssdkoptions.FilesystemSnapshotsOption{
+			RepoId:   o.RepoId,
 			RepoName: o.RepoName,
 			Endpoint: o.Endpoint,
 		}
@@ -643,7 +652,7 @@ func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, er
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("no integration cloud token found")
+		return nil, fmt.Errorf("the integration token was not found, or the endpoint does not match. please check the integration configuration, endpoint: %s", endpoint)
 	}
 
 	s.IntegrationChanged = true

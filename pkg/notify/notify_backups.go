@@ -24,6 +24,7 @@ type Backup struct {
 	Token          string `json:"token"`   // access token
 	BackupId       string `json:"backup_id"`
 	Name           string `json:"name"`
+	BackupTime     int64  `json:"backup_time"`
 	BackupPath     string `json:"backup_path"`     // backup path
 	BackupLocation string `json:"backup_location"` // location  space / awss3 / tencentcloud / ...
 }
@@ -65,8 +66,8 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendBackupUrl)
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
-		var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupPath=%s&backupLocation=%s",
-			backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupPath, backup.BackupLocation)
+		var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupTime=%d&backupPath=%s&backupLocation=%s",
+			backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupTime, backup.BackupPath, backup.BackupLocation)
 
 		log.Infof("[notify] backup data: %s", data)
 

@@ -474,14 +474,15 @@ func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
  * app       fs: /rootfs/userspace/pvc-userspace-zhaoyu001-sehp80bzd9xzttwl/Home/Download?backupName={backupName}&snapshotId={resticSnapshotId}
  * cli       fs: ^^^
  */
-func ParseRestoreBackupUrlDetail(u string) (storage *RestoreBackupUrlDetail, backupName string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
+func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDetail, backupName, backupId string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
 	if u == "" {
 		err = fmt.Errorf("backupUrl is empty")
 		return
 	}
 
 	u = strings.TrimPrefix(u, "s3:")
-	backupUrlType, e := parseBackupUrl(u)
+	u = strings.TrimRight(u, "/")
+	backupUrlType, e := ParseBackupUrl(owner, u)
 	if e != nil {
 		err = errors.WithMessage(e, fmt.Sprintf("parse backupUrl failed, backupUrl: %s", u))
 		return
@@ -489,8 +490,13 @@ func ParseRestoreBackupUrlDetail(u string) (storage *RestoreBackupUrlDetail, bac
 
 	log.Infof("backup url type: %s", util.ToJSON(backupUrlType))
 
-	if backupName = backupUrlType.Values.Get("backupName"); backupName == "" {
+	if backupName = backupUrlType.BackupName; backupName == "" {
 		err = errors.WithStack(fmt.Errorf("backupName is empty, backupUrl: %s", u))
+		return
+	}
+
+	if backupId = backupUrlType.BackupId; backupId == "" {
+		err = errors.WithStack(fmt.Errorf("backupId is empty, backupUrl: %s", u))
 		return
 	}
 
@@ -507,6 +513,13 @@ func ParseRestoreBackupUrlDetail(u string) (storage *RestoreBackupUrlDetail, bac
 	if backupPath = backupUrlType.Values.Get("backupPath"); backupPath == "" {
 		err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
 		return
+	} else {
+		if backupPathBytes, e := util.Base64decode(backupPath); e != nil {
+			err = errors.WithStack(fmt.Errorf("base64decode backupPath failed, backupPath: %s", backupPath))
+			return
+		} else {
+			backupPath = string(backupPathBytes)
+		}
 	}
 
 	location = backupUrlType.Location
@@ -518,41 +531,73 @@ func ParseRestoreBackupUrlDetail(u string) (storage *RestoreBackupUrlDetail, bac
 	return
 }
 
-func parseBackupUrl(s string) (*BackupUrlType, error) {
-	var u, err = url.Parse(s)
+func IsBackupLocationSpace(u string) bool {
+	return strings.Contains(u, "did:key:")
+}
+
+func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
+	userspacePath, err := GetUserspacePvc(owner)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
+	}
+
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, errors.WithStack(err)
 	}
 
 	var location string
-	if u.Scheme == "fs" {
+	if u.Scheme == "" && u.Path[:1] == "/" {
 		location = constant.BackupLocationFileSystem.String()
-	} else if strings.Contains(u.Host, "s3.") {
+	} else if strings.Contains(u.Path, constant.LocationTypeSpaceTag) {
+		location = constant.BackupLocationSpace.String()
+	} else if strings.Contains(u.Host, constant.LocationTypeAwsS3Tag) {
 		location = constant.BackupLocationAwsS3.String()
-	} else if strings.Contains(u.Host, "cos.") {
+	} else if strings.Contains(u.Host, constant.LocationTypeTencentCloudTag) {
 		location = constant.BackupLocationTencentCloud.String()
 	}
 
-	// else if strings.Contains(u.Path, "did:key:") {
-	// 	location = constant.BackupLocationSpace.String()
-	// }
-
 	if location == "" {
-		return nil, fmt.Errorf("location is empty, host: %s", u.Host)
+		return nil, fmt.Errorf("location is empty, url: %s", s)
 	}
 
 	if strings.TrimPrefix(u.Path, "/") == "" {
-		return nil, errors.New("path is empty")
+		return nil, fmt.Errorf("url invalid, url: %s", s)
+	}
+
+	idx := strings.Index(u.Path, constant.DefaultStoragePrefix)
+	if idx == -1 {
+		return nil, fmt.Errorf("url invalid, url: %s", u)
+	}
+
+	pathSuffix := u.Path[idx+len(constant.DefaultStoragePrefix):]
+
+	backupName, backupId, err := utilstring.SplitPath(pathSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("split path errror: %v, url: %s", err, s)
+	}
+
+	var endpoint = FormatEndpoint(location, u.Scheme, u.Host, u.Path, userspacePath)
+	if endpoint == "" {
+		return nil, fmt.Errorf("endpoint invalid, url: %s", s)
+	}
+
+	if location == constant.BackupLocationFileSystem.String() {
+		if !util.IsExist(endpoint) {
+			return nil, fmt.Errorf("backup dir not exists, path: %s", endpoint)
+		}
 	}
 
 	var res = &BackupUrlType{
-		Schema:               u.Scheme,
-		Host:                 u.Host,
-		Path:                 strings.TrimPrefix(u.Path, "/"),
-		Values:               u.Query(),
-		Location:             location,
-		IsBackupToSpace:      strings.Contains(u.Path, "did:key"),
-		IsBackupToFilesystem: strings.Contains(u.Scheme, "fs"),
+		Schema:     u.Scheme,
+		Host:       u.Host,
+		Path:       u.Path, //strings.TrimPrefix(u.Path, "/"),
+		Values:     u.Query(),
+		Location:   location,
+		Endpoint:   endpoint,
+		BackupId:   backupId,
+		BackupName: backupName,
+		PvcPath:    userspacePath,
 	}
 	return res, nil
 }
@@ -653,4 +698,22 @@ func TrimPathPrefix(p string) (bool, string) {
 	} else {
 		return false, p
 	}
+}
+
+func FormatEndpoint(location, schema, host, urlPath, pvc string) string {
+	var p = utilstring.TrimSuffix(urlPath, constant.DefaultStoragePrefix)
+	var endpoint string
+	switch location {
+	case constant.BackupLocationSpace.String(), constant.BackupLocationAwsS3.String(), constant.BackupLocationTencentCloud.String():
+		endpoint = fmt.Sprintf("%s://%s%s", schema, host, p)
+	case constant.BackupLocationFileSystem.String():
+		external, relativePath := TrimPathPrefix(p)
+		if external {
+			endpoint = path.Join(constant.ExternalPath, relativePath)
+		} else {
+			endpoint = path.Join(pvc, relativePath)
+		}
+	}
+
+	return endpoint
 }

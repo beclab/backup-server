@@ -136,6 +136,10 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
+				if bc2.Spec.Deleted {
+					return true
+				}
+
 				flag, err := r.isSizeUpdated(bc1, bc2)
 				if err != nil {
 					log.Errorf("backup size updated error: %v", err)
@@ -212,11 +216,6 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
-	if err != nil {
-		return err
-	}
-
 	locationConfig, err := handlers.GetBackupLocationConfig(backup)
 	if err != nil {
 		return fmt.Errorf("get backup location config error: %v", err)
@@ -226,11 +225,21 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	}
 	var location = locationConfig["location"]
 
+	if location != constant.BackupLocationSpace.String() {
+		return r.handler.GetBackupHandler().UpdateNotifyState(ctx, backup.Name, true)
+	}
+
+	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+	if err != nil {
+		return err
+	}
+
 	var notifyBackupObj = &notify.Backup{
 		UserId:         olaresSpaceToken.OlaresDid,
 		Token:          olaresSpaceToken.AccessToken,
 		BackupId:       backup.Name,
 		Name:           backup.Spec.Name,
+		BackupTime:     backup.Spec.CreateAt.Unix(),
 		BackupPath:     handlers.GetBackupPath(backup),
 		BackupLocation: location,
 	}

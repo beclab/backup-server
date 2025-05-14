@@ -1,6 +1,9 @@
 package string
 
 import (
+	"fmt"
+	"regexp"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -64,7 +67,7 @@ func IsReservedName(name string) bool {
 }
 
 func ContainsIllegalChars(name string) (bool, rune) {
-	illegalChars := []rune{'\\', '/', '@', '!'}
+	illegalChars := []rune{'\\', '/', '@', '!', '#'}
 	for _, r := range name {
 		for _, illegal := range illegalChars {
 			if r == illegal {
@@ -76,7 +79,7 @@ func ContainsIllegalChars(name string) (bool, rune) {
 }
 
 func ContainsS3IllegalChars(name string) (bool, rune) {
-	illegalChars := []rune{'\\', '{', '}', '^', '%', '`', ']', '[', '"', '<', '>', '#', '|', '?', '*'}
+	illegalChars := []rune{'\\', '/', '{', '}', '^', '%', '`', ']', '[', '"', '<', '>', '#', '|', '?', '*', '@', '\''}
 	for _, r := range name {
 		for _, illegal := range illegalChars {
 			if r == illegal {
@@ -85,4 +88,26 @@ func ContainsS3IllegalChars(name string) (bool, rune) {
 		}
 	}
 	return false, 0
+}
+
+func TrimSuffix(s, suffix string) string {
+	idx := strings.Index(s, suffix)
+	if idx == -1 {
+		return ""
+	}
+	return s[:idx]
+}
+
+func SplitPath(str string) (prefix string, uuid string, err error) {
+	re := regexp.MustCompile(`^(.*?)-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
+
+	matches := re.FindStringSubmatch(str)
+	if len(matches) == 3 {
+		prefix = matches[1]
+		uuid = matches[2]
+		return
+	}
+
+	err = fmt.Errorf("path %s is not valid", str)
+	return
 }

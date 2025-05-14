@@ -48,7 +48,7 @@ const (
 
 	ExternalPath string = "/shares"
 
-	DefaultStoragePrefix = "olares-backup/"
+	DefaultStoragePrefix = "olares-backups/"
 
 	FreeSpaceStorage uint64 = 2 * 1024 * 1024 * 1024
 )
@@ -74,6 +74,10 @@ const (
 	BackupLocationCosAlias        BackupLocation = "TencentCloud COS"
 	BackupLocationFileSystemAlias BackupLocation = "Local"
 	BackupLocationUnKnownAlias    BackupLocation = "Unknown"
+
+	LocationTypeSpaceTag        = "did:key:"
+	LocationTypeAwsS3Tag        = "amazonaws.com"
+	LocationTypeTencentCloudTag = "myqcloud.com"
 )
 
 type BackupSnapshotFrequency string

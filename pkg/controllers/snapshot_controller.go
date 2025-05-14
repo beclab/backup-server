@@ -264,6 +264,13 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
+	locationConfig, _ := handlers.GetBackupLocationConfig(backup)
+	location := locationConfig["location"]
+
+	if location != constant.BackupLocationSpace.String() {
+		return nil
+	}
+
 	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
 	if err != nil {
 		return err
@@ -288,6 +295,13 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 }
 
 func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v1.Backup, snapshot *v1.Snapshot) error {
+	locationConfig, _ := handlers.GetBackupLocationConfig(backup)
+	location := locationConfig["location"]
+
+	if location != constant.BackupLocationSpace.String() {
+		return nil
+	}
+
 	spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
 	if err != nil {
 		return fmt.Errorf("get space token error: %v", err)

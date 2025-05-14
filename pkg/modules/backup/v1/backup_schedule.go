@@ -91,6 +91,7 @@ func (o *BackupPlan) validate(ctx context.Context) error {
 }
 
 func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
+	var createAt = pointer.Time()
 	var backupType = make(map[string]string)
 	backupType["file"] = o.buildBackupType() // ! trim path prefix, like '/Files'
 	bc := &sysv1.BackupSpec{
@@ -99,9 +100,9 @@ func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 		BackupType: backupType,
 		Notified:   false,
 		Size:       pointer.UInt64Ptr(0),
-		CreateAt:   pointer.Time(),
+		CreateAt:   createAt,
 		Extra: map[string]string{
-			"size_updated": fmt.Sprintf("%d", time.Now().Unix()),
+			"size_updated": fmt.Sprintf("%d", createAt.Unix()),
 		},
 	}
 
