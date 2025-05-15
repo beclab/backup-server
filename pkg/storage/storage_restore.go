@@ -369,7 +369,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 			ClusterId:      location["clusterId"],
 			CloudName:      location["cloudName"],
 			RegionId:       location["regionId"],
-			CloudApiMirror: constant.DefaultSyncServerURL,
+			CloudApiMirror: constant.SyncServerURL,
 		}
 
 		var restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{

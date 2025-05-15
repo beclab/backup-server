@@ -81,26 +81,24 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				switch phase {
 				case constant.Pending.String():
 					isNewlyCreated := restore.CreationTimestamp.After(r.controllerStartTime.Time)
-					if !isNewlyCreated {
-						if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
-							log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
+					if isNewlyCreated {
+						err := worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
+						if err != nil && strings.Contains(err.Error(), "queue is full") {
+							if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Rejected); err != nil {
+								log.Errorf("update restore %s phase %s to Rejected error: %v", restore.Name, phase, err)
+							}
+						} else {
+							log.Infof("restore %s, type: %s, add to queue success", restore.Name, restoreType.Type)
 						}
+
 						return false
 					}
-
-					err := worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
-					if err != nil && strings.Contains(err.Error(), "queue is full") {
-						if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Rejected); err != nil {
-							log.Errorf("update restore %s phase %s to Rejected error: %v", restore.Name, phase, err)
-						}
-					} else {
-						log.Infof("restore %s, type: %s, add to queue success", restore.Name, restoreType.Type)
-					}
-				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String(), constant.Rejected.String():
-				default:
+					fallthrough
+				case constant.Running.String():
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
 					}
+					r.deleteUncompleteRestoreFiles(restore)
 				}
 				return false
 			},
@@ -122,6 +120,7 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				}
 
 				if *newRestore.Spec.Phase == constant.Failed.String() {
+					r.deleteUncompleteRestoreFiles(newRestore)
 					return false
 				}
 
@@ -158,4 +157,12 @@ func (r *RestoreReconciler) isSysRestore(obj client.Object) (*sysapiv1.Restore, 
 	}
 
 	return b, true
+}
+
+func (r *RestoreReconciler) deleteUncompleteRestoreFiles(restore *v1.Restore) {
+	if err := r.handler.GetRestoreHandler().DeleteUncompleteRestoreFiles(restore); err != nil {
+		log.Error("delete uncomplete restore %s files error: %v", restore.Name, err)
+	} else {
+		log.Infof("delete uncomplete restore %s files success", restore.Name)
+	}
 }

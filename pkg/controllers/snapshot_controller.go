@@ -287,7 +287,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 		Type:         handlers.ParseSnapshotTypeText(snapshot.Spec.SnapshotType),
 	}
 
-	if err := notify.NotifySnapshot(ctx, constant.DefaultSyncServerURL, snapshotRecord); err != nil {
+	if err := notify.NotifySnapshot(ctx, constant.SyncServerURL, snapshotRecord); err != nil {
 		return err
 	}
 
@@ -334,5 +334,5 @@ func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v
 		snapshotRecord.Message = *snapshot.Spec.Message
 	}
 
-	return notify.NotifySnapshot(ctx, constant.DefaultSyncServerURL, snapshotRecord)
+	return notify.NotifySnapshot(ctx, constant.SyncServerURL, snapshotRecord)
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,7 @@ func EnvOrDefault(name, def string) string {
 	if v == "" && def != "" {
 		return def
 	}
+	v = strings.TrimRight(v, "/")
 	return v
 }
 

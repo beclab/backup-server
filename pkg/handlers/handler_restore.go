@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
 	"sort"
 	"time"
 
@@ -238,11 +240,11 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 
 		switch phase {
 		case constant.Canceled:
-			r.Spec.Message = pointer.String("Restore canceled")
+			r.Spec.Message = pointer.String("restore canceled")
 		case constant.Rejected:
-			r.Spec.Message = pointer.String(fmt.Sprintf("Restore queue has reached capacity, maximum queue size is %d tasks", constant.RestoreQueueSize))
+			r.Spec.Message = pointer.String(fmt.Sprintf("restore queue has reached capacity, maximum queue size is %d tasks", constant.RestoreQueueSize))
 		case constant.Failed:
-			r.Spec.Message = pointer.String("Backup service restarted, restoration task terminated")
+			r.Spec.Message = pointer.String("backup service restarted, restoration task terminated")
 		}
 
 		_, err = c.SysV1().Restores(constant.DefaultOsSystemNamespace).
@@ -258,6 +260,28 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 	}
 
 	return nil
+}
+
+func (o *RestoreHandler) DeleteUncompleteRestoreFiles(restore *sysv1.Restore) error {
+	restoreTypeInfo, err := ParseRestoreType(restore)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	userspacePvc, err := GetUserspacePvc(restore.Spec.Owner)
+	if err != nil {
+		return err
+	}
+
+	var restorePath string
+	var tmpRestoreExternal, tmpRestorePath = TrimPathPrefix(restoreTypeInfo.Path)
+	if tmpRestoreExternal {
+		restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
+	} else {
+		restorePath = path.Join(userspacePvc, tmpRestorePath)
+	}
+
+	return os.RemoveAll(restorePath)
 }
 
 func (o *RestoreHandler) update(ctx context.Context, restore *sysv1.Restore) error {

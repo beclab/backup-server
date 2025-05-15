@@ -238,8 +238,8 @@ func (s *StorageBackup) checkDiskSize() error {
 
 		requiredSpace := uint64(float64(backupSize) * 1.1)
 		if targetFreeSpace < requiredSpace {
-			return errors.Errorf("Backup %s,%s, not enough free space on target disk, required: %s, available: %s, location: %s",
-				s.Backup.Spec.Name, s.Snapshot.Name, util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
+			return errors.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s",
+				util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
 		}
 	}
 
@@ -423,7 +423,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			ClusterId:      location["clusterId"],
 			CloudName:      location["cloudName"],
 			RegionId:       location["regionId"],
-			CloudApiMirror: constant.DefaultSyncServerURL,
+			CloudApiMirror: constant.SyncServerURL,
 		}
 
 		var backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
@@ -487,7 +487,7 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 			ClusterId:      location["clusterId"],
 			CloudName:      location["cloudName"],
 			RegionId:       location["regionId"],
-			CloudApiMirror: constant.DefaultSyncServerURL,
+			CloudApiMirror: constant.SyncServerURL,
 		}
 	case *backupssdkoptions.AwsBackupOption:
 		token, err := s.getIntegrationCloud() // aws getstats

@@ -12,7 +12,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	stringx "bytetrade.io/web3os/backup-server/pkg/util/string"
-	"bytetrade.io/web3os/backups-sdk/pkg/restic"
 	"k8s.io/klog/v2"
 )
 
@@ -96,6 +95,8 @@ type RestoreCreate struct {
 type RestoreCheckBackupUrl struct {
 	BackupUrl string `json:"backupUrl"`
 	Password  string `json:"password"`
+	Limit     int64  `json:"limit"`
+	Offset    int64  `json:"offset"`
 }
 
 func (r *RestoreCreate) verify() bool {
@@ -591,18 +592,25 @@ func parseResponseRestoreOne(restore *sysv1.Restore, backupName string, snapshot
 	return res
 }
 
-func parseCheckBackupUrl(snapshots *restic.SnapshotList, backupName, location, userspacePath string) map[string]interface{} {
+func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, location, userspacePath string, totalCount int64, totalPage int64) map[string]interface{} {
 	var result = make(map[string]interface{})
+	result["totalCount"] = totalCount
+	result["totalPage"] = totalPage
 
-	var backupPathAbs = snapshots.First().Paths[0]
+	if snapshots == nil || len(snapshots.Items) == 0 {
+		result["snapshots"] = []struct{}{}
+		return result
+	}
+
+	var backupPathAbs = snapshots.Items[0].Spec.Location
 	var backupPath = util.ReplacePathPrefix(backupPathAbs, userspacePath, constant.ExternalPath)
 
 	var items []map[string]interface{}
-	for _, snapshot := range *snapshots {
+	for _, snapshot := range snapshots.Items {
 		var item = make(map[string]interface{})
-		item["snapshotId"] = snapshot.Id
-		item["snapshotTime"] = util.ParseTimeText(snapshot.Time)
-		item["size"] = snapshot.Summary.TotalBytesProcessed
+		item["id"] = snapshot.Spec.SnapshotId
+		item["createAt"] = snapshot.Spec.CreateAt.Unix()
+		item["size"] = fmt.Sprintf("%d", *snapshot.Spec.Size)
 		items = append(items, item)
 	}
 

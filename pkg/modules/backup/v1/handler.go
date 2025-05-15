@@ -469,7 +469,7 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String(), "Backup canceled"); err != nil {
+	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String(), "backup canceled"); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "update snapshot %s Canceled error", snapshotId))
 		return
 	}
@@ -526,7 +526,7 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 
 	if err = req.ReadEntity(&b); err != nil {
 		log.Errorf("check backup url read entity error: %v", err)
-		response.HandleError(resp, errors.WithStack(err))
+		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), errors.Errorf("check backup url read entity error: %v", err))
 		return
 	}
 
@@ -536,9 +536,14 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 	log.Infof("received restore check backup url request: %s", util.ToJSON(b))
 
 	urlInfo, err := handlers.ParseBackupUrl(owner, b.BackupUrl)
+	if err != nil {
+		log.Errorf("parse backup url error: %v", err)
+		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), errors.Errorf("parse backup url error: %v", err))
+		return
+	}
 
 	if urlInfo.Location == constant.BackupLocationSpace.String() {
-		response.HandleError(resp, errors.Errorf("backup location is space, no need to check url snapshots, url: %s", b.BackupUrl))
+		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), errors.Errorf("backup location is space, no need to check url snapshots, url: %s", b.BackupUrl))
 		return
 	}
 
@@ -550,11 +555,20 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 	snapshots, err := storageSnapshots.GetSnapshots(ctx, b.Password, owner, urlInfo.Location, urlInfo.Endpoint, urlInfo.BackupName, urlInfo.BackupId)
 	if err != nil {
 		log.Errorf("check backup url snapshots error: %v", err)
-		response.HandleError(resp, err)
+		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), err)
 		return
 	}
 
-	response.Success(resp, parseCheckBackupUrl(snapshots, urlInfo.BackupName, urlInfo.Location, urlInfo.PvcPath))
+	if snapshots == nil || len(*snapshots) == 0 {
+		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), fmt.Errorf("snapshots not found"))
+		return
+	}
+
+	items := h.handler.GetSnapshotHandler().SortSnapshotList(snapshots)
+
+	result, totalCount, totalPage := handlers.GenericPager(b.Limit, b.Offset, items)
+
+	response.Success(resp, parseCheckBackupUrl(result, urlInfo.BackupName, urlInfo.Location, urlInfo.PvcPath, totalCount, totalPage))
 }
 
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {

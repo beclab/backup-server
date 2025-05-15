@@ -677,7 +677,7 @@ func GetUserspacePvc(owner string) (string, error) {
 
 	res, err := c.AppsV1().StatefulSets("user-space-"+owner).Get(context.TODO(), "bfl", metav1.GetOptions{})
 	if err != nil {
-		return "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owern: %s", owner))
+		return "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owner: %s", owner))
 	}
 
 	userspacePvc, ok := res.Annotations["userspace_pvc"]

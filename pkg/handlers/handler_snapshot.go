@@ -15,6 +15,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"bytetrade.io/web3os/backup-server/pkg/util/uuid"
+	"bytetrade.io/web3os/backups-sdk/pkg/restic"
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
 	backupssdkmodel "bytetrade.io/web3os/backups-sdk/pkg/storage/model"
 	"github.com/pkg/errors"
@@ -338,6 +339,43 @@ RETRY:
 	}
 
 	return nil
+}
+
+func (o *SnapshotHandler) SortSnapshotList(snapshots *restic.SnapshotList) *sysv1.SnapshotList {
+	var result = &sysv1.SnapshotList{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Snapshotlist",
+			APIVersion: sysv1.SchemeGroupVersion.String(),
+		},
+		Items: []sysv1.Snapshot{},
+	}
+
+	for _, snapshot := range *snapshots {
+		createAt, _ := time.Parse(time.RFC3339, snapshot.Summary.BackupStart)
+		var path string
+		if snapshot.Paths != nil && len(snapshot.Paths) > 0 {
+			path = snapshot.Paths[0]
+		}
+		var item = sysv1.Snapshot{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       constant.KindSnapshot,
+				APIVersion: sysv1.SchemeGroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				CreationTimestamp: metav1.Time{Time: createAt},
+			},
+			Spec: sysv1.SnapshotSpec{
+				SnapshotId: pointer.String(snapshot.Id),
+				CreateAt:   &metav1.Time{Time: createAt},
+				Location:   path,
+				Size:       pointer.UInt64(uint64(snapshot.Summary.TotalBytesProcessed)),
+			},
+		}
+
+		result.Items = append(result.Items, item)
+	}
+
+	return result
 }
 
 // --
