@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -67,7 +68,7 @@ func (s *StorageRestore) RunRestore() error {
 
 	if err := f(); err != nil {
 		if err := s.updateRestoreResult(nil, err); err != nil {
-			return err
+			log.Errorf("Restore %s, update restore failed result error: %v", s.RestoreId, err)
 		}
 		return nil
 	}
@@ -75,13 +76,18 @@ func (s *StorageRestore) RunRestore() error {
 	restoreResult, restoreErr := s.execute()
 
 	if restoreErr != nil {
-		log.Errorf("Restore %s error: %v", s.RestoreId, restoreErr)
+		log.Errorf("Restore %s, error: %v", s.RestoreId, restoreErr)
 	} else {
 		log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
+		if e := os.Rename(s.Params.Path, strings.ReplaceAll(s.Params.Path, ".restore", "")); e != nil {
+			log.Errorf("Restore %s, rename error: %v", s.RestoreId, e)
+		}
 	}
 
 	if err := s.updateRestoreResult(restoreResult, restoreErr); err != nil {
-		return errors.WithStack(err)
+		log.Errorf("Restore %s, update restore result error: %v", s.RestoreId, err)
+	} else {
+		log.Infof("Restore %s, restore completed", s.RestoreId)
 	}
 
 	return nil
@@ -192,8 +198,9 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		return err
 	}
 
+	var dotRestorePath = path.Join(s.RestoreType.Path, fmt.Sprintf("%s.restore-%d", s.RestoreType.SubPath, s.RestoreType.SubPathTimestamp)) + "/"
 	var restorePath string
-	var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(s.RestoreType.Path)
+	var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(dotRestorePath)
 	if tmpRestoreExternal {
 		restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
 	} else {
@@ -276,13 +283,14 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 			Ctx:      s.Ctx,
 			Logger:   logger,
 			Aws: &backupssdkoptions.AwsRestoreOption{
-				RepoId:          backupId,
-				RepoName:        backupName,
-				SnapshotId:      resticSnapshotId,
-				Path:            s.Params.Path, // restore to
-				Endpoint:        token.Endpoint,
-				AccessKey:       token.AccessKey,
-				SecretAccessKey: token.SecretKey,
+				RepoId:            backupId,
+				RepoName:          backupName,
+				SnapshotId:        resticSnapshotId,
+				Path:              s.Params.Path, // restore to
+				Endpoint:          token.Endpoint,
+				AccessKey:         token.AccessKey,
+				SecretAccessKey:   token.SecretKey,
+				LimitDownloadRate: util.EnvOrDefault(constant.EnvLimitDownloadRate, ""),
 			},
 		})
 	case constant.BackupLocationTencentCloud.String():
@@ -297,13 +305,14 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 			Ctx:      s.Ctx,
 			Logger:   logger,
 			TencentCloud: &backupssdkoptions.TencentCloudRestoreOption{
-				RepoId:          backupId,
-				RepoName:        backupName,
-				SnapshotId:      resticSnapshotId,
-				Path:            s.Params.Path,
-				Endpoint:        token.Endpoint,
-				AccessKey:       token.AccessKey,
-				SecretAccessKey: token.SecretKey,
+				RepoId:            backupId,
+				RepoName:          backupName,
+				SnapshotId:        resticSnapshotId,
+				Path:              s.Params.Path,
+				Endpoint:          token.Endpoint,
+				AccessKey:         token.AccessKey,
+				SecretAccessKey:   token.SecretKey,
+				LimitDownloadRate: util.EnvOrDefault(constant.EnvLimitDownloadRate, ""),
 			},
 		})
 	case constant.BackupLocationFileSystem.String():
@@ -359,17 +368,18 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 		}
 
 		var spaceRestoreOption = &backupssdkoptions.SpaceRestoreOption{
-			RepoId:         backupId,
-			RepoName:       backupName,
-			RepoSuffix:     terminusSuffix, // only used for backupUrl
-			SnapshotId:     resticSnapshotId,
-			Path:           s.Params.Path,
-			OlaresDid:      spaceToken.OlaresDid,
-			AccessToken:    spaceToken.AccessToken,
-			ClusterId:      location["clusterId"],
-			CloudName:      location["cloudName"],
-			RegionId:       location["regionId"],
-			CloudApiMirror: constant.DefaultSyncServerURL,
+			RepoId:            backupId,
+			RepoName:          backupName,
+			RepoSuffix:        terminusSuffix, // only used for backupUrl
+			SnapshotId:        resticSnapshotId,
+			Path:              s.Params.Path,
+			OlaresDid:         spaceToken.OlaresDid,
+			AccessToken:       spaceToken.AccessToken,
+			ClusterId:         location["clusterId"],
+			CloudName:         location["cloudName"],
+			RegionId:          location["regionId"],
+			CloudApiMirror:    constant.SyncServerURL,
+			LimitDownloadRate: util.EnvOrDefault(constant.EnvLimitDownloadRate, ""),
 		}
 
 		var restoreService = backupssdk.NewRestoreService(&backupssdkstorage.RestoreOption{
@@ -391,7 +401,6 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 				}
 				continue
 			} else {
-				err = fmt.Errorf("space backup error: %v", err)
 				break
 			}
 		}

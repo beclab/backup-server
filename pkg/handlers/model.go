@@ -21,6 +21,8 @@ type RestoreType struct {
 	Owner            string                  `json:"owner"`
 	Type             string                  `json:"type"` // snapshot or url
 	Path             string                  `json:"path"` // restore target path
+	SubPath          string                  `json:"subPath"`
+	SubPathTimestamp int64                   `json:"subPathTimestamp"`
 	BackupId         string                  `json:"backupId"`
 	BackupName       string                  `json:"backupName"`
 	BackupPath       string                  `json:"backupPath"` // from backupUrl
@@ -105,29 +107,6 @@ func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
 	}, nil
 }
 
-func (u *BackupUrlType) getLocation() string {
-	switch {
-	case strings.Contains(u.Host, "cos."):
-		return constant.BackupLocationTencentCloud.String()
-	case strings.Contains(u.Host, "s3."):
-		return constant.BackupLocationAwsS3.String()
-	case u.Schema == "fs":
-		return constant.BackupLocationFileSystem.String()
-	}
-
-	return ""
-}
-
-func (u *BackupUrlType) getFsBackupPath() (p string, err error) {
-	if u.Location != constant.BackupLocationFileSystem.String() {
-		return
-	}
-
-	p = u.Path
-
-	return
-}
-
 func (u *BackupUrlType) getBucketAndPrefix() (bucket string, prefix string, suffix string, err error) {
 	path := strings.Trim(u.Path, "/")
 	paths := strings.Split(path, "/")
@@ -153,22 +132,6 @@ func (u *BackupUrlType) getBucketAndPrefix() (bucket string, prefix string, suff
 		prefix = strings.Join(paths[1:len(paths)-1], "/")
 		return
 	}
-}
-
-func (u *BackupUrlType) getBackupId() (string, error) {
-	paths := strings.Split(u.Path, "/")
-
-	if u.Location == constant.BackupLocationSpace.String() {
-		if len(paths) != 4 {
-			return "", fmt.Errorf("path invalid, path: %s", u.Path)
-		}
-	} else {
-		if len(paths) < 2 {
-			return "", fmt.Errorf("path invalid, path: %s", u.Path)
-		}
-	}
-
-	return paths[len(paths)-1], nil
 }
 
 func (u *BackupUrlType) getRegionId() (string, error) {

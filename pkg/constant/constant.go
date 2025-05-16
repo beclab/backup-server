@@ -5,9 +5,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+var (
+	SyncServerURL string
+)
+
 const (
 	EnvSpaceUrl          string = "OLARES_SPACE_URL"
-	DefaultSyncServerURL string = "https://cloud-api.bttcdn.com"
+	DefaultSyncServerURL string = "https://cloud-api.olares.xyz"
 
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
@@ -49,6 +53,9 @@ const (
 	ExternalPath string = "/shares"
 
 	DefaultStoragePrefix = "olares-backups/"
+
+	EnvLimitUploadRate   = "LIMIT_UPLOAD_RATE"
+	EnvLimitDownloadRate = "LIMIT_DOWNLOAD_RATE"
 
 	FreeSpaceStorage uint64 = 2 * 1024 * 1024 * 1024
 )
@@ -142,8 +149,6 @@ const (
 )
 
 const (
-	MaxConcurrency   = 1
-	BackupQueueSize  = 5
-	RestoreQueueSize = 5
-	NonBlocking      = true
+	MaxConcurrency = 1
+	NonBlocking    = true
 )

@@ -3,7 +3,6 @@ package controllers
 import (
 	"context"
 	"reflect"
-	"strings"
 
 	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -81,23 +80,21 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				switch phase {
 				case constant.Pending.String():
 					isNewlyCreated := restore.CreationTimestamp.After(r.controllerStartTime.Time)
-					if !isNewlyCreated {
-						if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
-							log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
+					if isNewlyCreated {
+						err := worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
+						if err != nil {
+							log.Errorf("add restore to worker error: %v, id: %s", err, restore.Name)
+							if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
+								log.Errorf("update restore %s phase %s to Rejected error: %v", restore.Name, phase, err)
+							} else {
+								log.Infof("restore %s, type: %s, add to queue success", restore.Name, restoreType.Type)
+							}
 						}
+
 						return false
 					}
-
-					err := worker.GetWorkerPool().AddRestoreTask(restore.Spec.Owner, restore.Name)
-					if err != nil && strings.Contains(err.Error(), "queue is full") {
-						if err = r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Rejected); err != nil {
-							log.Errorf("update restore %s phase %s to Rejected error: %v", restore.Name, phase, err)
-						}
-					} else {
-						log.Infof("restore %s, type: %s, add to queue success", restore.Name, restoreType.Type)
-					}
-				case constant.Completed.String(), constant.Failed.String(), constant.Canceled.String(), constant.Rejected.String():
-				default:
+					fallthrough
+				case constant.Running.String():
 					if err := r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed); err != nil {
 						log.Errorf("update restore %s phase %s to Failed error: %v", restore.Name, phase, err)
 					}

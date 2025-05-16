@@ -244,7 +244,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 		BackupLocation: location,
 	}
 
-	if err := notify.NotifyBackup(ctx, constant.DefaultSyncServerURL, notifyBackupObj); err != nil {
+	if err := notify.NotifyBackup(ctx, constant.SyncServerURL, notifyBackupObj); err != nil {
 		return fmt.Errorf("[push] notify backup obj error: %v", err)
 	}
 

@@ -238,11 +238,9 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 
 		switch phase {
 		case constant.Canceled:
-			r.Spec.Message = pointer.String("Restore canceled")
-		case constant.Rejected:
-			r.Spec.Message = pointer.String(fmt.Sprintf("Restore queue has reached capacity, maximum queue size is %d tasks", constant.RestoreQueueSize))
+			r.Spec.Message = pointer.String("restore canceled")
 		case constant.Failed:
-			r.Spec.Message = pointer.String("Backup service restarted, restoration task terminated")
+			r.Spec.Message = pointer.String("backup service restarted, restoration task terminated")
 		}
 
 		_, err = c.SysV1().Restores(constant.DefaultOsSystemNamespace).

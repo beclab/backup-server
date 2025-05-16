@@ -514,12 +514,8 @@ func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDeta
 		err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
 		return
 	} else {
-		if backupPathBytes, e := util.Base64decode(backupPath); e != nil {
-			err = errors.WithStack(fmt.Errorf("base64decode backupPath failed, backupPath: %s", backupPath))
-			return
-		} else {
-			backupPath = string(backupPathBytes)
-		}
+		backupPathBytes, _ := util.Base64decode(backupPath)
+		backupPath = string(backupPathBytes)
 	}
 
 	location = backupUrlType.Location
@@ -677,7 +673,7 @@ func GetUserspacePvc(owner string) (string, error) {
 
 	res, err := c.AppsV1().StatefulSets("user-space-"+owner).Get(context.TODO(), "bfl", metav1.GetOptions{})
 	if err != nil {
-		return "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owern: %s", owner))
+		return "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owner: %s", owner))
 	}
 
 	userspacePvc, ok := res.Annotations["userspace_pvc"]

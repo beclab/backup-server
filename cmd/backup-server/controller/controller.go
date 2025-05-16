@@ -5,9 +5,11 @@ import (
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/controllers"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/watchers"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
@@ -72,6 +74,7 @@ func addFlags(fs *pflag.FlagSet) {
 
 	// fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.xyz", "cloud API mirror")
 	fs.StringVarP(&logLevel, "log-level", "l", "debug", "log level")
+	fs.StringVarP(&constant.SyncServerURL, "cloud-api-mirror", "", util.EnvOrDefault("OLARES_SPACE_URL", constant.DefaultSyncServerURL), "cloud api mirror")
 
 }
 

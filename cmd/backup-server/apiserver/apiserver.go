@@ -6,8 +6,10 @@ import (
 
 	"bytetrade.io/web3os/backup-server/cmd/backup-server/apiserver/options"
 	"bytetrade.io/web3os/backup-server/pkg/client"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
 	"bytetrade.io/web3os/backup-server/pkg/signals"
+	"bytetrade.io/web3os/backup-server/pkg/util"
 	"github.com/lithammer/dedent"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -41,6 +43,7 @@ func NewAPIServerCommand() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVarP(&o.LogLevel, "log-level", "l", "debug", "logging level")
+	cmd.PersistentFlags().StringVarP(&constant.SyncServerURL, "cloud-api-mirror", "", util.EnvOrDefault("OLARES_SPACE_URL", constant.DefaultSyncServerURL), "cloud api mirror")
 	cmd.PersistentFlags().BoolVarP(&o.SkipKubeClient, "skip-kubeclient", "", false, "skip kubernetes client")
 
 	fs := cmd.Flags()

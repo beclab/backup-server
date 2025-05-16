@@ -33,7 +33,7 @@ func (s *StorageRegion) GetRegions(ctx context.Context, owner, olaresId string) 
 	var spaceRegionOption = &backupssdkoptions.SpaceRegionOptions{
 		OlaresDid:      spaceToken.OlaresDid,
 		AccessToken:    spaceToken.AccessToken,
-		CloudApiMirror: constant.DefaultSyncServerURL,
+		CloudApiMirror: constant.SyncServerURL,
 	}
 
 	var regionService = backupssdk.NewRegionService(&backupssdkstorage.RegionOption{

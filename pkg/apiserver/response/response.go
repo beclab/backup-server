@@ -79,6 +79,16 @@ func HandleError(w *restful.Response, err error) {
 	})
 }
 
+func Error(w *restful.Response, v any, err error) {
+	w.WriteHeaderAndEntity(http.StatusOK, Response{
+		Header: Header{
+			Code:    0,
+			Message: err.Error(),
+		},
+		Data: v,
+	})
+}
+
 func Success(w *restful.Response, v any) {
 	w.WriteHeaderAndEntity(http.StatusOK, Response{
 		Header: Header{
