@@ -3,6 +3,7 @@ package v1
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/config"
@@ -654,7 +655,9 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	var restoreType = &handlers.RestoreType{
 		Owner:            owner,
 		Type:             restoreTypeName,
-		Path:             strings.TrimSpace(b.Path),
+		Path:             b.Path,
+		SubPath:          b.Dir,
+		SubPathTimestamp: time.Now().Unix(),
 		BackupId:         backupId,
 		BackupName:       backupName,
 		BackupPath:       backupPath,
@@ -666,6 +669,8 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		ClusterId:        clusterId, // backupUrl is nil
 		Location:         location,
 	}
+
+	log.Infof("create restore task: %s", util.ToJSON(restoreType))
 
 	restore, err := h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
 	if err != nil {

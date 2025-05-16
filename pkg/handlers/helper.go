@@ -514,12 +514,8 @@ func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDeta
 		err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
 		return
 	} else {
-		if backupPathBytes, e := util.Base64decode(backupPath); e != nil {
-			err = errors.WithStack(fmt.Errorf("base64decode backupPath failed, backupPath: %s", backupPath))
-			return
-		} else {
-			backupPath = string(backupPathBytes)
-		}
+		backupPathBytes, _ := util.Base64decode(backupPath)
+		backupPath = string(backupPathBytes)
 	}
 
 	location = backupUrlType.Location

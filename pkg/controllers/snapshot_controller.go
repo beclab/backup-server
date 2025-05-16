@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	sysapiv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -96,12 +95,10 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case constant.Pending.String():
 		isNewlyCreated := snapshot.CreationTimestamp.After(r.controllerStartTime.Time)
 		if isNewlyCreated {
-			err := r.addToWorkerManager(backup, snapshot)
+			err := r.addToWorkerManager(backup, snapshot) // todo enhance
 			if err != nil {
 				log.Errorf("add snapshot to worker error: %v, id: %s", err, snapshot.Name)
-				if strings.Contains(err.Error(), "queue is full") {
-					r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Rejected.String(), err.Error())
-				}
+				r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String(), err.Error())
 			}
 		} else {
 			r.handler.GetSnapshotHandler().UpdatePhase(context.Background(), snapshot.Name, constant.Failed.String(), constant.MessageBackupServerRestart)

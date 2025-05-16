@@ -21,6 +21,8 @@ type RestoreType struct {
 	Owner            string                  `json:"owner"`
 	Type             string                  `json:"type"` // snapshot or url
 	Path             string                  `json:"path"` // restore target path
+	SubPath          string                  `json:"subPath"`
+	SubPathTimestamp int64                   `json:"subPathTimestamp"`
 	BackupId         string                  `json:"backupId"`
 	BackupName       string                  `json:"backupName"`
 	BackupPath       string                  `json:"backupPath"` // from backupUrl

@@ -87,14 +87,9 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 	if err := f(); err != nil {
-		// if e := s.notifyBackupResult(nil, nil, err); e != nil {
-		// 	log.Errorf("Backup %s,%s, notify backup terminate error: %v", backupName, snapshotId, err)
-		// } else {
-		// 	log.Infof("Backup %s,%s, notify backup terminate success", backupName, snapshotId)
-		// }
 		log.Errorf("Backup %s,%s, prepare for run error: %v", backupName, snapshotId, err)
 		if e := s.updateBackupResult(nil, nil, 0, err); e != nil {
-			return errors.WithStack(e)
+			log.Errorf("Backup %s,%s, update backup failed result error: %v", backupName, snapshotId, e)
 		}
 
 		return nil
@@ -110,7 +105,9 @@ func (s *StorageBackup) RunBackup() error {
 	}
 
 	if err := s.updateBackupResult(backupResult, backupStorageObj, backupTotalSize, backupErr); err != nil {
-		return errors.WithStack(err)
+		log.Errorf("Backup %s,%s, update backup running result error: %v", backupName, snapshotId, err)
+	} else {
+		log.Infof("Backup %s,%s, backup completed", backupName, snapshotId)
 	}
 
 	return nil
@@ -332,6 +329,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
 			SecretAccessKey: token.SecretKey,
+			LimitUploadRate: util.EnvOrDefault(constant.EnvLimitUploadRate, ""),
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password: s.Params.Password,
@@ -353,6 +351,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
 			SecretAccessKey: token.SecretKey,
+			LimitUploadRate: util.EnvOrDefault(constant.EnvLimitUploadRate, ""),
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password:     s.Params.Password,
@@ -415,15 +414,16 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		}
 
 		spaceBackupOption = &backupssdkoptions.SpaceBackupOption{
-			RepoId:         backupId,
-			RepoName:       backupName,
-			Path:           s.Params.Path,
-			OlaresDid:      spaceToken.OlaresDid,
-			AccessToken:    spaceToken.AccessToken,
-			ClusterId:      location["clusterId"],
-			CloudName:      location["cloudName"],
-			RegionId:       location["regionId"],
-			CloudApiMirror: constant.SyncServerURL,
+			RepoId:          backupId,
+			RepoName:        backupName,
+			Path:            s.Params.Path,
+			OlaresDid:       spaceToken.OlaresDid,
+			AccessToken:     spaceToken.AccessToken,
+			ClusterId:       location["clusterId"],
+			CloudName:       location["cloudName"],
+			RegionId:        location["regionId"],
+			CloudApiMirror:  constant.SyncServerURL,
+			LimitUploadRate: util.EnvOrDefault(constant.EnvLimitUploadRate, ""),
 		}
 
 		var backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{

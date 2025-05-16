@@ -90,6 +90,7 @@ type RestoreCreate struct {
 	Password   string `json:"password"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
+	Dir        string `json:"dir"`
 }
 
 type RestoreCheckBackupUrl struct {
@@ -429,6 +430,9 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 	var res []*ResponseBackupList
 	if snapshots != nil {
 		for _, snapshot := range snapshots.Items {
+			if *snapshot.Spec.Phase != constant.Completed.String() {
+				continue
+			}
 			if _, ok := bs[snapshot.Spec.BackupId]; !ok {
 				bs[snapshot.Spec.BackupId] = &snapshot
 				continue
@@ -463,6 +467,7 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 			r.Size = handlers.ParseSnapshotSize(s.Spec.Size)
 			r.Status = *s.Spec.Phase
 		} else {
+			r.Size = "0"
 			r.Status = constant.Pending.String()
 		}
 
