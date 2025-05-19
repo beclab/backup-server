@@ -458,22 +458,6 @@ func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
 	return r.BackupName
 }
 
-/**
- * extract only cloudName and regionId from Space's BackupURL. Do not parse the user's own BackupURL.
- * The agreed format for BackupURL is:
- * app    space: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>?backupName={backupName}&snapshotId={resticSnapshotId}
- *       prefix: did:key:xxx-yyy
- * app   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?backupName={backupName}&snapshotId={resticSnapshotId}
- *       prefix: from user's s3|cos endpoint
- *
- * cli    space: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/restic/<backupId>?backupName={backupName}&snapshotId={resticSnapshotId}
- *       prefix: did:key:xxx-yyy
- * cli   custom: https://<s3|cos>.<regionId>.amazonaws.com/<bucket>/<prefix>/<repoName>?backupName={backupname}&snapshotId={resticSnapshotId}
- *       prefix: from user's s3|cos endpoint
- *
- * app       fs: /rootfs/userspace/pvc-userspace-zhaoyu001-sehp80bzd9xzttwl/Home/Download?backupName={backupName}&snapshotId={resticSnapshotId}
- * cli       fs: ^^^
- */
 func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDetail, backupName, backupId string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
 	if u == "" {
 		err = fmt.Errorf("backupUrl is empty")
@@ -558,7 +542,7 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 	}
 
 	if strings.TrimPrefix(u.Path, "/") == "" {
-		return nil, fmt.Errorf("url invalid, url: %s", s)
+		return nil, fmt.Errorf("url invalid, path: %s", u.Path)
 	}
 
 	idx := strings.Index(u.Path, constant.DefaultStoragePrefix)
@@ -587,7 +571,7 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 	var res = &BackupUrlType{
 		Schema:     u.Scheme,
 		Host:       u.Host,
-		Path:       u.Path, //strings.TrimPrefix(u.Path, "/"),
+		Path:       u.Path,
 		Values:     u.Query(),
 		Location:   location,
 		Endpoint:   endpoint,

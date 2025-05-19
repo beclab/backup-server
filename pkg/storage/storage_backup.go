@@ -402,14 +402,9 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	var spaceBackupOption backupssdkoptions.Option
 
 	for {
-		// TODO loop forever?
 		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId) // backupToSpace
 		if err != nil {
 			err = fmt.Errorf("get space token error: %v", err)
-			break
-		}
-		if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
-			err = fmt.Errorf("space access token expired %d(%s)", spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
 			break
 		}
 
@@ -474,10 +469,6 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 			err = fmt.Errorf("get space token error: %v", err)
 			break
 		}
-		if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
-			err = fmt.Errorf("space access token expired %d(%s)", spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
-			break
-		}
 		o := opt.(*backupssdkoptions.SpaceBackupOption)
 		options.Space = &backupssdkoptions.SpaceSnapshotsOption{
 			RepoId:         o.RepoId,
@@ -490,32 +481,22 @@ func (s *StorageBackup) getStats(opt backupssdkoptions.Option) (*backupssdkresti
 			CloudApiMirror: constant.SyncServerURL,
 		}
 	case *backupssdkoptions.AwsBackupOption:
-		token, err := s.getIntegrationCloud() // aws getstats
-		if err != nil {
-			err = fmt.Errorf("get %s token error: %v", token.Type, err)
-			break
-		}
 		o := opt.(*backupssdkoptions.AwsBackupOption)
 		options.Aws = &backupssdkoptions.AwsSnapshotsOption{
 			RepoId:          o.RepoId,
 			RepoName:        o.RepoName,
 			Endpoint:        o.Endpoint,
-			AccessKey:       token.AccessKey,
-			SecretAccessKey: token.SecretKey,
+			AccessKey:       o.AccessKey,
+			SecretAccessKey: o.SecretAccessKey,
 		}
 	case *backupssdkoptions.TencentCloudBackupOption:
-		token, err := s.getIntegrationCloud() // cos getstats
-		if err != nil {
-			err = fmt.Errorf("get %s token error: %v", token.Type, err)
-			break
-		}
 		o := opt.(*backupssdkoptions.TencentCloudBackupOption)
 		options.TencentCloud = &backupssdkoptions.TencentCloudSnapshotsOption{
 			RepoId:          o.RepoId,
 			RepoName:        o.RepoName,
 			Endpoint:        o.Endpoint,
-			AccessKey:       token.AccessKey,
-			SecretAccessKey: token.SecretKey,
+			AccessKey:       o.AccessKey,
+			SecretAccessKey: o.SecretAccessKey,
 		}
 	case *backupssdkoptions.FilesystemBackupOption:
 		o := opt.(*backupssdkoptions.FilesystemBackupOption)
@@ -652,7 +633,7 @@ func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, er
 	}
 
 	if result == nil {
-		return nil, fmt.Errorf("the integration token was not found, or the endpoint does not match. please check the integration configuration, endpoint: %s", endpoint)
+		return nil, fmt.Errorf("the integration token was not found, or the endpoint does not match. please check the integration configuration, backup endpoint: %s", endpoint)
 	}
 
 	s.IntegrationChanged = true
@@ -680,10 +661,3 @@ func (s *StorageBackup) buildLocation() (string, string) {
 
 	return location, util.ToJSON(locationData)
 }
-
-// func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, error) {
-// 	var l = s.Params.Location
-// 	var location = l["location"]
-// 	var locationIntegrationName = l["name"]
-// 	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Backup.Spec.Owner, location, locationIntegrationName)
-// }

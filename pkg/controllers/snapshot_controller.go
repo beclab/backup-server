@@ -15,7 +15,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -112,9 +111,9 @@ func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if phase == constant.Canceled.String() {
 			worker.GetWorkerPool().CancelSnapshot(backup.Spec.Owner, snapshot.Name)
 		}
-		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil { // TODO
+		if err := r.notifySnapshotResult(ctx, backup, snapshot); err != nil {
 			log.Errorf("[notify] snapshot error: %v, id: %s, phase: %s", err, snapshot.Name, *snapshot.Spec.Phase)
-			snapshot.Spec.Message = pointer.String(pointer.StringDerefJoin(snapshot.Spec.Message, fmt.Sprintf("notify snapshot error: %v", err)))
+			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, fmt.Errorf("notify snapshot error: %v", err)
 		} else {
 			log.Infof("[notify] snapshot success, id: %s, phase: %s", snapshot.Name, *snapshot.Spec.Phase)
 		}
@@ -268,7 +267,8 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 		return nil
 	}
 
-	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+	locationConfigName := locationConfig["name"]
+	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, locationConfigName)
 	if err != nil {
 		return err
 	}
@@ -299,7 +299,8 @@ func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v
 		return nil
 	}
 
-	spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+	locationConfigName := locationConfig["name"]
+	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, locationConfigName)
 	if err != nil {
 		return fmt.Errorf("get space token error: %v", err)
 	}

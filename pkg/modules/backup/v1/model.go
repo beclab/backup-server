@@ -90,7 +90,7 @@ type RestoreCreate struct {
 	Password   string `json:"password"`
 	SnapshotId string `json:"snapshotId"`
 	Path       string `json:"path"`
-	Dir        string `json:"dir"`
+	SubPath    string `json:"dir"`
 }
 
 type RestoreCheckBackupUrl struct {
@@ -102,11 +102,12 @@ type RestoreCheckBackupUrl struct {
 
 func (r *RestoreCreate) verify() bool {
 	var path = strings.TrimSpace(r.Path)
+	var subPath = strings.TrimSpace(r.SubPath)
 	var backupUrl = strings.TrimSpace(r.BackupUrl)
 	var snapshotId = strings.TrimSpace(r.SnapshotId)
 	var password = strings.TrimSpace(r.Password)
 
-	if path == "" {
+	if path == "" || subPath == "" {
 		return false
 	}
 

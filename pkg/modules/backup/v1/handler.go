@@ -638,7 +638,13 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		snapshotTime = fmt.Sprintf("%d", snapshot.Spec.CreateAt.Unix())
 	} else {
 		// ~ parse and split BackupURL
-		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(owner, b.BackupUrl)
+		u, err := util.Base64decode(b.BackupUrl)
+		if err != nil || string(u) == "" {
+			log.Errorf("parse BackupURL invalid, url: %s", b.BackupUrl)
+			return
+		}
+
+		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(owner, string(u))
 		if err != nil {
 			log.Errorf("parse BackupURL error: %v, url: %s", err, b.BackupUrl)
 			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
@@ -656,7 +662,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		Owner:            owner,
 		Type:             restoreTypeName,
 		Path:             b.Path,
-		SubPath:          b.Dir,
+		SubPath:          b.SubPath,
 		SubPathTimestamp: time.Now().Unix(),
 		BackupId:         backupId,
 		BackupName:       backupName,

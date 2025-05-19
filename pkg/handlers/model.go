@@ -78,7 +78,7 @@ type BackupUrlType struct {
 }
 
 func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
-	var region, bucket, prefix, suffix string
+	var cloudName, region, bucket, prefix, suffix string
 	// var fsBackupPath string
 	var err error
 
@@ -95,10 +95,12 @@ func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
+
+		cloudName = u.getCloudName()
 	}
 
 	return &RestoreBackupUrlDetail{
-		CloudName:      u.Location,
+		CloudName:      cloudName,
 		RegionId:       region,
 		Bucket:         bucket,
 		Prefix:         prefix,
@@ -132,6 +134,19 @@ func (u *BackupUrlType) getBucketAndPrefix() (bucket string, prefix string, suff
 		prefix = strings.Join(paths[1:len(paths)-1], "/")
 		return
 	}
+}
+
+func (u *BackupUrlType) getCloudName() string {
+	var cloudName string
+	if u.Location == constant.BackupLocationSpace.String() {
+		if strings.Contains(u.Host, constant.LocationTypeAwsS3Tag) {
+			cloudName = "aws"
+		} else if strings.Contains(u.Host, constant.LocationTypeTencentCloudTag) {
+			cloudName = "tencentcloud"
+		}
+	}
+
+	return cloudName
 }
 
 func (u *BackupUrlType) getRegionId() (string, error) {

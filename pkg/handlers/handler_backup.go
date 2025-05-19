@@ -42,8 +42,9 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 
 	locationConfig, _ := GetBackupLocationConfig(backup)
 	location := locationConfig["location"]
+	locationConfigName := locationConfig["name"]
 	if location == constant.BackupLocationSpace.String() {
-		spaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+		spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, locationConfigName)
 		if err != nil {
 			return err
 		}

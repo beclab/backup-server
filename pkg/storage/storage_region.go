@@ -7,7 +7,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 
 	backupssdk "bytetrade.io/web3os/backups-sdk"
@@ -23,10 +22,6 @@ func (s *StorageRegion) GetRegions(ctx context.Context, owner, olaresId string) 
 	var spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(ctx, owner, olaresId) // only for Space
 	if err != nil {
 		err = fmt.Errorf("get space token error: %v", err)
-		return nil, err
-	}
-	if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
-		err = fmt.Errorf("space access token expired %d(%s)", spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
 		return nil, err
 	}
 
