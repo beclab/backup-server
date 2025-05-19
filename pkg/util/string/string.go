@@ -99,6 +99,7 @@ func TrimSuffix(s, suffix string) string {
 }
 
 func SplitPath(str string) (prefix string, uuid string, err error) {
+	str = strings.TrimRight(str, "/")
 	re := regexp.MustCompile(`^(.*?)-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
 
 	matches := re.FindStringSubmatch(str)

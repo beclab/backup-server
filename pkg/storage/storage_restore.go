@@ -362,11 +362,6 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 			break
 		}
 
-		if util.IsTimestampNearingExpiration(spaceToken.ExpiresAt) {
-			err = fmt.Errorf("space access token expired %d(%s)", spaceToken.ExpiresAt, util.ParseUnixMilliToDate(spaceToken.ExpiresAt))
-			break
-		}
-
 		var spaceRestoreOption = &backupssdkoptions.SpaceRestoreOption{
 			RepoId:            backupId,
 			RepoName:          backupName,

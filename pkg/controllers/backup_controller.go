@@ -166,13 +166,6 @@ func (r *BackupReconciler) isNotified(backup *sysv1.Backup) bool {
 	return backup.Spec.Notified
 }
 
-func isNotifiedStateChanged(oldBackup *sysv1.Backup, newBackup *sysv1.Backup) bool {
-	if oldBackup.Spec.Notified != newBackup.Spec.Notified {
-		return false
-	}
-	return true
-}
-
 func (r *BackupReconciler) isDeleted(newBackup *sysv1.Backup) bool {
 	return newBackup.Spec.Deleted
 }
@@ -224,12 +217,13 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 		return fmt.Errorf("backup location config not exists")
 	}
 	var location = locationConfig["location"]
+	var locationConfigName = locationConfig["name"]
 
 	if location != constant.BackupLocationSpace.String() {
 		return r.handler.GetBackupHandler().UpdateNotifyState(ctx, backup.Name, true)
 	}
 
-	olaresSpaceToken, err := integration.IntegrationManager().GetDefaultCloudToken(ctx, backup.Spec.Owner)
+	olaresSpaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(ctx, backup.Spec.Owner, locationConfigName)
 	if err != nil {
 		return err
 	}

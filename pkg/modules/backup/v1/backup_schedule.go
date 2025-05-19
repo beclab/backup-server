@@ -224,19 +224,16 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 	var location = o.c.Location
 	var locationConfig = o.c.LocationConfig
 
-	integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(ctx, owner, location)
+	integrationName, err := integration.IntegrationManager().ValidIntegrationNameByLocationName(ctx, owner, location, locationConfig.Name)
 	if err != nil {
 		return errors.WithStack(err)
 	}
 
+	log.Infof("backup %s location %s integration %s", o.c.Name, location, integrationName)
+
 	if location == constant.BackupLocationFileSystem.String() {
 		o.c.LocationConfig.Name = integrationName
 		return nil
-	}
-
-	if integrationName != locationConfig.Name {
-		log.Errorf("integration %s not match locationConfigName %s", integrationName, locationConfig.Name)
-		return fmt.Errorf("backup config %s does not match integration in location: %s", locationConfig.Name, location)
 	}
 
 	if location == constant.BackupLocationAwsS3.String() || location == constant.BackupLocationTencentCloud.String() {
@@ -245,6 +242,7 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 			log.Errorf("integration: %s, location: %s, token get error: %v", integrationName, location, err)
 			return errors.WithStack(err)
 		}
+		log.Infof("backup %s location: %s, integration: %s, endpoint: %s", o.c.Name, location, integrationName, integrationToken.Endpoint)
 		o.endpoint = integrationToken.Endpoint
 	}
 

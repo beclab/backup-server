@@ -61,15 +61,6 @@ func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, owner string
 	return token, nil
 }
 
-func (i *Integration) GetDefaultCloudToken(ctx context.Context, owner string) (*SpaceToken, error) {
-	accountName, err := i.GetIntegrationNameByLocation(ctx, owner, constant.BackupLocationSpace.String())
-	if err != nil {
-		return nil, err
-	}
-
-	return i.GetIntegrationSpaceToken(ctx, owner, accountName)
-}
-
 func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, location, integrationName string) (*IntegrationToken, error) {
 	data, err := i.query(ctx, owner, location, integrationName)
 	if err != nil {
@@ -110,7 +101,7 @@ func (i *Integration) GetIntegrationCloudAccount(ctx context.Context, owner, loc
 
 func (i *Integration) GetIntegrationAccountsByLocation(ctx context.Context, owner, location string) ([]string, error) {
 
-	accounts, err := i.queryIntegrationAccounts(ctx, owner)
+	accounts, err := i.queryIntegrationAccounts(ctx, owner) // GetIntegrationAccountsByLocation
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +117,42 @@ func (i *Integration) GetIntegrationAccountsByLocation(ctx context.Context, owne
 	}
 
 	return result, nil
+}
+
+func (i *Integration) ValidIntegrationNameByLocationName(ctx context.Context, owner string, location string, locationConfigName string) (string, error) {
+	accounts, err := i.queryIntegrationAccounts(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+
+	var name string
+
+	for _, account := range accounts {
+		if util.ListContains([]string{constant.BackupLocationSpace.String(), constant.BackupLocationFileSystem.String()}, location) {
+			if account.Type == "space" && (account.Name == locationConfigName || strings.Contains(account.Name, locationConfigName)) {
+				name = account.Name
+				break
+			}
+		}
+		if location == constant.BackupLocationAwsS3.String() {
+			if account.Type == "awss3" && account.Name == locationConfigName {
+				name = account.Name
+				break
+			}
+		} else if location == constant.BackupLocationTencentCloud.String() {
+			if account.Type == "tencent" && account.Name == locationConfigName {
+				name = account.Name
+				break
+			}
+		}
+
+	}
+
+	if name == "" {
+		return "", fmt.Errorf("integration account not found, owner: %s, location: %s", owner, location)
+	}
+
+	return name, nil
 }
 
 func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, location string) (string, error) {

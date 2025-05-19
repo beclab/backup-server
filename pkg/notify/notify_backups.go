@@ -89,10 +89,10 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 
 func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot) error {
 	var backoff = wait.Backoff{
-		Duration: 2 * time.Second,
+		Duration: 5 * time.Second,
 		Factor:   2,
 		Jitter:   0.1,
-		Steps:    5,
+		Steps:    10,
 	}
 
 	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
