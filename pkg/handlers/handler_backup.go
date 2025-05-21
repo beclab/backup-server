@@ -49,7 +49,7 @@ func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) 
 			return err
 		}
 
-		_ = notify.NotifyDeleteBackup(ctx, constant.SyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
+		_ = notify.NotifyStopBackup(ctx, constant.SyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken, backup.Name)
 	}
 
 	return o.delete(ctx, backup)

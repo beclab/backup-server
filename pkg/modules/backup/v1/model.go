@@ -152,6 +152,7 @@ type ResponseSnapshotList struct {
 	Id       string `json:"id"`
 	CreateAt int64  `json:"createAt"`
 	Size     string `json:"size"`
+	Progress int    `json:"progress"`
 	Status   string `json:"status"`
 }
 
@@ -316,6 +317,7 @@ func parseResponseSnapshotList(snapshots *sysv1.SnapshotList, currentPage, total
 			Id:       snapshot.Name,
 			CreateAt: snapshot.Spec.CreateAt.Unix(),
 			Size:     handlers.ParseSnapshotSize(snapshot.Spec.Size),
+			Progress: snapshot.Spec.Progress,
 			Status:   parseMessage(snapshot.Spec.Phase),
 		}
 		ss = append(ss, item)
@@ -334,6 +336,7 @@ func parseResponseSnapshotOne(snapshot *sysv1.Snapshot) map[string]interface{} {
 	data["id"] = snapshot.Name
 	data["createAt"] = snapshot.Spec.CreateAt.Unix()
 	data["size"] = handlers.ParseSnapshotSize(snapshot.Spec.Size)
+	data["progress"] = snapshot.Spec.Progress
 	data["status"] = parseMessage(snapshot.Spec.Phase)
 
 	return data

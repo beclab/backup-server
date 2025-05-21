@@ -81,16 +81,16 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if r.isDeleted(backup) {
 		log.Infof("received backup delete request, id: %s, event: deleted", req.Name)
 		worker.GetWorkerPool().CancelBackup(backup.Spec.Owner, backup.Name)
+		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
 
 		if err := r.deleteBackup(backup); err != nil {
 			log.Errorf("delete backup error: %v, id: %s, name: %s, retry...", err, backup.Name, backup.Spec.Name)
 			return ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Second}, errors.WithStack(err)
 		}
-		r.handler.GetSnapshotHandler().RemoveFromSchedule(ctx, backup)
 		return ctrl.Result{}, nil
 	}
 
-	if !r.isNotified(backup) { // todo notify size update
+	if !r.isNotified(backup) {
 		err = r.notify(backup)
 		if err != nil {
 			log.Errorf("notify backup error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
@@ -104,14 +104,10 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	if !backup.Spec.Deleted && backup.Spec.BackupPolicy.Enabled {
-		err = r.reconcileBackupPolicies(backup)
-		if err != nil {
-			log.Errorf("reconcile backup policies error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
-			return ctrl.Result{}, errors.WithStack(err)
-		}
-	} else {
-		return ctrl.Result{}, nil
+	err = r.reconcileBackupPolicies(backup)
+	if err != nil {
+		log.Errorf("reconcile backup policies error: %v, id: %s, name: %s", err, backup.Name, backup.Spec.Name)
+		return ctrl.Result{}, errors.WithStack(err)
 	}
 
 	return ctrl.Result{}, nil
