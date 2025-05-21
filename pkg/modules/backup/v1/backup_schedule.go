@@ -224,6 +224,9 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 	var location = o.c.Location
 	var locationConfig = o.c.LocationConfig
 
+	if location == constant.BackupLocationFileSystem.String() {
+		return nil
+	}
 	integrationName, err := integration.IntegrationManager().ValidIntegrationNameByLocationName(ctx, owner, location, locationConfig.Name)
 	if err != nil {
 		return errors.WithStack(err)
@@ -231,7 +234,7 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 
 	log.Infof("backup %s location %s integration %s", o.c.Name, location, integrationName)
 
-	if location == constant.BackupLocationFileSystem.String() {
+	if location == constant.BackupLocationSpace.String() {
 		o.c.LocationConfig.Name = integrationName
 		return nil
 	}

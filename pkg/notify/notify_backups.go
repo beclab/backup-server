@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	SendBackupUrl       = "/v1/resource/backup/save"
-	SendSnapshotUrl     = "/v1/resource/snapshot/save"
-	SendDeleteBackupUrl = "/v1/resource/backup/delete"
+	SendBackupUrl     = "/v1/resource/backup/save"
+	SendSnapshotUrl   = "/v1/resource/snapshot/save"
+	SendStopBackupUrl = "/v1/resource/backup/stop"
 )
 
 type Backup struct {
@@ -34,7 +34,8 @@ type Snapshot struct {
 	BackupId         string `json:"backup_id"`   //
 	SnapshotId       string `json:"snapshot_id"` // restic snapshotId
 	ResticSnapshotId string `json:"restic_snapshot_id"`
-	Size             uint64 `json:"size"`          // snapshot size
+	Size             uint64 `json:"size"` // snapshot size
+	BackupSize       uint64 `json:"backup_size"`
 	Unit             string `json:"unit"`          // "byte"
 	SnapshotTime     int64  `json:"snapshot_time"` // createAt
 	Status           string `json:"status"`        // snapshot phase
@@ -95,8 +96,8 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		Steps:    10,
 	}
 
-	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
-		snapshot.SnapshotId, snapshot.ResticSnapshotId, snapshot.Size, snapshot.Unit,
+	var data = fmt.Sprintf("userid=%s&backupId=%s&snapshotId=%s&resticSnapshotId=%s&size=%d&realSnapshotSize=%d&unit=%s&snapshotTime=%d&status=%s&type=%s&url=%s&cloud=%s&region=%s&bucket=%s&prefix=%s&message=%s", snapshot.UserId, snapshot.BackupId,
+		snapshot.SnapshotId, snapshot.ResticSnapshotId, snapshot.Size, snapshot.BackupSize, snapshot.Unit,
 		snapshot.SnapshotTime, snapshot.Status, snapshot.Type,
 		strings.TrimPrefix(snapshot.Url, "s3:"), snapshot.CloudName, snapshot.RegionId, snapshot.Bucket, snapshot.Prefix,
 		snapshot.Message)
@@ -125,7 +126,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 	return nil
 }
 
-func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, backupId string) error {
+func NotifyStopBackup(ctx context.Context, cloudApiUrl string, userId, token, backupId string) error {
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
 		Factor:   2,
@@ -140,7 +141,7 @@ func NotifyDeleteBackup(ctx context.Context, cloudApiUrl string, userId, token, 
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
 	}, func() error {
-		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendDeleteBackupUrl)
+		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendStopBackupUrl)
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 

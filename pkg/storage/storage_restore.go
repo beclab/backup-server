@@ -18,6 +18,7 @@ import (
 	backupssdk "bytetrade.io/web3os/backups-sdk"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 
 	backupssdkoptions "bytetrade.io/web3os/backups-sdk/pkg/options"
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
@@ -406,44 +407,57 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 }
 
 func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) error {
-	var msg, phase string
-	var notifyProgress int
 
-	restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
-	if err != nil {
-		return err
-	}
+	return wait.PollImmediate(time.Second*10, 5*time.Hour, func() (bool, error) {
+		var msg, phase string
+		var notifyProgress int
 
-	if restoreError != nil {
-		msg = restoreError.Error()
-		phase = constant.Failed.String()
-		notifyProgress = restore.Spec.Progress
-		restore.Spec.Phase = pointer.String(constant.Failed.String())
-		restore.Spec.Message = pointer.String(restoreError.Error())
-		restore.Spec.ResticPhase = pointer.String(phase)
-	} else {
-		msg = constant.Completed.String()
-		phase = constant.Completed.String()
-		notifyProgress = progressDone
-		restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
-		restore.Spec.Progress = progressDone
-		restore.Spec.Phase = pointer.String(phase)
-		restore.Spec.Message = pointer.String(phase)
-		restore.Spec.ResticPhase = pointer.String(phase)
-		restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
-	}
+		restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return true, err
+			}
+			if util.ListContains(ConnectErrors, err.Error()) {
+				log.Errorf("get restore %s error: %v", s.RestoreId, err)
+				return false, nil
+			}
+		}
 
-	restore.Spec.EndAt = pointer.Time()
+		if restoreError != nil {
+			msg = restoreError.Error()
+			phase = constant.Failed.String()
+			notifyProgress = restore.Spec.Progress
+			restore.Spec.Phase = pointer.String(constant.Failed.String())
+			restore.Spec.Message = pointer.String(restoreError.Error())
+			restore.Spec.ResticPhase = pointer.String(phase)
+		} else {
+			msg = constant.Completed.String()
+			phase = constant.Completed.String()
+			notifyProgress = progressDone
+			restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
+			restore.Spec.Progress = progressDone
+			restore.Spec.Phase = pointer.String(phase)
+			restore.Spec.Message = pointer.String(phase)
+			restore.Spec.ResticPhase = pointer.String(phase)
+			restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
+		}
 
-	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
-		"id":       s.Restore.Name,
-		"progress": notifyProgress,
-		"endat":    restore.Spec.EndAt.Unix(),
-		"status":   phase,
-		"message":  msg,
+		restore.Spec.EndAt = pointer.Time()
+
+		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
+			"id":       s.Restore.Name,
+			"progress": notifyProgress,
+			"endat":    restore.Spec.EndAt.Unix(),
+			"status":   phase,
+			"message":  msg,
+		})
+
+		if err = s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec); err != nil {
+			return false, err
+		}
+		return true, nil
 	})
 
-	return s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec)
 }
 
 func (s *StorageRestore) getIntegrationCloud() (*integration.IntegrationToken, error) {

@@ -131,41 +131,20 @@ func (w *WorkerPool) GetOrCreateUserPool(owner string) *UserPool {
 }
 
 func (w *WorkerPool) AddBackupTask(owner, backupId, snapshotId string) error {
-	if err := w.ExistsTask(owner, backupId); err != nil {
+	if err := w.ExistsTask(owner, backupId, snapshotId); err != nil {
 		return err
 	}
-	return w.addTask(owner, backupId, snapshotId, "")
-}
 
-func (w *WorkerPool) AddRestoreTask(owner, restoreId string) error {
-	return w.addTask(owner, "", "", restoreId)
-}
-
-func (w *WorkerPool) addTask(owner, backupId, snapshotId, restoreId string) error {
-	userPool := w.GetOrCreateUserPool(owner)
-	taskPool := userPool.executePool
-
-	if (backupId == "" || snapshotId == "") && restoreId == "" {
-		return fmt.Errorf("task parms invalid, backupId: %s, snapshotId: %s, restoreId: %s", backupId, snapshotId, restoreId)
+	if backupId == "" || snapshotId == "" {
+		return fmt.Errorf("backup task parms invalid, backupId: %s, snapshotId: %s", backupId, snapshotId)
 	}
+
+	var taskType = BackupTaskType
+	var taskId = fmt.Sprintf("%s_%s", backupId, snapshotId)
+	var traceId = snapshotId
 
 	var ctxTask, cancelTask = context.WithCancel(w.ctx)
-	var ctxBase context.Context
-
-	var taskType TaskType
-
-	var taskId string
-	if restoreId != "" {
-		taskId = restoreId
-		taskType = RestoreTaskType
-		ctxBase = context.WithValue(ctxTask, constant.TraceId, restoreId)
-	} else {
-		taskId = fmt.Sprintf("%s_%s", backupId, snapshotId)
-		taskType = BackupTaskType
-		ctxBase = context.WithValue(ctxTask, constant.TraceId, snapshotId)
-	}
-
-	var executeTask *ExecuteTask
+	var ctxBase context.Context = context.WithValue(ctxTask, constant.TraceId, traceId)
 
 	var newTask = &BaseTask{
 		ctx:      ctxBase,
@@ -175,35 +154,64 @@ func (w *WorkerPool) addTask(owner, backupId, snapshotId, restoreId string) erro
 		taskType: taskType,
 	}
 
-	switch taskType {
-	case BackupTaskType:
-		var backup = &storage.StorageBackup{
-			Ctx:              ctxBase,
-			Handlers:         w.handlers,
-			SnapshotId:       snapshotId,
-			LastProgressTime: time.Now(),
-		}
-		executeTask = &ExecuteTask{
-			BaseTask:   newTask,
-			backupId:   backupId,
-			snapshotId: snapshotId,
-			backup:     backup,
-		}
-	case RestoreTaskType:
-		var restore = &storage.StorageRestore{
-			Ctx:              ctxBase,
-			Handlers:         w.handlers,
-			RestoreId:        restoreId,
-			LastProgressTime: time.Now(),
-		}
-		executeTask = &ExecuteTask{
-			BaseTask:  newTask,
-			restoreId: restoreId,
-			restore:   restore,
-		}
+	var backup = &storage.StorageBackup{
+		Ctx:              ctxBase,
+		Handlers:         w.handlers,
+		SnapshotId:       snapshotId,
+		LastProgressTime: time.Now(),
 	}
 
-	taskPool.tasks.Store(taskId, executeTask)
+	var executeTask = &ExecuteTask{
+		BaseTask:   newTask,
+		backupId:   backupId,
+		snapshotId: snapshotId,
+		backup:     backup,
+	}
+
+	return w.addTask(owner, taskId, taskType, executeTask)
+}
+
+func (w *WorkerPool) AddRestoreTask(owner, restoreId string) error {
+	if restoreId == "" {
+		return fmt.Errorf("restore task parms invalid, restoreId: %s", restoreId)
+	}
+
+	var taskType = RestoreTaskType
+	var taskId = restoreId
+	var traceId = restoreId
+
+	var ctxTask, cancelTask = context.WithCancel(w.ctx)
+	var ctxBase context.Context = context.WithValue(ctxTask, constant.TraceId, traceId)
+
+	var newTask = &BaseTask{
+		ctx:      ctxBase,
+		cancel:   cancelTask,
+		owner:    owner,
+		id:       taskId,
+		taskType: taskType,
+	}
+
+	var restore = &storage.StorageRestore{
+		Ctx:              ctxBase,
+		Handlers:         w.handlers,
+		RestoreId:        restoreId,
+		LastProgressTime: time.Now(),
+	}
+
+	var executeTask = &ExecuteTask{
+		BaseTask:  newTask,
+		restoreId: restoreId,
+		restore:   restore,
+	}
+
+	return w.addTask(owner, taskId, taskType, executeTask)
+}
+
+func (w *WorkerPool) addTask(owner, taskId string, taskType TaskType, task *ExecuteTask) error {
+	userPool := w.GetOrCreateUserPool(owner)
+	taskPool := userPool.executePool
+
+	taskPool.tasks.Store(taskId, task)
 
 	taskFn := func() {
 		defer func() {
@@ -215,23 +223,23 @@ func (w *WorkerPool) addTask(owner, backupId, snapshotId, restoreId string) erro
 			}
 		}()
 
-		if executeTask.IsCanceled() {
+		if task.IsCanceled() {
 			return
 		}
 
 		log.Infof("[worker] task start, owner: %s, taskId: %s, taskType: %s", owner, taskId, taskType)
-		taskPool.setActiveTask(executeTask)
+		taskPool.setActiveTask(task)
 
 		if taskType == BackupTaskType {
-			executeTask.backup.RunBackup()
+			task.backup.RunBackup()
 		} else {
-			executeTask.restore.RunRestore()
+			task.restore.RunRestore()
 		}
 	}
 
 	_, ok := taskPool.pool.TrySubmit(taskFn)
 	if !ok {
-		cancelTask()
+		task.BaseTask.cancel()
 		taskPool.tasks.Delete(taskId)
 		return fmt.Errorf("[worker] task try sumit failed, owner: %s, queuesize: %d, waitings: %d", owner, taskPool.pool.QueueSize(), taskPool.pool.WaitingTasks())
 	}
@@ -239,7 +247,7 @@ func (w *WorkerPool) addTask(owner, backupId, snapshotId, restoreId string) erro
 	return nil
 }
 
-func (w *WorkerPool) ExistsTask(owner string, backupId string) error {
+func (w *WorkerPool) ExistsTask(owner string, backupId, snapshotId string) error {
 	poolObj, ok := w.userPools.Load(owner)
 	if !ok {
 		log.Warnf("[worker] no backup tasks found for owner: %s", owner)
@@ -249,17 +257,18 @@ func (w *WorkerPool) ExistsTask(owner string, backupId string) error {
 	userPool := poolObj.(*UserPool)
 	taskPool := userPool.executePool
 
-	var backupExists bool
+	var snapshotExists bool
 
 	taskPool.tasks.Range(func(key, value interface{}) bool {
 		task := value.(*ExecuteTask)
-		if task.backupId == backupId {
-			backupExists = true
+		if task.backupId == backupId && !task.IsCanceled() {
+			snapshotExists = true
+			return false
 		}
 		return true
 	})
 
-	if backupExists {
+	if snapshotExists {
 		return fmt.Errorf("the current snapshot task is still running or queued. the system will pause adding new tasks and automatically resume scheduling once the task is completed.")
 	}
 
@@ -358,7 +367,7 @@ func (w *WorkerPool) CancelRestore(owner, restoreId string) {
 }
 
 func (w *WorkerPool) sendBackupCanceledEvent(owner string, backupId string, snapshotId string) {
-	w.handlers.GetNotification().Send(w.ctx, constant.EventBackup, owner, "backup canceled", map[string]interface{}{
+	w.handlers.GetNotification().Send(context.Background(), constant.EventBackup, owner, "backup canceled", map[string]interface{}{
 		"id":       snapshotId,
 		"backupId": backupId,
 		"endat":    time.Now().Unix(),
@@ -368,7 +377,7 @@ func (w *WorkerPool) sendBackupCanceledEvent(owner string, backupId string, snap
 }
 
 func (w *WorkerPool) sendRestoreCanceledEvent(owner string, restoreId string) {
-	w.handlers.GetNotification().Send(w.ctx, constant.EventRestore, owner, "restore canceled", map[string]interface{}{
+	w.handlers.GetNotification().Send(context.Background(), constant.EventRestore, owner, "restore canceled", map[string]interface{}{
 		"id":      restoreId,
 		"endat":   time.Now().Unix(),
 		"status":  constant.Canceled.String(),

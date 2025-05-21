@@ -527,7 +527,7 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 
 	if err = req.ReadEntity(&b); err != nil {
 		log.Errorf("check backup url read entity error: %v", err)
-		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), errors.Errorf("check backup url read entity error: %v", err))
+		response.HandleError(resp, errors.Errorf("check backup url read entity error: %v", err))
 		return
 	}
 
@@ -539,12 +539,12 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 	urlInfo, err := handlers.ParseBackupUrl(owner, b.BackupUrl)
 	if err != nil {
 		log.Errorf("parse backup url error: %v", err)
-		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), errors.Errorf("parse backup url error: %v", err))
+		response.HandleError(resp, errors.Errorf("parse backup url error: %v", err))
 		return
 	}
 
 	if urlInfo.Location == constant.BackupLocationSpace.String() {
-		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), errors.Errorf("backup location is space, no need to check url snapshots, url: %s", b.BackupUrl))
+		response.HandleError(resp, errors.Errorf("backup location is space, no need to check url snapshots, url: %s", b.BackupUrl))
 		return
 	}
 
@@ -556,12 +556,12 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 	snapshots, err := storageSnapshots.GetSnapshots(ctx, b.Password, owner, urlInfo.Location, urlInfo.Endpoint, urlInfo.BackupName, urlInfo.BackupId)
 	if err != nil {
 		log.Errorf("check backup url snapshots error: %v", err)
-		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), err)
+		response.HandleError(resp, err)
 		return
 	}
 
 	if snapshots == nil || len(*snapshots) == 0 {
-		response.Error(resp, parseCheckBackupUrl(nil, "", "", "", 0, 0), fmt.Errorf("snapshots not found"))
+		response.HandleError(resp, fmt.Errorf("snapshots not found"))
 		return
 	}
 

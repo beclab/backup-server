@@ -5,7 +5,7 @@ go 1.23.0
 toolchain go1.23.7
 
 replace (
-	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.20
+	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.21
 	k8s.io/api => k8s.io/api v0.25.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.25.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.25.6
@@ -39,9 +39,7 @@ require (
 	github.com/go-openapi/spec v0.20.7
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
-	github.com/jmoiron/sqlx v1.3.5
 	github.com/lithammer/dedent v1.1.0
-	github.com/mattn/go-sqlite3 v1.14.17
 	github.com/pkg/errors v0.9.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.7.0

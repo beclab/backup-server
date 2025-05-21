@@ -278,6 +278,7 @@ func (r *SnapshotReconciler) notifySnapshot(backup *v1.Backup, snapshot *v1.Snap
 		BackupId:     backup.Name,
 		SnapshotId:   snapshot.Name,
 		Size:         0,
+		BackupSize:   0,
 		Unit:         constant.DefaultSnapshotSizeUnit,
 		SnapshotTime: snapshot.Spec.CreateAt.Unix(),
 		Status:       status,
@@ -327,6 +328,7 @@ func (r *SnapshotReconciler) notifySnapshotResult(ctx context.Context, backup *v
 	if resticInfo != nil {
 		snapshotRecord.Message = util.ToJSON(resticInfo)
 		snapshotRecord.Size = resticInfo.TotalBytesProcessed
+		snapshotRecord.BackupSize = *backup.Spec.Size
 		snapshotRecord.ResticSnapshotId = resticInfo.SnapshotID
 	} else if snapshot.Spec.Message != nil {
 		snapshotRecord.Message = *snapshot.Spec.Message
