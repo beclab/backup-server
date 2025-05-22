@@ -123,6 +123,19 @@ func ListContains[T comparable](items []T, v T) bool {
 	return false
 }
 
+func ListMatchContains(items []string, v string) bool {
+	if items == nil {
+		return false
+	}
+
+	for _, item := range items {
+		if strings.Contains(v, item) {
+			return true
+		}
+	}
+	return false
+}
+
 func BytesToMD5Hash(in []byte) string {
 	hash := md5.Sum(in)
 	return hex.EncodeToString(hash[:])

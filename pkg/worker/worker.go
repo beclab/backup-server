@@ -299,8 +299,8 @@ func (w *WorkerPool) CancelBackup(owner, backupId string) {
 	if activeTask != nil {
 		backupTask := activeTask.(*ExecuteTask)
 		if backupTask.backupId == backupId {
-			backupTask.BaseTask.cancel()
 			w.sendBackupCanceledEvent(backupTask.owner, backupTask.backupId, backupTask.snapshotId)
+			backupTask.BaseTask.cancel()
 		}
 	}
 }
@@ -329,8 +329,8 @@ func (w *WorkerPool) CancelSnapshot(owner, snapshotId string) {
 	if activeTask != nil {
 		backupTask := activeTask.(*ExecuteTask)
 		if backupTask.snapshotId == snapshotId {
-			backupTask.BaseTask.cancel()
 			w.sendBackupCanceledEvent(backupTask.owner, backupTask.backupId, backupTask.snapshotId)
+			backupTask.BaseTask.cancel()
 		}
 	}
 }
@@ -360,14 +360,14 @@ func (w *WorkerPool) CancelRestore(owner, restoreId string) {
 	if activeTask != nil {
 		restoreTask := activeTask.(*ExecuteTask)
 		if restoreTask.restoreId == restoreId {
-			restoreTask.BaseTask.cancel()
 			w.sendRestoreCanceledEvent(restoreTask.owner, restoreTask.restoreId)
+			restoreTask.BaseTask.cancel()
 		}
 	}
 }
 
 func (w *WorkerPool) sendBackupCanceledEvent(owner string, backupId string, snapshotId string) {
-	w.handlers.GetNotification().Send(context.Background(), constant.EventBackup, owner, "backup canceled", map[string]interface{}{
+	w.handlers.GetNotification().Send(w.ctx, constant.EventBackup, owner, "backup canceled", map[string]interface{}{
 		"id":       snapshotId,
 		"backupId": backupId,
 		"endat":    time.Now().Unix(),
@@ -377,7 +377,7 @@ func (w *WorkerPool) sendBackupCanceledEvent(owner string, backupId string, snap
 }
 
 func (w *WorkerPool) sendRestoreCanceledEvent(owner string, restoreId string) {
-	w.handlers.GetNotification().Send(context.Background(), constant.EventRestore, owner, "restore canceled", map[string]interface{}{
+	w.handlers.GetNotification().Send(w.ctx, constant.EventRestore, owner, "restore canceled", map[string]interface{}{
 		"id":      restoreId,
 		"endat":   time.Now().Unix(),
 		"status":  constant.Canceled.String(),

@@ -162,3 +162,41 @@ func NotifyStopBackup(ctx context.Context, cloudApiUrl string, userId, token, ba
 
 	return nil
 }
+
+// todo
+func CheckCloudStorageQuotaAndPermission(ctx context.Context, cloudApiUrl string, userId, token string) error {
+	var backoff = wait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   2,
+		Jitter:   0.1,
+		Steps:    3,
+	}
+
+	var data = fmt.Sprintf("")
+
+	log.Infof("[notify] check cloud storage permission data: %s", data)
+
+	if err := retry.OnError(backoff, func(err error) bool {
+		return true
+	}, func() error {
+		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendStopBackupUrl)
+		var headers = make(map[string]string)
+		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
+
+		result, err := http.Post[Response](ctx, url, headers, data, true)
+		if err != nil {
+			log.Errorf("[notify] check cloud storage permission failed: %v", err)
+			return err
+		}
+
+		if result.Code != 200 {
+			return fmt.Errorf("[notify] check cloud storage permission failed, code: %d, msg: %s", result.Code, result.Message)
+		}
+		return nil
+	}); err != nil {
+		log.Errorf(err.Error())
+		return err
+	}
+
+	return nil
+}

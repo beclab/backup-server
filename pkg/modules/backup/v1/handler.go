@@ -662,7 +662,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		Owner:            owner,
 		Type:             restoreTypeName,
 		Path:             b.Path,
-		SubPath:          b.SubPath,
+		SubPath:          strings.TrimSpace(b.SubPath),
 		SubPathTimestamp: time.Now().Unix(),
 		BackupId:         backupId,
 		BackupName:       backupName,

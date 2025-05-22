@@ -517,95 +517,102 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 	backupStorageObj *backupssdkmodel.StorageInfo, backupTotalSize uint64, backupError error) error {
 
 	return wait.PollImmediate(time.Second*10, 5*time.Hour, func() (bool, error) {
-		var msg string
-		var endAt = pointer.Time()
+		log.Infof("Backup %s,%s, update backup result, if err: %v", s.Backup.Spec.Name, s.SnapshotId, backupError)
+		select {
+		case <-s.Ctx.Done():
+			return true, nil
+		default:
+			var msg string
+			var endAt = pointer.Time()
 
-		backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, s.Backup.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, nil
+			backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, s.Backup.Name)
+			if err != nil {
+				log.Errorf("Backup %s,%s, get backup error: %v", s.Backup.Spec.Name, s.SnapshotId, err)
+				if apierrors.IsNotFound(err) {
+					return true, nil
+				}
+				if util.ListMatchContains(ConnectErrors, err.Error()) {
+					return false, nil
+				}
 			}
-			if util.ListContains(ConnectErrors, err.Error()) {
-				log.Errorf("get backup error: %v, id: %s", err, s.Backup.Name)
-				return false, nil
+
+			snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, s.Snapshot.Name)
+			if err != nil {
+				log.Errorf("Backup %s,%s, get snapshot error: %v", s.Backup.Spec.Name, s.SnapshotId, err)
+				if apierrors.IsNotFound(err) {
+					return true, nil
+				}
+				if util.ListMatchContains(ConnectErrors, err.Error()) {
+					log.Errorf("Backup %s,%s, get snapshot error: %v, id: %s", s.Backup.Spec.Name, s.SnapshotId, err)
+					return false, nil
+				}
 			}
-		}
 
-		snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, s.Snapshot.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, nil
-			}
-			if util.ListContains(ConnectErrors, err.Error()) {
-				log.Errorf("get snapshot error: %v, id: %s", err, s.Snapshot.Name)
-				return false, nil
-			}
-		}
+			var eventData = make(map[string]interface{})
+			eventData["id"] = s.Snapshot.Name
+			eventData["backupId"] = s.Backup.Name
+			eventData["endat"] = endAt.Unix()
 
-		var eventData = make(map[string]interface{})
-		eventData["id"] = s.Snapshot.Name
-		eventData["backupId"] = s.Backup.Name
-		eventData["endat"] = endAt.Unix()
+			var phase constant.Phase = constant.Completed
 
-		var phase constant.Phase = constant.Completed
-
-		if backupError != nil {
-			msg = backupError.Error()
-			if strings.Contains(backupError.Error(), strings.ToLower(constant.Canceled.String())) {
-				phase = constant.Canceled
+			if backupError != nil {
+				msg = backupError.Error()
+				if strings.Contains(backupError.Error(), strings.ToLower(constant.Canceled.String())) {
+					phase = constant.Canceled
+				} else {
+					phase = constant.Failed
+				}
+				snapshot.Spec.Phase = pointer.String(phase.String())
+				snapshot.Spec.Message = pointer.String(msg)
+				snapshot.Spec.ResticPhase = pointer.String(phase.String())
+				if s.SnapshotType != nil {
+					snapshot.Spec.SnapshotType = s.SnapshotType
+				}
+				eventData["status"] = phase.String()
+				eventData["message"] = msg
 			} else {
-				phase = constant.Failed
-			}
-			snapshot.Spec.Phase = pointer.String(phase.String())
-			snapshot.Spec.Message = pointer.String(msg)
-			snapshot.Spec.ResticPhase = pointer.String(phase.String())
-			if s.SnapshotType != nil {
+				msg = phase.String()
+				eventData["size"] = fmt.Sprintf("%d", backupOutput.TotalBytesProcessed)
+				eventData["totalSize"] = fmt.Sprintf("%d", backupTotalSize)
+				eventData["progress"] = progressDone
+				eventData["status"] = phase.String()
+				eventData["message"] = msg
 				snapshot.Spec.SnapshotType = s.SnapshotType
+				snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
+				snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
+				snapshot.Spec.Progress = progressDone
+				snapshot.Spec.Phase = pointer.String(phase.String())
+				snapshot.Spec.Message = pointer.String(phase.String())
+				snapshot.Spec.ResticPhase = pointer.String(phase.String())
+				snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
 			}
-			eventData["status"] = phase.String()
-			eventData["message"] = msg
-		} else {
-			msg = phase.String()
-			eventData["size"] = fmt.Sprintf("%d", backupOutput.TotalBytesProcessed)
-			eventData["totalSize"] = fmt.Sprintf("%d", backupTotalSize)
-			eventData["progress"] = progressDone
-			eventData["status"] = phase.String()
-			eventData["message"] = msg
-			snapshot.Spec.SnapshotType = s.SnapshotType
-			snapshot.Spec.SnapshotId = pointer.String(backupOutput.SnapshotID)
-			snapshot.Spec.Size = pointer.UInt64Ptr(backupOutput.TotalBytesProcessed)
-			snapshot.Spec.Progress = progressDone
-			snapshot.Spec.Phase = pointer.String(phase.String())
-			snapshot.Spec.Message = pointer.String(phase.String())
-			snapshot.Spec.ResticPhase = pointer.String(phase.String())
-			snapshot.Spec.ResticMessage = pointer.String(util.ToJSON(backupOutput))
-		}
 
-		snapshot.Spec.EndAt = endAt
+			snapshot.Spec.EndAt = endAt
 
-		if backupStorageObj != nil {
-			var extra = snapshot.Spec.Extra
-			if extra == nil {
-				extra = make(map[string]string)
+			if backupStorageObj != nil {
+				var extra = snapshot.Spec.Extra
+				if extra == nil {
+					extra = make(map[string]string)
+				}
+				extra["storage"] = util.ToJSON(backupStorageObj)
+				snapshot.Spec.Extra = extra
 			}
-			extra["storage"] = util.ToJSON(backupStorageObj)
-			snapshot.Spec.Extra = extra
-		}
 
-		if backupOutput != nil {
-			var newLocation, newLocationData = s.buildLocation()
-			if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize, newLocation, newLocationData); err != nil {
-				log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
+			if backupOutput != nil {
+				var newLocation, newLocationData = s.buildLocation()
+				if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize, newLocation, newLocationData); err != nil {
+					log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
+				}
 			}
-		}
 
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", eventData)
+			s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", eventData)
 
-		err = s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
-		if err != nil {
-			return false, err
+			err = s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
+			if err != nil {
+				return false, err
+			}
+			return true, nil
 		}
-		return true, nil
 	})
 
 }

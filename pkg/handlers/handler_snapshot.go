@@ -318,6 +318,7 @@ func (o *SnapshotHandler) UpdateBackupResult(ctx context.Context, snapshot *sysv
 }
 
 func (o *SnapshotHandler) update(ctx context.Context, snapshot *sysv1.Snapshot) error {
+	// todo
 	sc, err := o.factory.Sysv1Client()
 	if err != nil {
 		return err
