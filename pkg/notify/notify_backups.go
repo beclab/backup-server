@@ -77,7 +77,7 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 			return err
 		}
 
-		if result.Code != 200 {
+		if result.Code != 200 && result.Code != 501 {
 			return fmt.Errorf("[notify] send new backup record failed: %d, url: %s", result.Code, url)
 		}
 		return nil
@@ -116,7 +116,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 			return err
 		}
 
-		if result.Code != 200 {
+		if result.Code != 200 && result.Code != 501 { // todo
 			return fmt.Errorf("[notify] snapshot record failed, code: %d, message: %s", result.Code, result.Message)
 		}
 		return nil

@@ -59,7 +59,7 @@ func NewSnapshotController(c client.Client, factory k8sclient.Factory, schema *r
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
 func (r *SnapshotReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// log.Infof("received snapshot request, id: %s", req.Name)
+	log.Infof("received snapshot request, id: %s", req.Name)
 
 	c, err := r.factory.Sysv1Client()
 	if err != nil {

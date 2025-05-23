@@ -24,7 +24,7 @@ func (s *StorageSnapshots) GetSnapshots(ctx context.Context, password, owner, lo
 
 	switch location {
 	case constant.BackupLocationAwsS3.String():
-		token, err := s.getIntegrationCloud(ctx, owner, location)
+		token, err := s.getIntegrationCloud(ctx, owner, location, endpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -42,7 +42,7 @@ func (s *StorageSnapshots) GetSnapshots(ctx context.Context, password, owner, lo
 			},
 		})
 	case constant.BackupLocationTencentCloud.String():
-		token, err := s.getIntegrationCloud(ctx, owner, location)
+		token, err := s.getIntegrationCloud(ctx, owner, location, endpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -74,6 +74,6 @@ func (s *StorageSnapshots) GetSnapshots(ctx context.Context, password, owner, lo
 	return snapshotService.Snapshots()
 }
 
-func (s *StorageSnapshots) getIntegrationCloud(ctx context.Context, owner, location string) (*integration.IntegrationToken, error) {
-	return integration.IntegrationManager().GetIntegrationCloudAccount(ctx, owner, location)
+func (s *StorageSnapshots) getIntegrationCloud(ctx context.Context, owner, location, endpoint string) (*integration.IntegrationToken, error) {
+	return integration.IntegrationManager().GetIntegrationCloudAccount(ctx, owner, location, endpoint)
 }

@@ -11,6 +11,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"bytetrade.io/web3os/backup-server/pkg/util/repo"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
@@ -70,7 +71,7 @@ func (i *Integration) GetIntegrationCloudToken(ctx context.Context, owner, locat
 }
 
 // todo
-func (i *Integration) GetIntegrationCloudAccount(ctx context.Context, owner, location string) (*IntegrationToken, error) {
+func (i *Integration) GetIntegrationCloudAccount(ctx context.Context, owner, location, endpoint string) (*IntegrationToken, error) {
 	accounts, err := i.queryIntegrationAccounts(ctx, owner)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,31 @@ func (i *Integration) GetIntegrationCloudAccount(ctx context.Context, owner, loc
 				return nil, err
 			}
 			if token != nil {
-				break
+				if location == constant.BackupLocationAwsS3.String() {
+					tokenRepoInfo, err := repo.FormatS3(token.Endpoint)
+					if err != nil {
+						return nil, err
+					}
+					urlRepoInfo, err := repo.FormatS3(endpoint)
+					if err != nil {
+						return nil, err
+					}
+					if tokenRepoInfo.Endpoint == urlRepoInfo.Endpoint {
+						break
+					}
+				} else if location == constant.BackupLocationTencentCloud.String() {
+					tokenRepoInfo, err := repo.FormatCosByRawUrl(token.Endpoint)
+					if err != nil {
+						return nil, err
+					}
+					urlRepoInfo, err := repo.FormatCosByRawUrl(endpoint)
+					if err != nil {
+						return nil, err
+					}
+					if tokenRepoInfo.Endpoint == urlRepoInfo.Endpoint {
+						break
+					}
+				}
 			}
 		}
 	}
@@ -155,7 +180,7 @@ func (i *Integration) ValidIntegrationNameByLocationName(ctx context.Context, ow
 	return name, nil
 }
 
-func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, location string) (string, error) {
+func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, location, bucket, region, prefix string) (string, error) {
 
 	accounts, err := i.queryIntegrationAccounts(ctx, owner)
 	if err != nil {
@@ -178,9 +203,38 @@ func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, l
 		// account.Type includes: space, awss3, tencent
 		// location includes: space, awss3, tencentcloud, filesystem
 		if strings.Contains(location, account.Type) {
-			name = account.Name
-			break
+			if account.Type == "space" {
+				name = account.Name
+				break
+			} else if account.Type == "awss3" {
+				token, err := i.GetIntegrationCloudToken(ctx, owner, location, account.Name)
+				if err != nil {
+					return "", err
+				}
+				tokenInfo, err := repo.FormatS3(token.Endpoint)
+				if err != nil {
+					return "", err
+				}
+				if tokenInfo.Bucket == bucket && tokenInfo.Region == region && tokenInfo.Prefix == prefix {
+					name = account.Name
+					break
+				}
+			} else if account.Type == "tencent" {
+				token, err := i.GetIntegrationCloudToken(ctx, owner, location, account.Name)
+				if err != nil {
+					return "", err
+				}
+				tokenInfo, err := repo.FormatCosByRawUrl(token.Endpoint)
+				if err != nil {
+					return "", err
+				}
+				if tokenInfo.Bucket == bucket && tokenInfo.Region == region && tokenInfo.Prefix == strings.TrimRight(prefix, "/") {
+					name = account.Name
+					break
+				}
+			}
 		}
+
 	}
 
 	if name == "" {

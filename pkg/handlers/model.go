@@ -8,7 +8,6 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/util"
-	"github.com/pkg/errors"
 )
 
 type SnapshotNotifyState struct {
@@ -66,45 +65,30 @@ type passwordResponseData struct {
 }
 
 type BackupUrlType struct {
-	Schema     string     `json:"schema"`
-	Host       string     `json:"host"`
-	Path       string     `json:"path"`
-	Values     url.Values `json:"values"`
-	Location   string     `json:"location"`
-	Endpoint   string     `json:"endpoint"`
-	BackupId   string     `json:"backup_id"`
-	BackupName string     `json:"backup_name"`
-	PvcPath    string     `json:"pvc_path"`
+	Schema         string     `json:"schema"`
+	Host           string     `json:"host"`
+	Path           string     `json:"path"`
+	Values         url.Values `json:"values"`
+	Location       string     `json:"location"`
+	Endpoint       string     `json:"endpoint"`
+	BackupId       string     `json:"backup_id"`
+	BackupName     string     `json:"backup_name"`
+	PvcPath        string     `json:"pvc_path"`
+	CloudName      string     `json:"cloud_name"`
+	Region         string     `json:"region"`
+	Bucket         string     `json:"bucket"`
+	Prefix         string     `json:"prefix"`
+	TerminusSuffix string     `json:"suffix"`
+	FilesystemPath string     `json:"fs_path"`
 }
 
 func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
-	var cloudName, region, bucket, prefix, suffix string
-	// var fsBackupPath string
-	var err error
-
-	if u.Location != constant.BackupLocationFileSystem.String() {
-		// fsBackupPath, err = u.getFsBackupPath()
-		// if err != nil {
-		// 	return nil, errors.WithStack(err)
-		// }
-		region, err = u.getRegionId()
-		if err != nil {
-			return nil, errors.WithStack(err)
-		}
-		bucket, prefix, suffix, err = u.getBucketAndPrefix()
-		if err != nil {
-			return nil, errors.WithStack(err)
-		}
-
-		cloudName = u.getCloudName()
-	}
-
 	var detail = &RestoreBackupUrlDetail{
-		CloudName:      cloudName,
-		RegionId:       region,
-		Bucket:         bucket,
-		Prefix:         prefix,
-		TerminusSuffix: suffix,
+		CloudName:      u.CloudName,
+		RegionId:       u.Region,
+		Bucket:         u.Bucket,
+		Prefix:         u.Prefix,
+		TerminusSuffix: u.TerminusSuffix,
 	}
 
 	if u.Location == constant.BackupLocationFileSystem.String() {
