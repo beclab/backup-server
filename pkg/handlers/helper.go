@@ -18,6 +18,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"bytetrade.io/web3os/backup-server/pkg/util/repo"
 	utilstring "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
@@ -557,14 +558,23 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 		return nil, fmt.Errorf("split path errror: %v, url: %s", err, s)
 	}
 
-	var endpoint = FormatEndpoint(location, u.Scheme, u.Host, u.Path, userspacePath)
-	if endpoint == "" {
-		return nil, fmt.Errorf("endpoint invalid, url: %s", s)
+	repoInfo, err := FormatEndpoint(location, u.Scheme, u.Host, u.Path, userspacePath)
+	if err != nil {
+		return nil, err
 	}
 
 	if location == constant.BackupLocationFileSystem.String() {
-		if !util.IsExist(endpoint) {
-			return nil, fmt.Errorf("backup dir not exists, path: %s", endpoint)
+		if !util.IsExist(repoInfo.Endpoint) {
+			return nil, fmt.Errorf("backup dir not exists, path: %s", repoInfo.Endpoint)
+		}
+	}
+
+	var cloudName string
+	if location == constant.BackupLocationSpace.String() {
+		if strings.Contains(u.Host, constant.LocationTypeAwsS3Tag) {
+			cloudName = "aws"
+		} else if strings.Contains(u.Host, constant.LocationTypeTencentCloudTag) {
+			cloudName = constant.BackupLocationTencentCloud.String()
 		}
 	}
 
@@ -574,10 +584,20 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 		Path:       u.Path,
 		Values:     u.Query(),
 		Location:   location,
-		Endpoint:   endpoint,
+		Endpoint:   repoInfo.Endpoint,
 		BackupId:   backupId,
 		BackupName: backupName,
 		PvcPath:    userspacePath,
+
+		CloudName:      cloudName,
+		Region:         repoInfo.Region,
+		Bucket:         repoInfo.Bucket,
+		Prefix:         repoInfo.Prefix,
+		TerminusSuffix: repoInfo.Suffix,
+	}
+
+	if location == constant.BackupLocationFileSystem.String() {
+		res.FilesystemPath = repoInfo.Endpoint
 	}
 	return res, nil
 }
@@ -680,20 +700,34 @@ func TrimPathPrefix(p string) (bool, string) {
 	}
 }
 
-func FormatEndpoint(location, schema, host, urlPath, pvc string) string {
+func FormatEndpoint(location, schema, host, urlPath, pvc string) (*repo.RepositoryInfo, error) {
 	var p = utilstring.TrimSuffix(urlPath, constant.DefaultStoragePrefix)
-	var endpoint string
+
 	switch location {
-	case constant.BackupLocationSpace.String(), constant.BackupLocationAwsS3.String(), constant.BackupLocationTencentCloud.String():
-		endpoint = fmt.Sprintf("%s://%s%s", schema, host, p)
+	case constant.BackupLocationSpace.String():
+		return repo.FormatSpace(schema, host, p)
+	case constant.BackupLocationTencentCloud.String():
+		return repo.FormatCos(schema, host, p)
+	case constant.BackupLocationAwsS3.String():
+		var rawUrl = fmt.Sprintf("%s://%s%s", schema, host, p)
+		result, err := repo.FormatS3(rawUrl)
+		if err != nil {
+			return nil, err
+		}
+		result.Endpoint = strings.TrimPrefix(result.Endpoint, "s3:")
+		return result, nil
 	case constant.BackupLocationFileSystem.String():
 		external, relativePath := TrimPathPrefix(p)
+		var endpoint string
 		if external {
 			endpoint = path.Join(constant.ExternalPath, relativePath)
 		} else {
 			endpoint = path.Join(pvc, relativePath)
 		}
+		return &repo.RepositoryInfo{
+			Endpoint: endpoint,
+		}, nil
+	default:
+		return nil, fmt.Errorf("location invalid: %s", location)
 	}
-
-	return endpoint
 }
