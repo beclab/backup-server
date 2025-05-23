@@ -78,6 +78,9 @@ func (s *StorageRestore) RunRestore() error {
 
 	if restoreErr != nil {
 		log.Errorf("Restore %s, error: %v", s.RestoreId, restoreErr)
+		if e := os.RemoveAll(s.Params.Path); e != nil {
+			log.Errorf("Restore %s, remove error: %v", s.RestoreId, e)
+		}
 	} else {
 		log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
 		if e := os.Rename(s.Params.Path, strings.ReplaceAll(s.Params.Path, ".restore", "")); e != nil {
@@ -168,7 +171,6 @@ func (s *StorageRestore) prepareRestoreParams() error {
 			} else {
 				locationConfig["path"] = path.Join(userspacePath, locPath)
 			}
-
 		}
 	} else {
 		// ~ backupUrl
@@ -409,55 +411,60 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) error {
 
 	return wait.PollImmediate(time.Second*10, 5*time.Hour, func() (bool, error) {
-		var msg, phase string
-		var notifyProgress int
+		log.Infof("Restore %s, update restore result, if err: %v", s.RestoreId, restoreError)
+		select {
+		case <-s.Ctx.Done():
+			return true, nil
+		default:
+			var msg, phase string
+			var notifyProgress int
 
-		restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return true, err
+			restore, err := s.Handlers.GetRestoreHandler().GetRestore(s.Ctx, s.RestoreId)
+			if err != nil {
+				log.Errorf("Restore %s, get restore error: %v", s.RestoreId, err)
+				if apierrors.IsNotFound(err) {
+					return true, err
+				}
+				if util.ListMatchContains(ConnectErrors, err.Error()) {
+					return false, nil
+				}
 			}
-			if util.ListContains(ConnectErrors, err.Error()) {
-				log.Errorf("get restore %s error: %v", s.RestoreId, err)
-				return false, nil
+
+			if restoreError != nil {
+				msg = restoreError.Error()
+				phase = constant.Failed.String()
+				notifyProgress = restore.Spec.Progress
+				restore.Spec.Phase = pointer.String(constant.Failed.String())
+				restore.Spec.Message = pointer.String(restoreError.Error())
+				restore.Spec.ResticPhase = pointer.String(phase)
+			} else {
+				msg = constant.Completed.String()
+				phase = constant.Completed.String()
+				notifyProgress = progressDone
+				restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
+				restore.Spec.Progress = progressDone
+				restore.Spec.Phase = pointer.String(phase)
+				restore.Spec.Message = pointer.String(phase)
+				restore.Spec.ResticPhase = pointer.String(phase)
+				restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
 			}
+
+			restore.Spec.EndAt = pointer.Time()
+
+			s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
+				"id":       s.Restore.Name,
+				"progress": notifyProgress,
+				"endat":    restore.Spec.EndAt.Unix(),
+				"status":   phase,
+				"message":  msg,
+			})
+
+			if err = s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec); err != nil {
+				return false, err
+			}
+			return true, nil
 		}
-
-		if restoreError != nil {
-			msg = restoreError.Error()
-			phase = constant.Failed.String()
-			notifyProgress = restore.Spec.Progress
-			restore.Spec.Phase = pointer.String(constant.Failed.String())
-			restore.Spec.Message = pointer.String(restoreError.Error())
-			restore.Spec.ResticPhase = pointer.String(phase)
-		} else {
-			msg = constant.Completed.String()
-			phase = constant.Completed.String()
-			notifyProgress = progressDone
-			restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
-			restore.Spec.Progress = progressDone
-			restore.Spec.Phase = pointer.String(phase)
-			restore.Spec.Message = pointer.String(phase)
-			restore.Spec.ResticPhase = pointer.String(phase)
-			restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
-		}
-
-		restore.Spec.EndAt = pointer.Time()
-
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
-			"id":       s.Restore.Name,
-			"progress": notifyProgress,
-			"endat":    restore.Spec.EndAt.Unix(),
-			"status":   phase,
-			"message":  msg,
-		})
-
-		if err = s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec); err != nil {
-			return false, err
-		}
-		return true, nil
 	})
-
 }
 
 func (s *StorageRestore) getIntegrationCloud() (*integration.IntegrationToken, error) {

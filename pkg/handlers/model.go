@@ -99,14 +99,19 @@ func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
 		cloudName = u.getCloudName()
 	}
 
-	return &RestoreBackupUrlDetail{
+	var detail = &RestoreBackupUrlDetail{
 		CloudName:      cloudName,
 		RegionId:       region,
 		Bucket:         bucket,
 		Prefix:         prefix,
 		TerminusSuffix: suffix,
-		FilesystemPath: u.Endpoint,
-	}, nil
+	}
+
+	if u.Location == constant.BackupLocationFileSystem.String() {
+		detail.FilesystemPath = u.Endpoint
+	}
+
+	return detail, nil
 }
 
 func (u *BackupUrlType) getBucketAndPrefix() (bucket string, prefix string, suffix string, err error) {

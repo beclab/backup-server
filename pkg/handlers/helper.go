@@ -512,7 +512,7 @@ func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDeta
 }
 
 func IsBackupLocationSpace(u string) bool {
-	return strings.Contains(u, "did:key:")
+	return strings.Contains(u, constant.LocationTypeSpaceTag)
 }
 
 func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
