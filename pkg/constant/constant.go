@@ -11,7 +11,7 @@ var (
 
 const (
 	EnvSpaceUrl          string = "OLARES_SPACE_URL"
-	DefaultSyncServerURL string = "https://cloud-api.bttcdn.com"
+	DefaultSyncServerURL string = "https://cloud-api.olares.xyz"
 
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
