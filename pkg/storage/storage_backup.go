@@ -1,9 +1,12 @@
 package storage
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +45,11 @@ type StorageBackup struct {
 
 	LastProgressPercent int
 	LastProgressTime    time.Time
+
+	BackupType           string
+	BackupAppStatus      *handlers.BackupAppStatus
+	BackupAppFiles       []string
+	BackupAppFilesPrefix []string
 }
 
 type BackupParameters struct {
@@ -86,6 +94,14 @@ func (s *StorageBackup) RunBackup() error {
 			return errors.WithStack(e)
 		}
 
+		if e = s.readyForBackupApp(); e != nil {
+			return errors.WithStack(e)
+		}
+
+		if e = s.formatAppBackupFiles(); e != nil {
+			return errors.WithStack(e)
+		}
+
 		return nil
 	}
 	if err := f(); err != nil {
@@ -97,7 +113,8 @@ func (s *StorageBackup) RunBackup() error {
 		return nil
 	}
 
-	log.Infof("Backup %s,%s, locationConfig: %s, integrationChanged: %v", backupName, snapshotId, util.ToJSON(s.Params.Location), s.IntegrationChanged)
+	log.Infof("Backup %s,%s, locationConfig: %s, integrationChanged: %v ,ifAppStatus: %s", backupName, snapshotId, util.ToJSON(s.Params.Location), s.IntegrationChanged, util.ToJSON(s.BackupAppStatus))
+
 	backupResult, backupStorageObj, backupTotalSize, backupErr := s.execute()
 	if backupErr != nil {
 		log.Errorf("Backup %s,%s, error: %v", backupName, snapshotId, backupErr)
@@ -118,15 +135,18 @@ func (s *StorageBackup) RunBackup() error {
 func (s *StorageBackup) checkBackupExists() error {
 	snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, s.SnapshotId)
 	if err != nil {
-		return fmt.Errorf("snapshot not found: %v", err)
+		log.Errorf("snapshot not found: %v", err)
+		return fmt.Errorf("snapshot not found")
 	}
 	backup, err := s.Handlers.GetBackupHandler().GetById(s.Ctx, snapshot.Spec.BackupId)
 	if err != nil {
-		return fmt.Errorf("backup not found: %v", err)
+		log.Errorf("backup not found: %v", err)
+		return fmt.Errorf("backup not found")
 	}
 
 	s.Backup = backup
 	s.Snapshot = snapshot
+	s.BackupType = handlers.GetBackupType(s.Backup)
 
 	return nil
 }
@@ -137,7 +157,8 @@ func (s *StorageBackup) getUserspacePvc() error {
 
 	userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
 	if err != nil {
-		return fmt.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
+		log.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
+		return fmt.Errorf("get userspace pvc error: %v", err)
 	}
 
 	s.UserspacePvcPath = userspacePath
@@ -150,7 +171,8 @@ func (s *StorageBackup) validateSnapshotPreconditions() error {
 	var snapshotId = s.Snapshot.Name
 	var phase = *s.Snapshot.Spec.Phase
 	if phase != constant.Pending.String() { // other phase ?
-		return fmt.Errorf("Backup %s,%s, snapshot phase %s invalid", backupName, snapshotId, phase)
+		log.Errorf("Backup %s,%s, snapshot phase %s invalid", backupName, snapshotId, phase)
+		return fmt.Errorf("snapshot phase invalid")
 	}
 	return nil
 }
@@ -158,7 +180,8 @@ func (s *StorageBackup) validateSnapshotPreconditions() error {
 func (s *StorageBackup) checkSnapshotType() error {
 	snapshotType, err := s.Handlers.GetSnapshotHandler().GetSnapshotType(s.Ctx, s.Backup.Name)
 	if err != nil {
-		return fmt.Errorf("Backup %s,%s, get snapshot type error: %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
+		log.Errorf("Backup %s,%s, get snapshot type error: %v", s.Backup.Spec.Name, s.Snapshot.Name, err)
+		return fmt.Errorf("list snapshots error: %v", err)
 	}
 
 	s.SnapshotType = handlers.ParseSnapshotType(snapshotType)
@@ -172,16 +195,19 @@ func (s *StorageBackup) prepareBackupParams() error {
 	var snapshotId = s.Snapshot.Name
 	password, err := handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
 	if err != nil {
-		return fmt.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
+		log.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
+		return err
 	}
 
 	location, err := handlers.GetBackupLocationConfig(s.Backup)
 	if err != nil {
-		return fmt.Errorf("Backup %s,%s, get location config error: %v", backupName, snapshotId, err)
+		log.Errorf("Backup %s,%s, get location config error: %v", backupName, snapshotId, err)
+		return fmt.Errorf("get location config error: %v", err)
 	}
 
 	if location == nil {
-		return fmt.Errorf("Backup %s,%s, location config not exists", backupName, snapshotId)
+		log.Errorf("Backup %s,%s, location config not exists", backupName, snapshotId)
+		return fmt.Errorf("location config not exists")
 	}
 
 	loc := location["location"]
@@ -198,12 +224,13 @@ func (s *StorageBackup) prepareBackupParams() error {
 	}
 
 	var backupPath string
-
-	var tmpBackupExternal, tmpBackupPath = handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup))
-	if tmpBackupExternal {
-		backupPath = path.Join(constant.ExternalPath, tmpBackupPath)
-	} else {
-		backupPath = path.Join(s.UserspacePvcPath, tmpBackupPath)
+	if s.BackupType == constant.BackupTypeFile {
+		var tmpBackupExternal, tmpBackupPath = handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup))
+		if tmpBackupExternal {
+			backupPath = path.Join(constant.ExternalPath, tmpBackupPath)
+		} else {
+			backupPath = path.Join(s.UserspacePvcPath, tmpBackupPath)
+		}
 	}
 
 	s.Params = &BackupParameters{
@@ -217,6 +244,9 @@ func (s *StorageBackup) prepareBackupParams() error {
 }
 
 func (s *StorageBackup) checkDiskSize() error {
+	if s.BackupType == constant.BackupTypeApp {
+		return nil
+	}
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 
@@ -227,18 +257,21 @@ func (s *StorageBackup) checkDiskSize() error {
 
 		backupSize, err := util.DirSize(s.Params.Path)
 		if err != nil {
-			return fmt.Errorf("Backup %s,%s, get backup disk size error: %v, path: %s", backupName, snapshotId, err, s.Params.Path)
+			log.Errorf("Backup %s,%s, get backup disk size error: %v, path: %s", backupName, snapshotId, err, s.Params.Path)
+			return fmt.Errorf("get backup disk size error: %v, path: %s", err, s.Params.Path)
 		}
 
 		targetFreeSpace, err := util.GetDiskFreeSpace(target)
 		if err != nil {
-			return fmt.Errorf("Backup %s,%s, get target free space error: %v, path: %s", backupName, snapshotId, err, target)
+			log.Errorf("Backup %s,%s, get target free space error: %v, path: %s", backupName, snapshotId, err, target)
+			return fmt.Errorf("get target free space error: %v, path: %s", err, target)
+
 		}
 
 		requiredSpace := uint64(float64(backupSize) * 1.1)
 		if targetFreeSpace < requiredSpace {
-			return errors.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s",
-				util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
+			log.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s", util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
+			return fmt.Errorf("not enough free space on target disk")
 		}
 	}
 
@@ -308,8 +341,9 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 	var location = s.Params.Location["location"]
+	var backupType = s.BackupType
 
-	log.Infof("Backup %s,%s, location: %s, prepare", backupName, snapshotId, location)
+	log.Infof("Backup %s,%s, location: %s, backupType: %s, prepare", backupName, snapshotId, location, backupType)
 
 	var backupService *backupssdkstorage.BackupService
 	var options backupssdkoptions.Option
@@ -328,17 +362,20 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			RepoId:          backupId,
 			RepoName:        backupName,
 			Path:            s.Params.Path,
+			Files:           s.BackupAppFiles,
+			FilesPrefixPath: s.BackupAppFilesPrefix,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
 			SecretAccessKey: token.SecretKey,
 			LimitUploadRate: util.EnvOrDefault(constant.EnvLimitUploadRate, ""),
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password: s.Params.Password,
-			Operator: constant.StorageOperatorApp,
-			Ctx:      s.Ctx,
-			Logger:   logger,
-			Aws:      options.(*backupssdkoptions.AwsBackupOption),
+			Password:   s.Params.Password,
+			Operator:   constant.StorageOperatorApp,
+			BackupType: backupType,
+			Ctx:        s.Ctx,
+			Logger:     logger,
+			Aws:        options.(*backupssdkoptions.AwsBackupOption),
 		})
 	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud() // cos backup
@@ -350,6 +387,8 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			RepoId:          backupId,
 			RepoName:        backupName,
 			Path:            s.Params.Path,
+			Files:           s.BackupAppFiles,
+			FilesPrefixPath: s.BackupAppFilesPrefix,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
 			SecretAccessKey: token.SecretKey,
@@ -358,20 +397,24 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password:     s.Params.Password,
 			Operator:     constant.StorageOperatorApp,
+			BackupType:   backupType,
 			Ctx:          s.Ctx,
 			Logger:       logger,
 			TencentCloud: options.(*backupssdkoptions.TencentCloudBackupOption),
 		})
 	case constant.BackupLocationFileSystem.String():
 		options = &backupssdkoptions.FilesystemBackupOption{
-			RepoId:   backupId,
-			RepoName: backupName,
-			Endpoint: s.Params.Location["path"],
-			Path:     s.Params.Path,
+			RepoId:          backupId,
+			RepoName:        backupName,
+			Endpoint:        s.Params.Location["path"],
+			Path:            s.Params.Path,
+			Files:           s.BackupAppFiles,
+			FilesPrefixPath: s.BackupAppFilesPrefix,
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password:   s.Params.Password,
 			Operator:   constant.StorageOperatorApp,
+			BackupType: backupType,
 			Ctx:        s.Ctx,
 			Logger:     logger,
 			Filesystem: options.(*backupssdkoptions.FilesystemBackupOption),
@@ -414,6 +457,8 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			RepoId:          backupId,
 			RepoName:        backupName,
 			Path:            s.Params.Path,
+			Files:           s.BackupAppFiles,
+			FilesPrefixPath: s.BackupAppFilesPrefix,
 			OlaresDid:       spaceToken.OlaresDid,
 			AccessToken:     spaceToken.AccessToken,
 			ClusterId:       location["clusterId"],
@@ -424,11 +469,12 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		}
 
 		var backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password: s.Params.Password,
-			Operator: constant.StorageOperatorApp,
-			Ctx:      s.Ctx,
-			Logger:   log.GetLogger(),
-			Space:    spaceBackupOption.(*backupssdkoptions.SpaceBackupOption),
+			Password:   s.Params.Password,
+			Operator:   constant.StorageOperatorApp,
+			BackupType: s.BackupType,
+			Ctx:        s.Ctx,
+			Logger:     log.GetLogger(),
+			Space:      spaceBackupOption.(*backupssdkoptions.SpaceBackupOption),
 		})
 
 		backupOutput, backupStorageObj, err = backupService.Backup(s.progressCallback)
@@ -688,4 +734,156 @@ func (s *StorageBackup) buildLocation() (string, string) {
 	locationData["endpoint"] = s.IntegrationEndpoint
 
 	return location, util.ToJSON(locationData)
+}
+
+func (s *StorageBackup) readyForBackupApp() error {
+	if s.BackupType != constant.BackupTypeApp {
+		return nil
+	}
+
+	var ctx, cancel = context.WithTimeout(s.Ctx, 30*time.Minute)
+	defer cancel()
+
+	var err error
+
+	var appName = handlers.GetBackupAppName(s.Backup)
+	var appHandler = handlers.NewAppHandler(appName, s.Backup.Spec.Owner)
+
+	err = appHandler.StartAppBackup(ctx, s.Backup.Name, s.Snapshot.Name)
+	if err != nil {
+		log.Errorf("Backup %s,%s,%s, start app backup error: %v", s.Backup.Spec.Name, s.Snapshot.Name, appName, err)
+		return err
+	}
+
+	var ticker = time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			result, e := appHandler.GetAppBackupStatus(ctx, s.Backup.Name, s.Snapshot.Name)
+			if e != nil {
+				log.Errorf("Backup %s,%s,%s, get app backup status error: %v", s.Backup.Spec.Name, s.Snapshot.Name, appName, e)
+				err = fmt.Errorf("get app backup status error: %v", e)
+				return err
+			}
+
+			log.Infof("Backup %s,%s,%s, get app backup status, data: %s", s.Backup.Spec.Name, s.Snapshot.Name, appName, util.ToJSON(result))
+
+			if result.Data == nil {
+				log.Errorf("Backup %s,%s,%s, get app backup status error, data is nil", s.Backup.Spec.Name, s.Snapshot.Name, appName)
+				err = fmt.Errorf("get app backup status error, data is nil")
+				return err
+			}
+
+			if result.Data.Status == constant.BackupAppStatusPreparing {
+				continue
+			}
+
+			if result.Data.Status == constant.BackupAppStatusFinish {
+				result.Data.EntryFiles = util.TrimArrayPrefix(result.Data.EntryFiles, "/olares")
+				result.Data.PgFiles = util.TrimArrayPrefix(result.Data.PgFiles, "/olares")
+				s.BackupAppStatus = result
+				return nil
+			}
+
+		case <-ctx.Done():
+			if e := ctx.Err(); e != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					log.Errorf("Backup %s,%s,%s, start app backup timeout", s.Backup.Spec.Name, s.Snapshot.Name, appName)
+					return fmt.Errorf("app backup status timeout")
+				}
+				if errors.Is(err, context.Canceled) {
+					log.Errorf("Backup %s,%s,%s, app backup canceled", s.Backup.Spec.Name, s.Snapshot.Name, appName)
+					return fmt.Errorf("backup canceled")
+				}
+			}
+			return nil
+		}
+	}
+}
+
+func (s *StorageBackup) formatAppBackupFiles() error {
+	if s.BackupType != constant.BackupTypeApp {
+		return nil
+	}
+
+	var entryFiles = s.BackupAppStatus.Data.EntryFiles
+	var pgFiles = s.BackupAppStatus.Data.PgFiles
+	var files []string
+
+	if entryFiles != nil && len(entryFiles) > 0 {
+		for _, f := range entryFiles {
+			if err := s.replaceFilePaths(f, filepath.Join(s.UserspacePvcPath, "Home"), true); err != nil {
+				return err
+			} else {
+				files = append(files, f)
+			}
+		}
+	}
+
+	if pgFiles != nil && len(pgFiles) > 0 {
+		for _, f := range pgFiles {
+			if err := s.replaceFilePaths(f, "/olares", false); err != nil {
+				return err
+			} else {
+				files = append(files, f)
+			}
+		}
+	}
+
+	s.BackupAppFilesPrefix = []string{
+		filepath.Join(s.UserspacePvcPath, "Home"),
+		filepath.Join("/rootfs/middleware-backup/pg_backup", s.Backup.Spec.Owner),
+	}
+	s.BackupAppFiles = files
+
+	return nil
+}
+
+func (s *StorageBackup) replaceFilePaths(fp string, replacedFilePathPrefix string, appendPrefix bool) error {
+	f, err := os.Open(fp)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer f.Close()
+
+	var lines []string
+
+	scanner := bufio.NewScanner(f)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		var newLine string
+		if appendPrefix {
+			newLine = filepath.Join(replacedFilePathPrefix, line)
+		} else {
+			newLine = strings.ReplaceAll(line, replacedFilePathPrefix, "")
+		}
+		lines = append(lines, newLine)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to scan file: %v", err)
+	}
+
+	outFile, err := os.Create(fp)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+	defer outFile.Close()
+
+	writer := bufio.NewWriter(outFile)
+	for _, line := range lines {
+		_, err := writer.WriteString(line + "\n")
+		if err != nil {
+			return fmt.Errorf("failed to write to file: %v", err)
+		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush writer: %v", err)
+	}
+
+	return nil
 }

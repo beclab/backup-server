@@ -216,6 +216,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 	var name = uuid.NewUUID()
 	var phase = constant.Pending.String()
 	var parseSnapshotType = ParseSnapshotType(constant.UnKnownBackup)
+	var backupType = GetBackupType(backup)
 	var pushState = &SnapshotNotifyState{
 		Prepare:  false,
 		Progress: false,
@@ -232,6 +233,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
 				"backup-id": backup.Name,
+				"type":      backupType,
 			},
 		},
 		Spec: sysv1.SnapshotSpec{

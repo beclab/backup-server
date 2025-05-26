@@ -77,7 +77,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 	terminusNonce, err := util.GenTerminusNonce("")
 	if err != nil {
 		log.Error("generate nonce error, ", err)
-		return "", err
+		return "", errors.New("generate backup query nounce error")
 	}
 
 	log.Info("fetch password from settings, ", settingsUrl)
@@ -90,27 +90,27 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 
 	if err != nil {
 		log.Error("request settings password api error, ", err)
-		return "", err
+		return "", errors.New("get backup password error")
 	}
 
 	if resp.StatusCode() != http.StatusOK {
 		log.Error("request settings password api response not ok, ", resp.StatusCode())
-		err = errors.New(string(resp.Body()))
-		return "", err
+		return "", fmt.Errorf("get backup password failed, http status code: %d", resp.StatusCode())
 	}
 
 	pwdResp := resp.Result().(*passwordResponse)
 	log.Infof("settings password api response, %+v", pwdResp)
 	if pwdResp.Code != 0 {
 		log.Error("request settings password api response error, ", pwdResp.Code, ", ", pwdResp.Message)
-		err = errors.New(pwdResp.Message)
-		return "", err
+		if strings.Contains(pwdResp.Header.Message, "Secret not found") {
+			return "", fmt.Errorf("get backup password failed, code: %d, message: password not found", pwdResp.Header.Code)
+		}
+		return "", fmt.Errorf("get backup password failed, code: %d, message: %s", pwdResp.Header.Code, pwdResp.Header.Message)
 	}
 
 	if pwdResp.Data == nil {
 		log.Error("request settings password api response data is nil, ", pwdResp.Code, ", ", pwdResp.Message)
-		err = errors.New("request settings password api response data is nil")
-		return "", err
+		return "", fmt.Errorf("get backup password, not exists")
 	}
 
 	return pwdResp.Data.Value, nil
@@ -600,6 +600,35 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 		res.FilesystemPath = repoInfo.Endpoint
 	}
 	return res, nil
+}
+
+func GetBackupType(backup *sysv1.Backup) string {
+	var backupType string
+	for k := range backup.Spec.BackupType {
+		backupType = k
+		break
+	}
+
+	return backupType
+}
+
+func GetBackupAppName(backup *sysv1.Backup) string {
+	app, ok := backup.Spec.BackupType["app"]
+	if !ok {
+		return ""
+	}
+
+	var data = make(map[string]string)
+	if err := json.Unmarshal([]byte(app), &data); err != nil {
+		return ""
+	}
+
+	appName, ok := data["name"]
+	if !ok {
+		return ""
+	}
+
+	return appName
 }
 
 func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) (T, int64, int64) {

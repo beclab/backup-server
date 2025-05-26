@@ -309,3 +309,25 @@ func FormatBytes(bytes uint64) string {
 
 	return result
 }
+
+func TrimArrayPrefix(array []string, prefix string) []string {
+	if array == nil || len(array) == 0 {
+		return []string{}
+	}
+	var result []string
+	for _, v := range array {
+		if strings.HasPrefix(v, prefix) {
+			result = append(result, strings.ReplaceAll(v, prefix, ""))
+		}
+	}
+	return result
+}
+
+func CombineArray(args ...[]string) []string {
+	var result []string
+	for _, arg := range args {
+		result = append(result, arg...)
+	}
+
+	return result
+}
