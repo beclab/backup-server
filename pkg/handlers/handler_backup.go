@@ -173,20 +173,26 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 	return &backups.Items[0], nil
 }
 
-func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupType string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
 	backupName = strings.TrimSpace(backupName)
 	var backupId = uuid.NewUUID()
 RETRY:
+
+	var labels = make(map[string]string)
+	labels["owner"] = owner
+	labels["name"] = util.MD5(backupName)
+	labels["policy"] = util.MD5(backupSpec.BackupPolicy.TimesOfDay)
+	labels["type"] = backupType
+
+	if backupType == constant.BackupTypeFile {
+		labels["path"] = util.MD5(backupPath)
+	}
+
 	var backup = &sysv1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      backupId,
 			Namespace: constant.DefaultOsSystemNamespace,
-			Labels: map[string]string{
-				"owner":  owner,
-				"name":   util.MD5(backupName),
-				"path":   util.MD5(backupPath),
-				"policy": util.MD5(backupSpec.BackupPolicy.TimesOfDay),
-			},
+			Labels:    labels,
 		},
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Backup",

@@ -43,6 +43,24 @@ type RestoreBackupUrlDetail struct {
 	FilesystemPath string `json:"fsPath"` // only used for filesystem
 }
 
+type BackupAppResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type BackupAppStatusData struct {
+	Status        string   `json:"status"`
+	Version       string   `json:"version"`
+	PgVersionTime string   `json:"pg_version_time"`
+	EntryFiles    []string `json:"entry_files"`
+	PgFiles       []string `json:"pg_files"`
+}
+
+type BackupAppStatus struct {
+	BackupAppResponse
+	Data *BackupAppStatusData `json:"data"`
+}
+
 type proxyRequest struct {
 	Op       string      `json:"op"`
 	DataType string      `json:"datatype"`

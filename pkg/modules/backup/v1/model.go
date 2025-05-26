@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -23,13 +24,19 @@ type LocationConfig struct {
 }
 
 type BackupCreate struct {
-	Name            string              `json:"name"`
-	Path            string              `json:"path"`
-	Location        string              `json:"location"` // space or s3
-	LocationConfig  *LocationConfig     `json:"locationConfig,omitempty"`
-	BackupPolicies  *sysv1.BackupPolicy `json:"backupPolicy,omitempty"`
-	Password        string              `json:"password,omitempty"`
-	ConfirmPassword string              `json:"confirmPassword,omitempty"`
+	Name             string              `json:"name"`
+	Path             string              `json:"path"`
+	Location         string              `json:"location"` // space or s3
+	BackupCreateType *BackupCreateType   `json:"backupType"`
+	LocationConfig   *LocationConfig     `json:"locationConfig,omitempty"`
+	BackupPolicies   *sysv1.BackupPolicy `json:"backupPolicy,omitempty"`
+	Password         string              `json:"password,omitempty"`
+	ConfirmPassword  string              `json:"confirmPassword,omitempty"`
+}
+
+type BackupCreateType struct {
+	Type string `json:"type"` // app
+	Name string `json:"name"` // app name
 }
 
 func (b *BackupCreate) verify() error {
@@ -37,6 +44,22 @@ func (b *BackupCreate) verify() error {
 		return fmt.Errorf("backup name is empty")
 	}
 
+	if b.BackupCreateType != nil && b.BackupCreateType.Type == constant.BackupTypeApp {
+		return b.verifyBackupApp()
+	}
+
+	return b.verifyBackupFiles()
+}
+
+func (b *BackupCreate) verifyBackupApp() error {
+	if len(b.BackupCreateType.Name) == 0 {
+		return fmt.Errorf("app name is empty")
+	}
+
+	return nil
+}
+
+func (b *BackupCreate) verifyBackupFiles() error {
 	if stringx.IsOnlyWhitespace(b.Name) {
 		return fmt.Errorf("backup name cannot consist of only spaces")
 	}
@@ -55,6 +78,10 @@ func (b *BackupCreate) verify() error {
 
 	if ok, r := stringx.ContainsIllegalChars(b.Name); ok {
 		return fmt.Errorf("backup name cannot contain illegal characters: %c", r)
+	}
+
+	if b.Path == "" {
+		return errors.New("backup path is required")
 	}
 
 	return nil
@@ -727,4 +754,15 @@ func parseMessage(msg *string) string {
 		return ""
 	}
 	return *msg
+}
+
+func isBackupApp(backupType string) bool {
+	return backupType == constant.BackupTypeApp
+}
+
+func getBackupType(bc *BackupCreate) string {
+	if bc.BackupCreateType != nil && bc.BackupCreateType.Type == constant.BackupTypeApp {
+		return constant.BackupTypeApp
+	}
+	return constant.BackupTypeFile
 }

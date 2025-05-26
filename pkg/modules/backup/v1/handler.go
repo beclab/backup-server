@@ -147,11 +147,6 @@ func (h *Handler) addBackup(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if b.Path == "" {
-		response.HandleError(resp, errors.New("backup path is required"))
-		return
-	}
-
 	if b.Location == "" || b.LocationConfig == nil {
 		response.HandleError(resp, errors.New("backup location is required"))
 		return

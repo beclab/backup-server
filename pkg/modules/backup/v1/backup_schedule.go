@@ -93,12 +93,18 @@ func (o *BackupPlan) validate(ctx context.Context) error {
 func (o *BackupPlan) mergeConfig(clusterId string) *sysv1.BackupSpec {
 	var createAt = pointer.Time()
 	var name = strings.TrimSpace(o.c.Name)
-	var backupType = make(map[string]string)
-	backupType["file"] = o.buildBackupType() // ! trim path prefix, like '/Files'
+	var backupType = getBackupType(o.c)
+	var backupTypeData = make(map[string]string)
+	if isBackupApp(backupType) {
+		backupTypeData[constant.BackupTypeApp] = o.buildBackupAppType()
+	} else {
+		backupTypeData[constant.BackupTypeFile] = o.buildBackupType() // ! trim path prefix, like '/Files'
+	}
+
 	bc := &sysv1.BackupSpec{
 		Name:       name,
 		Owner:      o.owner,
-		BackupType: backupType,
+		BackupType: backupTypeData,
 		Notified:   false,
 		Size:       pointer.UInt64Ptr(0),
 		CreateAt:   createAt,
@@ -146,9 +152,11 @@ func (o *BackupPlan) apply(ctx context.Context) (*sysv1.Backup, error) {
 		// }
 	}
 
+	backupType := getBackupType(o.c)
+
 	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
-	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupSpec)
+	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupType, backupSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +220,10 @@ func (o *BackupPlan) validLocation() error {
 			return errors.Errorf("backup %s location %s path %s invalid, please check target path", o.c.Name, location, locationConfig.Path)
 		}
 
-		if strings.HasPrefix(locationConfig.Path, o.c.Path) {
-			return errors.Errorf("the path %s to be backed up contains the backup storage path %s", o.c.Path, locationConfig.Path)
+		if o.c.BackupCreateType == nil || o.c.BackupCreateType.Type == constant.BackupTypeFile {
+			if strings.HasPrefix(locationConfig.Path, o.c.Path) {
+				return errors.Errorf("the path %s to be backed up contains the backup storage path %s", o.c.Path, locationConfig.Path)
+			}
 		}
 	}
 
@@ -349,6 +359,12 @@ func (o *BackupPlan) validPassword() error {
 		return errors.Errorf("password not match")
 	}
 	return nil
+}
+
+func (o *BackupPlan) buildBackupAppType() string {
+	var backupType = make(map[string]string)
+	backupType["name"] = o.c.BackupCreateType.Name
+	return util.ToJSON(backupType)
 }
 
 func (o *BackupPlan) buildBackupType() string {

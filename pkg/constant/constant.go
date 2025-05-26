@@ -34,10 +34,14 @@ const (
 	RestoreController  string = "restore-controller"
 
 	BackupTypeFile string = "file"
+	BackupTypeApp  string = "app"
 
 	BackupPause  string = "pause"
 	BackupResume string = "resume"
 	BackupCancel string = "cancel"
+
+	BackupAppStatusPreparing string = "preparing"
+	BackupAppStatusFinish    string = "finish"
 
 	RestoreTypeSnapshot string = "snapshot"
 	RestoreTypeUrl      string = "url"
