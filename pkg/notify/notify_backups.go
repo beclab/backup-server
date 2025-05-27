@@ -2,21 +2,27 @@ package notify
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
-	"bytetrade.io/web3os/backup-server/pkg/util/http"
+	"bytetrade.io/web3os/backup-server/pkg/constant"
+	"bytetrade.io/web3os/backup-server/pkg/util"
+	httpx "bytetrade.io/web3os/backup-server/pkg/util/http"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/emicklei/go-restful/v3"
+	"github.com/go-resty/resty/v2"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 )
 
 const (
-	SendBackupUrl     = "/v1/resource/backup/save"
-	SendSnapshotUrl   = "/v1/resource/snapshot/save"
-	SendStopBackupUrl = "/v1/resource/backup/stop"
+	SendBackupUrl       = "/v1/resource/backup/save"
+	SendSnapshotUrl     = "/v1/resource/snapshot/save"
+	SendStopBackupUrl   = "/v1/resource/backup/stop"
+	CheckBackupUsageUrl = "/v1/resource/backup/usage"
 )
 
 type Backup struct {
@@ -24,6 +30,7 @@ type Backup struct {
 	Token          string `json:"token"`   // access token
 	BackupId       string `json:"backup_id"`
 	Name           string `json:"name"`
+	BackupType     string `json:"backup_type"`
 	BackupTime     int64  `json:"backup_time"`
 	BackupPath     string `json:"backup_path"`     // backup path
 	BackupLocation string `json:"backup_location"` // location  space / awss3 / tencentcloud / ...
@@ -53,6 +60,17 @@ type Response struct {
 	Message string `json:"message"`
 }
 
+type Usage struct {
+	Response
+	Data *UsageData `json:"data"`
+}
+
+type UsageData struct {
+	ToTalSize uint64 `json:"totalSize"`
+	UsageSize uint64 `json:"usageSize"`
+	CanBackup bool   `json:"canBackup"`
+}
+
 func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error {
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
@@ -66,15 +84,38 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 	}, func() error {
 		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendBackupUrl)
 		var headers = make(map[string]string)
-		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
-		var data = fmt.Sprintf("userid=%s&token=%s&backupId=%s&name=%s&backupTime=%d&backupPath=%s&backupLocation=%s",
-			backup.UserId, backup.Token, backup.BackupId, backup.Name, backup.BackupTime, backup.BackupPath, backup.BackupLocation)
+		headers[restful.HEADER_ContentType] = "application/json"
 
-		log.Infof("[notify] backup data: %s", data)
+		var data = make(map[string]interface{})
+		data["userid"] = backup.UserId
+		data["token"] = backup.Token
+		data["backupId"] = backup.BackupId
+		data["name"] = backup.Name
+		data["backupType"] = parseBackupTypeCode(backup.BackupType)
+		data["backupTime"] = backup.BackupTime
+		data["backupPath"] = backup.BackupPath
+		data["backupLocation"] = backup.BackupLocation
 
-		result, err := http.Post[Response](ctx, url, headers, data, false)
+		log.Infof("[notify] backup data: %s", util.ToJSON(data))
+
+		var result *Response
+		client := resty.New().SetTimeout(15 * time.Second).
+			SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true}).
+			SetDebug(true)
+
+		resp, err := client.R().
+			SetContext(ctx).
+			SetHeaders(headers).
+			SetBody(data).
+			SetResult(&result).
+			Post(url)
+
 		if err != nil {
-			return err
+			return fmt.Errorf("[notify] send new backup request error: %v, url: %s", err, url)
+		}
+
+		if resp.StatusCode() != http.StatusOK {
+			return fmt.Errorf("[notify] send new backup, http status error: %d, url: %s", resp.StatusCode(), url)
 		}
 
 		if result.Code != 200 && result.Code != 501 {
@@ -111,7 +152,7 @@ func NotifySnapshot(ctx context.Context, cloudApiUrl string, snapshot *Snapshot)
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 
-		result, err := http.Post[Response](ctx, url, headers, data, true)
+		result, err := httpx.Post[Response](ctx, url, headers, data, true)
 		if err != nil {
 			return err
 		}
@@ -145,7 +186,7 @@ func NotifyStopBackup(ctx context.Context, cloudApiUrl string, userId, token, ba
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 
-		result, err := http.Post[Response](ctx, url, headers, data, true)
+		result, err := httpx.Post[Response](ctx, url, headers, data, true)
 		if err != nil {
 			log.Errorf("[notify] delete backup record failed: %v", err)
 			return err
@@ -163,8 +204,7 @@ func NotifyStopBackup(ctx context.Context, cloudApiUrl string, userId, token, ba
 	return nil
 }
 
-// todo
-func CheckCloudStorageQuotaAndPermission(ctx context.Context, cloudApiUrl string, userId, token string) error {
+func CheckCloudStorageQuotaAndPermission(ctx context.Context, cloudApiUrl string, userId, token string) (*Usage, error) {
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
 		Factor:   2,
@@ -172,31 +212,43 @@ func CheckCloudStorageQuotaAndPermission(ctx context.Context, cloudApiUrl string
 		Steps:    3,
 	}
 
-	var data = fmt.Sprintf("")
+	var data = fmt.Sprintf("userid=%s&token=%s", userId, token)
+	var result *Usage
 
-	log.Infof("[notify] check cloud storage permission data: %s", data)
+	log.Infof("[notify] check backup usage data: %s", data)
 
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
 	}, func() error {
-		var url = fmt.Sprintf("%s%s", cloudApiUrl, SendStopBackupUrl)
+		var err error
+		var url = fmt.Sprintf("%s%s", cloudApiUrl, CheckBackupUsageUrl)
 		var headers = make(map[string]string)
 		headers[restful.HEADER_ContentType] = "application/x-www-form-urlencoded"
 
-		result, err := http.Post[Response](ctx, url, headers, data, true)
+		result, err = httpx.Post[Usage](ctx, url, headers, data, true)
 		if err != nil {
-			log.Errorf("[notify] check cloud storage permission failed: %v", err)
+			log.Errorf("[notify] check backup usage failed: %v", err)
 			return err
 		}
 
 		if result.Code != 200 {
-			return fmt.Errorf("[notify] check cloud storage permission failed, code: %d, msg: %s", result.Code, result.Message)
+			log.Errorf("[notify] check backup usage failed, code: %d, msg: %s", result.Code, result.Message)
+			return fmt.Errorf("check usage error, code: %d, message: %s", result.Code, result.Message)
 		}
 		return nil
 	}); err != nil {
 		log.Errorf(err.Error())
-		return err
+		return nil, err
 	}
 
-	return nil
+	return result, nil
+}
+
+func parseBackupTypeCode(backupType string) int {
+	switch backupType {
+	case constant.BackupTypeApp:
+		return 2
+	default:
+		return 1
+	}
 }

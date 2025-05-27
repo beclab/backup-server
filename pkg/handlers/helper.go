@@ -60,7 +60,7 @@ func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, err
 func GetBackupPassword(ctx context.Context, owner string, backupName string) (string, error) {
 	d := os.Getenv("PASSWORD_DEBUG")
 	if d != "" {
-		return "123", nil
+		return "1234", nil
 	}
 
 	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
@@ -428,12 +428,27 @@ func getNextBackupTimeByHourly(minutes int) time.Time {
 	return nextTime
 }
 
-func ParseRestoreType(restore *sysv1.Restore) (*RestoreType, error) {
+func GetRestoreType(restore *sysv1.Restore) (string, error) {
+	var data = restore.Spec.RestoreType
+	_, ok := data[constant.BackupTypeFile]
+	if ok {
+		return constant.BackupTypeFile, nil
+	}
+
+	_, ok = data[constant.BackupTypeApp]
+	if ok {
+		return constant.BackupTypeApp, nil
+	}
+
+	return "", fmt.Errorf("restore from backup type invalid")
+}
+
+func ParseRestoreType(backupType string, restore *sysv1.Restore) (*RestoreType, error) {
 	var m *RestoreType
 	var data = restore.Spec.RestoreType
-	v, ok := data[constant.BackupTypeFile]
+	v, ok := data[backupType]
 	if !ok {
-		return nil, errors.WithStack(fmt.Errorf("restore file type data not found"))
+		return nil, errors.WithStack(fmt.Errorf("restore type data not found"))
 	}
 
 	if err := json.Unmarshal([]byte(v), &m); err != nil {
@@ -459,7 +474,7 @@ func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
 	return r.BackupName
 }
 
-func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDetail, backupName, backupId string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
+func ParseRestoreBackupUrlDetail(backupType, owner, u string) (storage *RestoreBackupUrlDetail, backupName, backupId string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
 	if u == "" {
 		err = fmt.Errorf("backupUrl is empty")
 		return
@@ -495,12 +510,14 @@ func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDeta
 		return
 	}
 
-	if backupPath = backupUrlType.Values.Get("backupPath"); backupPath == "" {
-		err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
-		return
-	} else {
-		backupPathBytes, _ := util.Base64decode(backupPath)
-		backupPath = string(backupPathBytes)
+	if backupType == constant.BackupTypeFile {
+		if backupPath = backupUrlType.Values.Get("backupPath"); backupPath == "" {
+			err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
+			return
+		} else {
+			backupPathBytes, _ := util.Base64decode(backupPath)
+			backupPath = string(backupPathBytes)
+		}
 	}
 
 	location = backupUrlType.Location
@@ -517,12 +534,12 @@ func IsBackupLocationSpace(u string) bool {
 }
 
 func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
-	userspacePath, err := GetUserspacePvc(owner)
+	userspacePath, _, err := GetUserspacePvc(owner)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	u, err := url.Parse(s)
+	u, err := url.Parse(s) // if filesystem, u.Path is like '/Files/Home/...'
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -612,6 +629,24 @@ func GetBackupType(backup *sysv1.Backup) string {
 	return backupType
 }
 
+func GetRestoreAppName(restore *sysv1.Restore) string {
+	app, ok := restore.Spec.RestoreType["app"]
+	if !ok {
+		return ""
+	}
+	var data = make(map[string]interface{})
+	if err := json.Unmarshal([]byte(app), &data); err != nil {
+		return ""
+	}
+
+	appName, ok := data["name"]
+	if !ok {
+		return ""
+	}
+
+	return appName.(string)
+}
+
 func GetBackupAppName(backup *sysv1.Backup) string {
 	app, ok := backup.Spec.BackupType["app"]
 	if !ok {
@@ -693,30 +728,30 @@ func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) (
 	return resultList.Addr().Interface().(T), currentPage, totalPages
 }
 
-func GetUserspacePvc(owner string) (string, error) {
+func GetUserspacePvc(owner string) (string, string, error) {
 	f, err := client.NewFactory()
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", "", errors.WithStack(err)
 	}
 
 	c, err := f.KubeClient()
 	if err != nil {
-		return "", errors.WithStack(err)
+		return "", "", errors.WithStack(err)
 	}
 
 	res, err := c.AppsV1().StatefulSets("user-space-"+owner).Get(context.TODO(), "bfl", metav1.GetOptions{})
 	if err != nil {
-		return "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owner: %s", owner))
+		return "", "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owner: %s", owner))
 	}
 
 	userspacePvc, ok := res.Annotations["userspace_pvc"]
 	if !ok {
-		return "", fmt.Errorf("bfl userspace_pvc not found, owner: %s", owner)
+		return "", "", fmt.Errorf("bfl userspace_pvc not found, owner: %s", owner)
 	}
 
 	var p = path.Join("/", "rootfs", "userspace", userspacePvc)
 
-	return p, nil
+	return p, userspacePvc, nil
 }
 
 func TrimPathPrefix(p string) (bool, string) {
@@ -759,4 +794,23 @@ func FormatEndpoint(location, schema, host, urlPath, pvc string) (*repo.Reposito
 	default:
 		return nil, fmt.Errorf("location invalid: %s", location)
 	}
+}
+
+func GetBackupTypeFromTags(tags []string) (backupType string) {
+	backupType = constant.BackupTypeFile
+	if tags == nil || len(tags) == 0 {
+		return
+	}
+
+	for _, tag := range tags {
+		e := strings.Index(tag, "=")
+		if e >= 0 {
+			if tag[:e] == "backup-type" {
+				backupType = tag[e+1:]
+				break
+			}
+		}
+	}
+
+	return
 }

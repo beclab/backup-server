@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,12 +32,16 @@ type StorageRestore struct {
 	Ctx       context.Context
 	Cancel    context.CancelFunc
 
-	Backup      *sysv1.Backup
-	Snapshot    *sysv1.Snapshot
-	Restore     *sysv1.Restore
-	RestoreType *handlers.RestoreType
+	Backup           *sysv1.Backup
+	Snapshot         *sysv1.Snapshot
+	Restore          *sysv1.Restore
+	RestoreType      *handlers.RestoreType
+	BackupType       string
+	RestoreAppStatus *handlers.RestoreAppStatusData
 
-	Params *RestoreParameters
+	UserspacePvcName string
+	UserspacePvcPath string
+	Params           *RestoreParameters
 
 	LastProgressPercent int
 	LastProgressTime    time.Time
@@ -57,6 +62,10 @@ func (s *StorageRestore) RunRestore() error {
 
 	var f = func() error {
 		var e error
+		if e = s.getUserspacePvc(); e != nil {
+			return errors.WithStack(e)
+		}
+
 		if e = s.prepareRestoreParams(); e != nil {
 			return errors.WithStack(e)
 		}
@@ -68,31 +77,44 @@ func (s *StorageRestore) RunRestore() error {
 	}
 
 	if err := f(); err != nil {
-		if err := s.updateRestoreResult(nil, err); err != nil {
+		if err := s.updateRestoreResult(nil, "", 0, err); err != nil {
 			log.Errorf("Restore %s, update restore failed result error: %v", s.RestoreId, err)
 		}
 		return nil
 	}
 
-	restoreResult, restoreErr := s.execute()
+	restoreResult, metadata, totalBytes, restoreErr := s.execute()
 
 	if restoreErr != nil {
 		log.Errorf("Restore %s, error: %v", s.RestoreId, restoreErr)
-		if e := os.RemoveAll(s.Params.Path); e != nil {
-			log.Errorf("Restore %s, remove error: %v", s.RestoreId, e)
-		}
+		s.removeRestoreFiles()
 	} else {
-		log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
-		if e := os.Rename(s.Params.Path, strings.ReplaceAll(s.Params.Path, ".restore", "")); e != nil {
-			log.Errorf("Restore %s, rename error: %v", s.RestoreId, e)
+		s.renameRestoreDirectory()
+		if err := s.readyForRestoreApp(s.RestoreType.ResticSnapshotId, metadata); err != nil {
+			restoreErr = err
 		}
 	}
 
-	if err := s.updateRestoreResult(restoreResult, restoreErr); err != nil {
+	log.Infof("Restore %s success, result: %s", s.RestoreId, util.ToJSON(restoreResult))
+
+	if err := s.updateRestoreResult(restoreResult, metadata, totalBytes, restoreErr); err != nil {
 		log.Errorf("Restore %s, update restore result error: %v", s.RestoreId, err)
 	} else {
 		log.Infof("Restore %s, restore completed", s.RestoreId)
 	}
+
+	return nil
+}
+
+func (s *StorageRestore) getUserspacePvc() error {
+	userspacePvcPath, userspacePvcName, err := handlers.GetUserspacePvc(s.Restore.Spec.Owner)
+	if err != nil {
+		log.Errorf("Restore %s, get userspace pvc error: %v", s.RestoreId, err)
+		return fmt.Errorf("get userspace pvc error: %v", err)
+	}
+
+	s.UserspacePvcName = userspacePvcName
+	s.UserspacePvcPath = userspacePvcPath
 
 	return nil
 }
@@ -107,12 +129,17 @@ func (s *StorageRestore) checkRestoreExists() error {
 		return fmt.Errorf("restore %s not exists", s.RestoreId)
 	}
 
-	restoreType, err := handlers.ParseRestoreType(restore)
+	backupType, err := handlers.GetRestoreType(restore)
+	if err != nil {
+		return fmt.Errorf("restore %s backup type invalid", s.RestoreId)
+	}
+
+	restoreType, err := handlers.ParseRestoreType(backupType, restore)
 	if err != nil {
 		return fmt.Errorf("restore %s type %v invalid", s.RestoreId, restore.Spec.RestoreType)
 	}
 
-	log.Infof("restore %s, data: %s", s.RestoreId, util.ToJSON(restoreType))
+	log.Infof("restore %s, backupType: %s, data: %s", s.RestoreId, backupType, util.ToJSON(restoreType))
 	if restoreType.Type == constant.RestoreTypeSnapshot {
 		snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, restoreType.SnapshotId)
 		if err != nil {
@@ -129,6 +156,7 @@ func (s *StorageRestore) checkRestoreExists() error {
 
 	s.Restore = restore
 	s.RestoreType = restoreType
+	s.BackupType = backupType
 
 	return nil
 }
@@ -149,11 +177,6 @@ func (s *StorageRestore) prepareRestoreParams() error {
 			return fmt.Errorf("Restore %s get password error: %v", s.RestoreId, err)
 		}
 
-		userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
-		if err != nil {
-			return fmt.Errorf("Restore %s, get userspace pvc error: %v", s.RestoreId, err)
-		}
-
 		locationConfig, err = handlers.GetBackupLocationConfig(s.Backup)
 		if err != nil {
 			return fmt.Errorf("Restore %s get location config error: %v", s.RestoreId, err)
@@ -169,7 +192,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 			if external {
 				locationConfig["path"] = path.Join(constant.ExternalPath, locPath)
 			} else {
-				locationConfig["path"] = path.Join(userspacePath, locPath)
+				locationConfig["path"] = path.Join(s.UserspacePvcPath, locPath)
 			}
 		}
 	} else {
@@ -202,25 +225,24 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		backupName = s.RestoreType.BackupName
 	}
 
-	userspacePvc, err := handlers.GetUserspacePvc(s.Restore.Spec.Owner)
-	if err != nil {
-		return err
-	}
-
-	var dotRestorePath = path.Join(s.RestoreType.Path, fmt.Sprintf("%s.restore-%d", s.RestoreType.SubPath, s.RestoreType.SubPathTimestamp)) + "/"
 	var restorePath string
-	var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(dotRestorePath)
-	if tmpRestoreExternal {
-		restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
+	if s.BackupType == constant.BackupTypeFile {
+		var dotRestorePath = path.Join(s.RestoreType.Path, fmt.Sprintf("%s.restore-%d", s.RestoreType.SubPath, s.RestoreType.SubPathTimestamp)) + "/"
+		var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(dotRestorePath)
+		if tmpRestoreExternal {
+			restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
+		} else {
+			restorePath = path.Join(s.UserspacePvcPath, tmpRestorePath)
+		}
 	} else {
-		restorePath = path.Join(userspacePvc, tmpRestorePath)
+		restorePath = filepath.Join(s.UserspacePvcPath, "Home") // for app restore
 	}
 
-	log.Infof("restore: %s, restoreTargetPath: %s, locationConfig: %v", s.RestoreId, restorePath, util.ToJSON(locationConfig))
+	log.Infof("restore: %s, backupType: %s, restoreTargetPath: %s, locationConfig: %v", s.RestoreId, s.BackupType, restorePath, util.ToJSON(locationConfig))
 	s.Params = &RestoreParameters{
 		BackupId:   backupId,
 		BackupName: backupName,
-		Path:       restorePath, // restore to path
+		Path:       restorePath,
 		Password:   password,
 		Location:   locationConfig,
 	}
@@ -264,7 +286,7 @@ func (s *StorageRestore) progressCallback(percentDone float64) {
 	}
 }
 
-func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) {
+func (s *StorageRestore) execute() (restoreOutput map[string]*backupssdkrestic.RestoreSummaryOutput, metadata string, totalBytes uint64, restoreError error) {
 	var isSpaceRestore bool
 	var logger = log.GetLogger()
 	var resticSnapshotId = s.RestoreType.ResticSnapshotId
@@ -272,14 +294,14 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	var backupId = s.Params.BackupId
 	var backupName = s.Params.BackupName
 
-	log.Infof("Restore %s prepare: %s, resticSnapshotId: %s, location: %s", s.RestoreId, s.RestoreType.Type, resticSnapshotId, location)
+	log.Infof("Restore %s prepare: %s, backupType: %s, resticSnapshotId: %s, location: %s", s.RestoreId, s.RestoreType.Type, s.BackupType, resticSnapshotId, location)
 
 	var restoreService *backupssdkstorage.RestoreService
 
 	switch location {
 	case constant.BackupLocationSpace.String():
 		isSpaceRestore = true
-		restoreOutput, restoreError = s.restoreFromSpace()
+		restoreOutput, metadata, totalBytes, restoreError = s.restoreFromSpace()
 	case constant.BackupLocationAwsS3.String():
 		token, err := s.getIntegrationCloud() // s3
 		if err != nil {
@@ -341,13 +363,15 @@ func (s *StorageRestore) execute() (restoreOutput *backupssdkrestic.RestoreSumma
 	}
 
 	if !isSpaceRestore {
-		restoreOutput, restoreError = restoreService.Restore(s.progressCallback)
+		restoreOutput, metadata, totalBytes, restoreError = restoreService.Restore(s.progressCallback)
 	}
+
+	// todo notice wise
 
 	return
 }
 
-func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.RestoreSummaryOutput, err error) {
+func (s *StorageRestore) restoreFromSpace() (restoreOutput map[string]*backupssdkrestic.RestoreSummaryOutput, metadata string, totalBytes uint64, err error) {
 	var backupId, backupName string
 	var terminusSuffix string
 	var owner = s.RestoreType.Owner
@@ -394,7 +418,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 			Space:    spaceRestoreOption,
 		})
 
-		restoreOutput, err = restoreService.Restore(s.progressCallback)
+		restoreOutput, metadata, totalBytes, err = restoreService.Restore(s.progressCallback)
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
@@ -414,7 +438,7 @@ func (s *StorageRestore) restoreFromSpace() (restoreOutput *backupssdkrestic.Res
 	return
 }
 
-func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.RestoreSummaryOutput, restoreError error) error {
+func (s *StorageRestore) updateRestoreResult(restoreOutput map[string]*backupssdkrestic.RestoreSummaryOutput, metadata string, totalBytes uint64, restoreError error) error {
 
 	return wait.PollImmediate(time.Second*10, 5*time.Hour, func() (bool, error) {
 		log.Infof("Restore %s, update restore result, if err: %v", s.RestoreId, restoreError)
@@ -447,7 +471,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 				msg = constant.Completed.String()
 				phase = constant.Completed.String()
 				notifyProgress = progressDone
-				restore.Spec.Size = pointer.UInt64Ptr(restoreOutput.TotalBytes)
+				restore.Spec.Size = pointer.UInt64Ptr(totalBytes)
 				restore.Spec.Progress = progressDone
 				restore.Spec.Phase = pointer.String(phase)
 				restore.Spec.Message = pointer.String(phase)
@@ -455,6 +479,19 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput *backupssdkrestic.Res
 				restore.Spec.ResticMessage = pointer.String(util.ToJSON(restoreOutput))
 			}
 
+			extra := restore.Spec.Extra
+			if extra == nil {
+				extra = make(map[string]string)
+			}
+
+			if metadata != "" {
+				extra["metadata"] = metadata
+			}
+			if s.RestoreAppStatus != nil {
+				extra["restore_app_status"] = util.ToJSON(s.RestoreAppStatus)
+			}
+
+			restore.Spec.Extra = extra
 			restore.Spec.EndAt = pointer.Time()
 
 			s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
@@ -479,4 +516,90 @@ func (s *StorageRestore) getIntegrationCloud() (*integration.IntegrationToken, e
 	var locationIntegrationName = l["name"]
 
 	return integration.IntegrationManager().GetIntegrationCloudToken(s.Ctx, s.Restore.Spec.Owner, location, locationIntegrationName)
+}
+
+func (s *StorageRestore) removeRestoreFiles() {
+	if s.BackupType == constant.BackupTypeApp {
+		return
+	}
+
+	if err := os.RemoveAll(s.Params.Path); err != nil {
+		log.Errorf("Restore %s, remove error: %v", s.RestoreId, err)
+	}
+}
+
+func (s *StorageRestore) renameRestoreDirectory() {
+	if s.BackupType == constant.BackupTypeApp {
+		return
+	}
+
+	if err := os.Rename(s.Params.Path, strings.ReplaceAll(s.Params.Path, ".restore", "")); err != nil {
+		log.Errorf("Restore %s, rename error: %v", s.RestoreId, err)
+	}
+}
+
+func (s *StorageRestore) readyForRestoreApp(resticSnapshotId, metadata string) error {
+	if s.BackupType != constant.BackupTypeApp {
+		return nil
+	}
+
+	var ctx, cancel = context.WithTimeout(s.Ctx, 30*time.Second)
+	defer cancel()
+
+	var err error
+
+	var appName = handlers.GetRestoreAppName(s.Restore)
+	var appHandler = handlers.NewAppHandler(appName, s.Restore.Spec.Owner)
+
+	err = appHandler.StartAppRestore(ctx, s.RestoreId, resticSnapshotId, metadata)
+	if err != nil {
+		log.Errorf("Restore %s, start app %s restore error: %v", s.RestoreId, appName, err)
+		return err
+	}
+
+	log.Infof("Restore %s, waiting for check app %s restore status", s.RestoreId, appName)
+
+	var ticker = time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			result, err := appHandler.GetAppRestoreStatus(ctx, s.RestoreId)
+			if err != nil {
+				log.Errorf("Restore %s,%s, %v", s.RestoreId, appName, err)
+				return err
+			}
+
+			log.Infof("Restore %s,%s, get app restore status, data: %s", s.RestoreId, appName, util.ToJSON(result))
+
+			if result.Data.Status == constant.BackupAppStatusError {
+				err = fmt.Errorf("app restore status is error, msg: %s", result.Data.Message)
+				s.RestoreAppStatus = result
+				return err
+			}
+
+			if result.Data.Status == constant.BackupAppStatusRunning {
+				continue
+			}
+
+			if result.Data.Status == constant.BackupAppStatusFinish {
+				s.RestoreAppStatus = result
+				return nil
+			}
+
+		case <-ctx.Done():
+			if e := ctx.Err(); e != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					log.Errorf("Restore %s,%s, start app restore timeout", s.RestoreId, appName)
+					return fmt.Errorf("app restore status timeout")
+				}
+				if errors.Is(err, context.Canceled) {
+					log.Errorf("Restore %s,%s, app restore canceled", s.RestoreId, appName)
+					return fmt.Errorf("restore canceled")
+				}
+			}
+			return nil
+		}
+	}
 }

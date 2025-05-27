@@ -41,6 +41,10 @@ func TestX(t *testing.T) {
 }
 
 func TestMD5(t *testing.T) {
-	var a = MD5("/Files/Home/Documents")
-	fmt.Println(a)
+	// var a = MD5("/Files/Home/Documents")
+	// fmt.Println(a)
+	var a = "/Files/Home/Downloads/wise备份/olares-backups/knowledge-94e70f51-d361-4f68-a560-c3c1e52705bd?snapshotId=c54e85e9f57c9bfa1c87f9b4b4bfaf279251e1006e36a1d736a5922d04960b11&snapshotTime=1748340657&backupPath="
+	var b = Base64encode([]byte(a))
+	fmt.Println(b)
+
 }

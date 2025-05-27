@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -14,6 +15,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	integration "bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -22,9 +24,15 @@ import (
 	backupssdkrestic "bytetrade.io/web3os/backups-sdk/pkg/restic"
 	backupssdkstorage "bytetrade.io/web3os/backups-sdk/pkg/storage"
 	backupssdkmodel "bytetrade.io/web3os/backups-sdk/pkg/storage/model"
+	"bytetrade.io/web3os/backups-sdk/pkg/utils"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+)
+
+const (
+	ERR_SPACE_BACKUP_SUBSCRIPTION_INVALID = "You are not currently subscribed to the Backup To Space service; to use it, please subscribe first, or choose to back up to your own S3, Tencent COS storage service, or local disk"
+	ERR_SPACE_BACKUP_SPACE_INVALID        = "Your storage space is full and backups cannot continue. Please purchase additional storage to ensure backup tasks proceed normally"
 )
 
 type StorageBackup struct {
@@ -41,6 +49,7 @@ type StorageBackup struct {
 	IntegrationName     string
 	IntegrationEndpoint string
 
+	UserspacePvcName string
 	UserspacePvcPath string
 
 	LastProgressPercent int
@@ -49,7 +58,10 @@ type StorageBackup struct {
 	BackupType           string
 	BackupAppStatus      *handlers.BackupAppStatus
 	BackupAppFiles       []string
-	BackupAppFilesPrefix []string
+	BackupAppFilesPrefix string
+	BackupAppMetadata    string
+
+	BackupSize uint64
 }
 
 type BackupParameters struct {
@@ -58,6 +70,10 @@ type BackupParameters struct {
 	Location             map[string]string
 	LocationInFileSystem string
 	SnapshotType         string
+}
+
+type FilesPrefixData struct {
+	Files []string `json:"files"`
 }
 
 func (s *StorageBackup) RunBackup() error {
@@ -109,8 +125,7 @@ func (s *StorageBackup) RunBackup() error {
 		if e := s.updateBackupResult(nil, nil, 0, err); e != nil {
 			log.Errorf("Backup %s,%s, update backup failed result error: %v", backupName, snapshotId, e)
 		}
-
-		return nil
+		return s.sendAppBackupResult(err)
 	}
 
 	log.Infof("Backup %s,%s, locationConfig: %s, integrationChanged: %v ,ifAppStatus: %s", backupName, snapshotId, util.ToJSON(s.Params.Location), s.IntegrationChanged, util.ToJSON(s.BackupAppStatus))
@@ -129,7 +144,7 @@ func (s *StorageBackup) RunBackup() error {
 		log.Infof("Backup %s,%s, backup completed", backupName, snapshotId)
 	}
 
-	return nil
+	return s.sendAppBackupResult(backupErr)
 }
 
 func (s *StorageBackup) checkBackupExists() error {
@@ -155,13 +170,14 @@ func (s *StorageBackup) getUserspacePvc() error {
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 
-	userspacePath, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
+	userspacePvcPath, userspacePvcName, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
 	if err != nil {
 		log.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
 		return fmt.Errorf("get userspace pvc error: %v", err)
 	}
 
-	s.UserspacePvcPath = userspacePath
+	s.UserspacePvcName = userspacePvcName
+	s.UserspacePvcPath = userspacePvcPath
 
 	return nil
 }
@@ -251,6 +267,15 @@ func (s *StorageBackup) checkDiskSize() error {
 	var snapshotId = s.Snapshot.Name
 
 	var location = s.Params.Location["location"]
+
+	if location == constant.BackupLocationSpace.String() {
+		backupSize, err := util.DirSize(s.Params.Path)
+		if err != nil {
+			log.Errorf("Backup %s,%s, get backup disk size error: %v, path: %s", backupName, snapshotId, err, s.Params.Path)
+			return fmt.Errorf("get backup disk size error: %v, path: %s", err, s.Params.Path)
+		}
+		s.BackupSize = backupSize
+	}
 
 	if location == constant.BackupLocationFileSystem.String() {
 		var target = s.Params.Location["path"]
@@ -364,6 +389,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Path:            s.Params.Path,
 			Files:           s.BackupAppFiles,
 			FilesPrefixPath: s.BackupAppFilesPrefix,
+			Metadata:        s.BackupAppMetadata,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
 			SecretAccessKey: token.SecretKey,
@@ -389,6 +415,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Path:            s.Params.Path,
 			Files:           s.BackupAppFiles,
 			FilesPrefixPath: s.BackupAppFilesPrefix,
+			Metadata:        s.BackupAppMetadata,
 			Endpoint:        token.Endpoint,
 			AccessKey:       token.AccessKey,
 			SecretAccessKey: token.SecretKey,
@@ -410,6 +437,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Path:            s.Params.Path,
 			Files:           s.BackupAppFiles,
 			FilesPrefixPath: s.BackupAppFilesPrefix,
+			Metadata:        s.BackupAppMetadata,
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
 			Password:   s.Params.Password,
@@ -422,7 +450,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	}
 
 	if !isSpaceBackup {
-		backupOutput, backupStorageObj, backupError = backupService.Backup(s.progressCallback)
+		backupOutput, backupStorageObj, backupError = backupService.Backup(false, s.progressCallback)
 		if backupError == nil {
 			stats, err := s.getStats(options)
 			if err != nil {
@@ -445,6 +473,8 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 
 	var spaceToken *integration.SpaceToken
 	var spaceBackupOption backupssdkoptions.Option
+	var usage *notify.Usage
+	var compareUsage bool
 
 	for {
 		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId) // backupToSpace
@@ -459,6 +489,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			Path:            s.Params.Path,
 			Files:           s.BackupAppFiles,
 			FilesPrefixPath: s.BackupAppFilesPrefix,
+			Metadata:        s.BackupAppMetadata,
 			OlaresDid:       spaceToken.OlaresDid,
 			AccessToken:     spaceToken.AccessToken,
 			ClusterId:       location["clusterId"],
@@ -477,7 +508,25 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			Space:      spaceBackupOption.(*backupssdkoptions.SpaceBackupOption),
 		})
 
-		backupOutput, backupStorageObj, err = backupService.Backup(s.progressCallback)
+		// todo need to enhance
+		if !compareUsage {
+			usage, err = notify.CheckCloudStorageQuotaAndPermission(s.Ctx, constant.SyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken)
+			if err != nil {
+				log.Errorf("Backup %s,%s, check cloud storage quota and permission error: %v", backupName, s.SnapshotId, err)
+				break
+			}
+
+			log.Infof("Backup %s,%s, usage: %s", backupName, s.SnapshotId, util.ToJSON(usage))
+
+			if !usage.Data.CanBackup || (s.BackupSize > (usage.Data.ToTalSize - usage.Data.UsageSize)) {
+				err = fmt.Errorf("the backup task cannot be executed. please check the subscription status or whether there is enough storage space")
+				break
+			}
+
+			compareUsage = true
+		}
+
+		backupOutput, backupStorageObj, err = backupService.Backup(false, s.progressCallback)
 
 		if err != nil {
 			if strings.Contains(err.Error(), "refresh-token error") {
@@ -582,6 +631,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 				}
 			}
 
+			// todo snapshot.Spec.Extra
 			snapshot, err := s.Handlers.GetSnapshotHandler().GetById(s.Ctx, s.Snapshot.Name)
 			if err != nil {
 				log.Errorf("Backup %s,%s, get snapshot error: %v", s.Backup.Spec.Name, s.SnapshotId, err)
@@ -635,14 +685,19 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 
 			snapshot.Spec.EndAt = endAt
 
-			if backupStorageObj != nil {
-				var extra = snapshot.Spec.Extra
-				if extra == nil {
-					extra = make(map[string]string)
-				}
-				extra["storage"] = util.ToJSON(backupStorageObj)
-				snapshot.Spec.Extra = extra
+			var extra = snapshot.Spec.Extra
+			if extra == nil {
+				extra = make(map[string]string)
 			}
+			extra["backup_total_size"] = fmt.Sprintf("%d", backupTotalSize)
+			if backupStorageObj != nil {
+				extra["storage"] = util.ToJSON(backupStorageObj)
+			}
+			if s.BackupType == constant.BackupTypeApp {
+				extra["app_metadata"] = util.ToJSON(s.BackupAppStatus)
+			}
+
+			snapshot.Spec.Extra = extra
 
 			if backupOutput != nil {
 				var newLocation, newLocationData = s.buildLocation()
@@ -661,6 +716,17 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 		}
 	})
 
+}
+
+func (s *StorageBackup) sendAppBackupResult(backupError error) error {
+	if s.BackupType != constant.BackupTypeApp {
+		return nil
+	}
+
+	var appName = handlers.GetBackupAppName(s.Backup)
+	var appHandler = handlers.NewAppHandler(appName, s.Backup.Spec.Owner)
+
+	return appHandler.SendBackupResult(s.Ctx, s.Backup.Name, s.Snapshot.Name, backupError)
 }
 
 func (s *StorageBackup) getIntegrationCloud() (*integration.IntegrationToken, error) {
@@ -741,7 +807,7 @@ func (s *StorageBackup) readyForBackupApp() error {
 		return nil
 	}
 
-	var ctx, cancel = context.WithTimeout(s.Ctx, 30*time.Minute)
+	var ctx, cancel = context.WithTimeout(s.Ctx, 30*time.Second)
 	defer cancel()
 
 	var err error
@@ -754,6 +820,8 @@ func (s *StorageBackup) readyForBackupApp() error {
 		log.Errorf("Backup %s,%s,%s, start app backup error: %v", s.Backup.Spec.Name, s.Snapshot.Name, appName, err)
 		return err
 	}
+
+	log.Infof("Backup %s,%s,%s, waiting for check app backup status", s.Backup.Spec.Name, s.Snapshot.Name, appName)
 
 	var ticker = time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -832,11 +900,14 @@ func (s *StorageBackup) formatAppBackupFiles() error {
 		}
 	}
 
-	s.BackupAppFilesPrefix = []string{
+	var filesPrefix []string = []string{
 		filepath.Join(s.UserspacePvcPath, "Home"),
 		filepath.Join("/rootfs/middleware-backup/pg_backup", s.Backup.Spec.Owner),
 	}
+	filesPrefixBytes, _ := json.Marshal(filesPrefix)
+	s.BackupAppFilesPrefix = string(filesPrefixBytes)
 	s.BackupAppFiles = files
+	s.BackupAppMetadata = utils.ToJSON(s.BackupAppStatus.Data.Data)
 
 	return nil
 }

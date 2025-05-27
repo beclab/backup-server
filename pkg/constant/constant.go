@@ -41,7 +41,9 @@ const (
 	BackupCancel string = "cancel"
 
 	BackupAppStatusPreparing string = "preparing"
+	BackupAppStatusRunning   string = "running"
 	BackupAppStatusFinish    string = "finish"
+	BackupAppStatusError     string = "err"
 
 	RestoreTypeSnapshot string = "snapshot"
 	RestoreTypeUrl      string = "url"
