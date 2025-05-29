@@ -68,9 +68,16 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 
-				restoreType, err := handlers.ParseRestoreType(restore)
+				backupType, err := handlers.GetRestoreType(restore)
 				if err != nil {
-					log.Errorf("restore %s type %v invalid", restore.Name, restore.Spec.RestoreType)
+					log.Error(err)
+					return false
+				}
+
+				restoreType, err := handlers.ParseRestoreType(backupType, restore)
+				if err != nil {
+					log.Errorf("restore %s type %v invalid, error: %v", restore.Name, restore.Spec.RestoreType, err)
+					r.handler.GetRestoreHandler().SetRestorePhase(restore.Name, constant.Failed)
 					return false
 				}
 

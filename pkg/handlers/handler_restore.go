@@ -108,6 +108,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 			Namespace: constant.DefaultOsSystemNamespace,
 			Labels: map[string]string{
 				"owner": restoreType.Owner,
+				"type":  restoreTypeName,
 			},
 		},
 		Spec: sysv1.RestoreSpec{

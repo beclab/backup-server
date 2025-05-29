@@ -17,6 +17,7 @@ type SnapshotNotifyState struct {
 }
 
 type RestoreType struct {
+	Name             string                  `json:"name"` // only for app backup
 	Owner            string                  `json:"owner"`
 	Type             string                  `json:"type"` // snapshot or url
 	Path             string                  `json:"path"` // restore target path
@@ -49,11 +50,21 @@ type BackupAppResponse struct {
 }
 
 type BackupAppStatusData struct {
-	Status        string   `json:"status"`
-	Version       string   `json:"version"`
-	PgVersionTime string   `json:"pg_version_time"`
-	EntryFiles    []string `json:"entry_files"`
-	PgFiles       []string `json:"pg_files"`
+	Status     string   `json:"status"`
+	Data       any      `json:"data"`
+	EntryFiles []string `json:"entry_files"`
+	PgFiles    []string `json:"pg_files"`
+}
+
+type RestoreAppStatusData struct {
+	BackupAppResponse
+	Status string                    `json:"status"`
+	Data   *RestoreAppStatusDataBody `json:"data"`
+}
+
+type RestoreAppStatusDataBody struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
 }
 
 type BackupAppStatus struct {

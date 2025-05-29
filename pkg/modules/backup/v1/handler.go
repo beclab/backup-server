@@ -208,18 +208,6 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	var getLabel = "owner=" + owner + ",policy=" + util.MD5(b.BackupPolicies.TimesOfDay)
-	backupTimesOfDayExists, err := h.handler.GetBackupHandler().GetByLabel(ctx, getLabel)
-	if err != nil && !apierrors.IsNotFound(err) {
-		response.HandleError(resp, errors.Errorf("failed to get backup %q: %v", b.Name, err))
-		return
-	}
-
-	if backupTimesOfDayExists != nil {
-		response.HandleError(resp, fmt.Errorf("there are other backup tasks at the same time: %s", b.BackupPolicies.TimesOfDay))
-		return
-	}
-
 	if err = NewBackupPlan(owner, h.factory, h.handler).Update(ctx, &b, backup); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, format, backupId))
 		return
@@ -560,11 +548,11 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	items := h.handler.GetSnapshotHandler().SortSnapshotList(snapshots)
+	items, backupTypeTag := h.handler.GetSnapshotHandler().SortSnapshotList(snapshots)
 
 	result, totalCount, totalPage := handlers.GenericPager(b.Limit, b.Offset, items)
 
-	response.Success(resp, parseCheckBackupUrl(result, urlInfo.BackupName, urlInfo.Location, urlInfo.PvcPath, totalCount, totalPage))
+	response.Success(resp, parseCheckBackupUrl(result, urlInfo.BackupName, backupTypeTag, urlInfo.Location, urlInfo.PvcPath, totalCount, totalPage))
 }
 
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
@@ -584,12 +572,13 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 
 	log.Infof("received restore create request: %s", util.ToJSON(b))
 
-	if !b.verify() {
-		log.Errorf("add restore params invalid, params: %s", util.ToJSON(b))
-		response.HandleError(resp, errors.Errorf("restore params invalid"))
+	if err = b.verify(); err != nil {
+		log.Errorf("add restore params invalid, params: %s, error: %v", util.ToJSON(b), err)
+		response.HandleError(resp, err)
 		return
 	}
 
+	var backupType = GetBackupType(b.BackupType)
 	var restoreTypeName = constant.RestoreTypeUrl
 	var backupId, backupName, snapshotId, resticSnapshotId, snapshotTime, backupPath, location string
 	var backupStorageInfo *handlers.RestoreBackupUrlDetail
@@ -639,7 +628,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 			return
 		}
 
-		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(owner, string(u))
+		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(backupType, owner, string(u))
 		if err != nil {
 			log.Errorf("parse BackupURL error: %v, url: %s", err, b.BackupUrl)
 			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
@@ -656,12 +645,8 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	var restoreType = &handlers.RestoreType{
 		Owner:            owner,
 		Type:             restoreTypeName,
-		Path:             b.Path,
-		SubPath:          strings.TrimSpace(b.SubPath),
-		SubPathTimestamp: time.Now().Unix(),
 		BackupId:         backupId,
 		BackupName:       backupName,
-		BackupPath:       backupPath,
 		BackupUrl:        backupStorageInfo, // if snapshot,it will be nil
 		Password:         util.Base64encode([]byte(strings.TrimSpace(b.Password))),
 		SnapshotId:       snapshotId, // backupUrl is nil
@@ -671,9 +656,18 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		Location:         location,
 	}
 
+	if backupType == constant.BackupTypeApp {
+		restoreType.Name = b.BackupAppName
+	} else {
+		restoreType.Path = b.Path
+		restoreType.SubPath = strings.TrimSpace(b.SubPath)
+		restoreType.SubPathTimestamp = time.Now().Unix()
+		restoreType.BackupPath = backupPath
+	}
+
 	log.Infof("create restore task: %s", util.ToJSON(restoreType))
 
-	restore, err := h.handler.GetRestoreHandler().CreateRestore(ctx, constant.BackupTypeFile, restoreType)
+	restore, err := h.handler.GetRestoreHandler().CreateRestore(ctx, backupType, restoreType)
 	if err != nil {
 		response.HandleError(resp, errors.Errorf("create restore task failed: %v", err))
 		return
@@ -716,14 +710,20 @@ func (h *Handler) getRestoreOne(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	restoreType, err := handlers.ParseRestoreType(restore)
-	if err != nil {
-		response.HandleError(resp, fmt.Errorf("parse %s restore type error: %v", restoreId, err))
+	if apierrors.IsNotFound(err) {
+		response.HandleError(resp, fmt.Errorf("restore %s not found", restoreId))
 		return
 	}
 
-	if apierrors.IsNotFound(err) {
-		response.HandleError(resp, fmt.Errorf("restore %s not found", restoreId))
+	backupType, err := handlers.GetRestoreType(restore)
+	if err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, "restore type %s invalid, error: %v", restoreId, err))
+		return
+	}
+
+	restoreType, err := handlers.ParseRestoreType(backupType, restore)
+	if err != nil {
+		response.HandleError(resp, fmt.Errorf("parse %s restore type error: %v", restoreId, err))
 		return
 	}
 

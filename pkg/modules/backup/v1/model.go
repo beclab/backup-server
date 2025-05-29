@@ -113,11 +113,13 @@ type CreateSnapshot struct {
 }
 
 type RestoreCreate struct {
-	BackupUrl  string `json:"backupUrl"`
-	Password   string `json:"password"`
-	SnapshotId string `json:"snapshotId"`
-	Path       string `json:"path"`
-	SubPath    string `json:"dir"`
+	BackupUrl     string `json:"backupUrl"`
+	BackupAppName string `json:"backupAppName"`
+	BackupType    string `json:"backupType"`
+	Password      string `json:"password"`
+	SnapshotId    string `json:"snapshotId"`
+	Path          string `json:"path"`
+	SubPath       string `json:"dir"`
 }
 
 type RestoreCheckBackupUrl struct {
@@ -127,26 +129,37 @@ type RestoreCheckBackupUrl struct {
 	Offset    int64  `json:"offset"`
 }
 
-func (r *RestoreCreate) verify() bool {
+func (r *RestoreCreate) verify() error {
 	var path = strings.TrimSpace(r.Path)
 	var subPath = strings.TrimSpace(r.SubPath)
 	var backupUrl = strings.TrimSpace(r.BackupUrl)
 	var snapshotId = strings.TrimSpace(r.SnapshotId)
 	var password = strings.TrimSpace(r.Password)
+	var backupType = strings.TrimSpace(r.BackupType)
 
-	if path == "" || subPath == "" {
-		return false
+	if backupType == "" {
+		backupType = constant.BackupTypeFile
+	}
+
+	if backupType != constant.BackupTypeApp && backupType != constant.BackupTypeFile {
+		return fmt.Errorf("backup type invalid")
+	}
+
+	if backupType == constant.BackupTypeFile {
+		if path == "" || subPath == "" {
+			return fmt.Errorf("the restore target location must be specified")
+		}
 	}
 
 	if (backupUrl == "") == (snapshotId == "") {
-		return false
+		return fmt.Errorf("snapshotId is required")
 	}
 
 	if backupUrl != "" && password == "" {
-		return false
+		return fmt.Errorf("password is required")
 	}
 
-	return true
+	return nil
 }
 
 type RestoreCancel struct {
@@ -628,7 +641,7 @@ func parseResponseRestoreOne(restore *sysv1.Restore, backupName string, snapshot
 	return res
 }
 
-func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, location, userspacePath string, totalCount int64, totalPage int64) map[string]interface{} {
+func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, backupTypeTag, location, userspacePath string, totalCount int64, totalPage int64) map[string]interface{} {
 	var result = make(map[string]interface{})
 	result["totalCount"] = totalCount
 	result["totalPage"] = totalPage
@@ -652,6 +665,7 @@ func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, location, us
 
 	result["type"] = location
 	result["backupName"] = backupName
+	result["backupType"] = backupTypeTag
 	result["backupPath"] = backupPath
 	result["snapshots"] = items
 
@@ -669,7 +683,11 @@ func parseResponseRestoreList(data *sysv1.RestoreList, totalPage int64) map[stri
 
 	var result []*ResponseRestoreList
 	for _, restore := range data.Items {
-		d, err := handlers.ParseRestoreType(&restore)
+		backupType, err := handlers.GetRestoreType(&restore)
+		if err != nil {
+			continue
+		}
+		d, err := handlers.ParseRestoreType(backupType, &restore)
 		if err != nil {
 			continue
 		}
