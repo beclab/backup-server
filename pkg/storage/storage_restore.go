@@ -366,8 +366,6 @@ func (s *StorageRestore) execute() (restoreOutput map[string]*backupssdkrestic.R
 		restoreOutput, metadata, totalBytes, restoreError = restoreService.Restore(s.progressCallback)
 	}
 
-	// todo notice wise
-
 	return
 }
 
@@ -543,7 +541,7 @@ func (s *StorageRestore) readyForRestoreApp(resticSnapshotId, metadata string) e
 		return nil
 	}
 
-	var ctx, cancel = context.WithTimeout(s.Ctx, 30*time.Second)
+	var ctx, cancel = context.WithTimeout(s.Ctx, 15*time.Second)
 	defer cancel()
 
 	var err error
@@ -559,13 +557,13 @@ func (s *StorageRestore) readyForRestoreApp(resticSnapshotId, metadata string) e
 
 	log.Infof("Restore %s, waiting for check app %s restore status", s.RestoreId, appName)
 
-	var ticker = time.NewTicker(10 * time.Second)
+	var ticker = time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			result, err := appHandler.GetAppRestoreStatus(ctx, s.RestoreId)
+			result, err := appHandler.GetAppRestoreStatus(s.Ctx, s.RestoreId)
 			if err != nil {
 				log.Errorf("Restore %s,%s, %v", s.RestoreId, appName, err)
 				return err

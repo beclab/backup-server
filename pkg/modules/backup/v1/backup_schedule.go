@@ -11,6 +11,7 @@ import (
 	"bytetrade.io/web3os/backup-server/pkg/constant"
 	"bytetrade.io/web3os/backup-server/pkg/handlers"
 	"bytetrade.io/web3os/backup-server/pkg/integration"
+	"bytetrade.io/web3os/backup-server/pkg/notify"
 	"bytetrade.io/web3os/backup-server/pkg/util"
 	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
@@ -50,6 +51,11 @@ func (o *BackupPlan) Apply(ctx context.Context, c *BackupCreate) (*sysv1.Backup,
 	if err = o.validate(ctx); err != nil {
 		return nil, errors.WithStack(err)
 	}
+
+	if err = o.verifyUsage(); err != nil {
+		return nil, err
+	}
+
 	return o.apply(ctx)
 }
 
@@ -261,6 +267,36 @@ func (o *BackupPlan) validIntegration(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (o *BackupPlan) verifyUsage() error {
+	var location = o.c.Location
+	var accountName = o.c.LocationConfig.Name
+
+	if location != constant.BackupLocationSpace.String() {
+		return nil
+	}
+
+	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(context.Background(), o.owner, accountName)
+	if err != nil {
+		return errors.New("Access token expired. Please re-connect to your Olares Space in LarePass.")
+	}
+
+	spaceUsage, err := notify.CheckCloudStorageQuotaAndPermission(context.Background(), constant.SyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken)
+	if err != nil {
+		return err
+	}
+
+	if spaceUsage.Data.PlanLevel == 1 {
+		return errors.New("You are not currently subscribed to Olares Space.")
+	}
+
+	if !spaceUsage.Data.CanBackup {
+		return errors.New("Insufficient storage in Olares Space.")
+	}
+
+	return nil
+
 }
 
 func (o *BackupPlan) validBackupPolicy() error {
