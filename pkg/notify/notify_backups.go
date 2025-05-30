@@ -69,6 +69,7 @@ type UsageData struct {
 	ToTalSize uint64 `json:"totalSize"`
 	UsageSize uint64 `json:"usageSize"`
 	CanBackup bool   `json:"canBackup"`
+	PlanLevel int    `json:"planLevel"`
 }
 
 func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error {
@@ -78,6 +79,8 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 		Jitter:   0.5,
 		Steps:    5,
 	}
+
+	var backupPath = backup.BackupPath
 
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
@@ -93,7 +96,7 @@ func NotifyBackup(ctx context.Context, cloudApiUrl string, backup *Backup) error
 		data["name"] = backup.Name
 		data["backupType"] = parseBackupTypeCode(backup.BackupType)
 		data["backupTime"] = backup.BackupTime
-		data["backupPath"] = backup.BackupPath
+		data["backupPath"] = backupPath
 		data["backupLocation"] = backup.BackupLocation
 
 		log.Infof("[notify] backup data: %s", util.ToJSON(data))
@@ -235,6 +238,12 @@ func CheckCloudStorageQuotaAndPermission(ctx context.Context, cloudApiUrl string
 			log.Errorf("[notify] check backup usage failed, code: %d, msg: %s", result.Code, result.Message)
 			return fmt.Errorf("check usage error, code: %d, message: %s", result.Code, result.Message)
 		}
+
+		if result.Data == nil {
+			log.Errorf("[notify] check backup usage failed, data is nil")
+			return fmt.Errorf("check backup usage failed, data is nil")
+		}
+
 		return nil
 	}); err != nil {
 		log.Errorf(err.Error())

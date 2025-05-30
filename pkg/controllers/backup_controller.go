@@ -205,6 +205,8 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
+	backupType := handlers.GetBackupType(backup)
+
 	locationConfig, err := handlers.GetBackupLocationConfig(backup)
 	if err != nil {
 		return fmt.Errorf("get backup location config error: %v", err)
@@ -229,6 +231,7 @@ func (r *BackupReconciler) notify(backup *sysv1.Backup) error {
 		Token:          olaresSpaceToken.AccessToken,
 		BackupId:       backup.Name,
 		Name:           backup.Spec.Name,
+		BackupType:     backupType,
 		BackupTime:     backup.Spec.CreateAt.Unix(),
 		BackupPath:     handlers.GetBackupPath(backup),
 		BackupLocation: location,

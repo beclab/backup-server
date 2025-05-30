@@ -56,7 +56,8 @@ func (i *Integration) GetIntegrationSpaceToken(ctx context.Context, owner string
 	i.OlaresTokens[integrationName] = token
 
 	if token.Expired() {
-		return nil, fmt.Errorf("olares space token expired, expiresAt: %d, format: %s", token.ExpiresAt, util.ParseUnixMilliToDate(token.ExpiresAt))
+		log.Errorf("olares space token expired, expiresAt: %d, format: %s", token.ExpiresAt, util.ParseUnixMilliToDate(token.ExpiresAt))
+		return nil, errors.New("Access token expired. Please re-connect to your Olares Space in LarePass.")
 	}
 
 	return token, nil
