@@ -18,7 +18,7 @@ limitations under the License.
 package scheme
 
 import (
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"

@@ -1,8 +1,8 @@
 package integration
 
 import (
-	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
-	"bytetrade.io/web3os/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/apiserver/response"
+	"olares.com/backup-server/pkg/util"
 )
 
 type SpaceToken struct {

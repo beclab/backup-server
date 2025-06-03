@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
-	"bytetrade.io/web3os/backup-server/pkg/util"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
+	"olares.com/backup-server/pkg/util"
 )
 
 var client *http.Client

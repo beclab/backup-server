@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 )
 
 func TestWeekly(t *testing.T) {

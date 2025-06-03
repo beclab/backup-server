@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"bytetrade.io/web3os/backup-server/pkg/apiserver/config"
-	"bytetrade.io/web3os/backup-server/pkg/apiserver/filters"
-	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
-	apiruntime "bytetrade.io/web3os/backup-server/pkg/apiserver/runtime"
-	backupv1 "bytetrade.io/web3os/backup-server/pkg/modules/backup/v1"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/go-openapi/spec"
+	"olares.com/backup-server/pkg/apiserver/config"
+	"olares.com/backup-server/pkg/apiserver/filters"
+	"olares.com/backup-server/pkg/apiserver/response"
+	apiruntime "olares.com/backup-server/pkg/apiserver/runtime"
+	backupv1 "olares.com/backup-server/pkg/modules/backup/v1"
+	"olares.com/backup-server/pkg/util/log"
 
 	restfulspec "github.com/emicklei/go-restful-openapi/v2"
 	"github.com/emicklei/go-restful/v3"
@@ -112,8 +112,8 @@ func enrichSwaggerObject(swo *spec.Swagger) {
 			Description: "Go web boilerplate contains all the boilerplate you need to create a Go packages.",
 			Contact: &spec.ContactInfo{
 				ContactInfoProps: spec.ContactInfoProps{
-					Name:  "zliang90",
-					Email: "z_liang90@126.com",
+					Name:  "olares",
+					Email: "olares@olares.com",
 					URL:   "",
 				},
 			},

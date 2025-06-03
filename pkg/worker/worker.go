@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/storage"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	pond "github.com/alitto/pond/v2"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/handlers"
+	"olares.com/backup-server/pkg/storage"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 var workerPool *WorkerPool
@@ -21,36 +21,29 @@ type TaskType string
 const (
 	BackupTaskType  TaskType = "backup"
 	RestoreTaskType TaskType = "restore"
-	ExecuteTaskType TaskType = "execute"
 )
 
 type WorkerPool struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	handlers handlers.Interface
-
+	ctx       context.Context
+	cancel    context.CancelFunc
+	handlers  handlers.Interface
 	userPools sync.Map
-
-	sync.RWMutex
 }
 
 type TaskPool struct {
-	taskType   TaskType
 	pool       pond.Pool
 	tasks      sync.Map
-	activeTask atomic.Value
+	activeTask atomic.Pointer[any]
 	owner      string
-	sync.RWMutex
 }
 
 func (tp *TaskPool) setActiveTask(task interface{}) {
-	tp.activeTask.Store(task)
+	tp.activeTask.Store(&task)
 }
 
 type UserPool struct {
 	owner       string
 	executePool *TaskPool
-	sync.RWMutex
 }
 
 type BaseTask struct {
@@ -67,29 +60,6 @@ func (t *BaseTask) IsCanceled() bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 	return t.canceled
-}
-
-type ExecuteTask struct {
-	*BaseTask
-	backupId   string
-	snapshotId string
-	backup     *storage.StorageBackup
-
-	restoreId string
-	restore   *storage.StorageRestore
-}
-
-type BackupTask struct {
-	*BaseTask
-	backupId   string
-	snapshotId string
-	backup     *storage.StorageBackup
-}
-
-type RestoreTask struct {
-	*BaseTask
-	restoreId string
-	restore   *storage.StorageRestore
 }
 
 func newPool() pond.Pool {
@@ -119,9 +89,8 @@ func (w *WorkerPool) GetOrCreateUserPool(owner string) *UserPool {
 	userPool := &UserPool{
 		owner: owner,
 		executePool: &TaskPool{
-			taskType: ExecuteTaskType,
-			pool:     newPool(),
-			owner:    owner,
+			pool:  newPool(),
+			owner: owner,
 		},
 	}
 
@@ -161,14 +130,14 @@ func (w *WorkerPool) AddBackupTask(owner, backupId, snapshotId string) error {
 		LastProgressTime: time.Now(),
 	}
 
-	var executeTask = &ExecuteTask{
+	var backupTask = &BackupTask{
 		BaseTask:   newTask,
 		backupId:   backupId,
 		snapshotId: snapshotId,
 		backup:     backup,
 	}
 
-	return w.addTask(owner, taskId, taskType, executeTask)
+	return w.addTask(owner, taskId, backupTask)
 }
 
 func (w *WorkerPool) AddRestoreTask(owner, restoreId string) error {
@@ -198,21 +167,21 @@ func (w *WorkerPool) AddRestoreTask(owner, restoreId string) error {
 		LastProgressTime: time.Now(),
 	}
 
-	var executeTask = &ExecuteTask{
+	var restoreTask = &RestoreTask{
 		BaseTask:  newTask,
 		restoreId: restoreId,
 		restore:   restore,
 	}
 
-	return w.addTask(owner, taskId, taskType, executeTask)
+	return w.addTask(owner, taskId, restoreTask)
 }
 
-func (w *WorkerPool) addTask(owner, taskId string, taskType TaskType, task *ExecuteTask) error {
+func (w *WorkerPool) addTask(owner, taskId string, task TaskInterface) error {
 	userPool := w.GetOrCreateUserPool(owner)
 	taskPool := userPool.executePool
+	taskType := task.GetTaskType()
 
 	taskPool.tasks.Store(taskId, task)
-
 	taskFn := func() {
 		defer func() {
 			taskPool.tasks.Delete(taskId)
@@ -230,16 +199,12 @@ func (w *WorkerPool) addTask(owner, taskId string, taskType TaskType, task *Exec
 		log.Infof("[worker] task start, owner: %s, taskId: %s, taskType: %s", owner, taskId, taskType)
 		taskPool.setActiveTask(task)
 
-		if taskType == BackupTaskType {
-			task.backup.RunBackup()
-		} else {
-			task.restore.RunRestore()
-		}
+		task.Run()
 	}
 
 	_, ok := taskPool.pool.TrySubmit(taskFn)
 	if !ok {
-		task.BaseTask.cancel()
+		task.Cancel()
 		taskPool.tasks.Delete(taskId)
 		return fmt.Errorf("[worker] task try sumit failed, owner: %s, queuesize: %d, waitings: %d", owner, taskPool.pool.QueueSize(), taskPool.pool.WaitingTasks())
 	}
@@ -260,10 +225,15 @@ func (w *WorkerPool) ExistsTask(owner string, backupId, snapshotId string) error
 	var snapshotExists bool
 
 	taskPool.tasks.Range(func(key, value interface{}) bool {
-		task := value.(*ExecuteTask)
-		if task.backupId == backupId && !task.IsCanceled() {
-			snapshotExists = true
-			return false
+		task := value.(TaskInterface)
+		if task != nil {
+			if task.GetTaskType() == BackupTaskType {
+				backupTask := task.(*BackupTask)
+				if backupTask.backupId == backupId && !backupTask.IsCanceled() {
+					snapshotExists = true
+					return false
+				}
+			}
 		}
 		return true
 	})
@@ -288,16 +258,22 @@ func (w *WorkerPool) CancelBackup(owner, backupId string) {
 	taskPool := userPool.executePool
 
 	taskPool.tasks.Range(func(key, value interface{}) bool {
-		task := value.(*ExecuteTask)
-		if task.backupId == backupId {
-			task.BaseTask.canceled = true
+		task := value.(TaskInterface)
+		if task != nil {
+			if task.GetTaskType() == BackupTaskType {
+				backupTask := task.(*BackupTask)
+				if backupTask.backupId == backupId {
+					backupTask.BaseTask.canceled = true
+				}
+			}
 		}
+
 		return true
 	})
 
 	activeTask := taskPool.activeTask.Load()
-	if activeTask != nil {
-		backupTask := activeTask.(*ExecuteTask)
+	if activeTask != nil && *activeTask != nil {
+		backupTask := (*activeTask).(*BackupTask)
 		if backupTask.backupId == backupId {
 			w.sendBackupCanceledEvent(backupTask.owner, backupTask.backupId, backupTask.snapshotId)
 			backupTask.BaseTask.cancel()
@@ -318,16 +294,22 @@ func (w *WorkerPool) CancelSnapshot(owner, snapshotId string) {
 	taskPool := userPool.executePool
 
 	taskPool.tasks.Range(func(key, value interface{}) bool {
-		task := value.(*ExecuteTask)
-		if task.snapshotId == snapshotId {
-			task.BaseTask.canceled = true
+		task := value.(TaskInterface)
+		if task != nil {
+			if task.GetTaskType() == BackupTaskType {
+				backupTask := task.(*BackupTask)
+				if backupTask.snapshotId == snapshotId {
+					backupTask.BaseTask.canceled = true
+				}
+			}
 		}
+
 		return true
 	})
 
 	activeTask := taskPool.activeTask.Load()
-	if activeTask != nil {
-		backupTask := activeTask.(*ExecuteTask)
+	if activeTask != nil && *activeTask != nil {
+		backupTask := (*activeTask).(*BackupTask)
 		if backupTask.snapshotId == snapshotId {
 			w.sendBackupCanceledEvent(backupTask.owner, backupTask.backupId, backupTask.snapshotId)
 			backupTask.BaseTask.cancel()
@@ -349,16 +331,22 @@ func (w *WorkerPool) CancelRestore(owner, restoreId string) {
 	taskPool := userPool.executePool
 
 	taskPool.tasks.Range(func(key, value interface{}) bool {
-		task := value.(*ExecuteTask)
-		if task.restoreId == restoreId {
-			task.BaseTask.canceled = true
+		task := value.(TaskInterface)
+		if task != nil {
+			if task.GetTaskType() == RestoreTaskType {
+				restoreTask := task.(*RestoreTask)
+				if restoreTask.restoreId == restoreId {
+					restoreTask.BaseTask.canceled = true
+				}
+			}
 		}
+
 		return true
 	})
 
 	activeTask := taskPool.activeTask.Load()
-	if activeTask != nil {
-		restoreTask := activeTask.(*ExecuteTask)
+	if activeTask != nil && *activeTask != nil {
+		restoreTask := (*activeTask).(*RestoreTask)
 		if restoreTask.restoreId == restoreId {
 			w.sendRestoreCanceledEvent(restoreTask.owner, restoreTask.restoreId)
 			restoreTask.BaseTask.cancel()

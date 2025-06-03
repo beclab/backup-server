@@ -3,7 +3,7 @@ package client
 import (
 	"sync"
 
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 var once sync.Once

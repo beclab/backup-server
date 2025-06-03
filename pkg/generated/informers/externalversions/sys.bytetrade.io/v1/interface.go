@@ -18,7 +18,7 @@ limitations under the License.
 package v1
 
 import (
-	internalinterfaces "bytetrade.io/web3os/backup-server/pkg/generated/informers/externalversions/internalinterfaces"
+	internalinterfaces "olares.com/backup-server/pkg/generated/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to all the informers in this group version.

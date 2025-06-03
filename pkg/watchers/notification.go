@@ -3,11 +3,11 @@ package watchers
 import (
 	"context"
 
-	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"olares.com/backup-server/pkg/client"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 var UserSchemeGroupVersionResource = schema.GroupVersionResource{Group: "iam.kubesphere.io", Version: "v1alpha2", Resource: "users"}

@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/interfaces"
-	"bytetrade.io/web3os/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/client"
+	"olares.com/backup-server/pkg/interfaces"
+	"olares.com/backup-server/pkg/watchers"
 )
 
 var _ Interface = &handlers{}

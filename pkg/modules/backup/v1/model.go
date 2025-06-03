@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	stringx "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"k8s.io/klog/v2"
+	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/handlers"
+	"olares.com/backup-server/pkg/util"
+	stringx "olares.com/backup-server/pkg/util/string"
 )
 
 type LocationConfig struct {
@@ -169,6 +169,7 @@ type RestoreCancel struct {
 type ResponseBackupList struct {
 	Id                  string `json:"id"`
 	Name                string `json:"name"`
+	BackupType          string `json:"backupType"`
 	SnapshotFrequency   string `json:"snapshotFrequency"`
 	Location            string `json:"location"`           // space, awss3, tencentcloud ...
 	LocationConfigName  string `json:"locationConfigName"` // olaresDid / cloudAccessKey
@@ -183,6 +184,7 @@ type ResponseBackupList struct {
 type ResponseBackupDetail struct {
 	Id             string              `json:"id"`
 	Name           string              `json:"name"`
+	BackupType     string              `json:"backupType"`
 	Path           string              `json:"path"`
 	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
 	Size           string              `json:"size"`
@@ -219,6 +221,7 @@ type ResponseRestoreDetail struct {
 type ResponseRestoreList struct {
 	Id           string  `json:"id"`
 	BackupName   string  `json:"name"`
+	BackupType   string  `json:"backupType"`
 	Path         string  `json:"path"`
 	CreateAt     int64   `json:"createAt"`     // restore createAt
 	SnapshotTime int64   `json:"snapshotTime"` // snapshotTime createAt
@@ -319,7 +322,7 @@ type SyncBackup struct {
 
 	Owner *string `json:"owner"`
 
-	TerminusVersion *string `json:"terminusVersion"`
+	OlaresVersion *string `json:"olaresVersion"`
 
 	Expiration *int64 `json:"expiration"`
 
@@ -394,9 +397,11 @@ func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDeta
 }
 
 func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
+	var backupType = handlers.GetBackupType(backup)
 	return &ResponseBackupDetail{
 		Id:             backup.Name,
 		Name:           backup.Spec.Name,
+		BackupType:     backupType,
 		BackupPolicies: backup.Spec.BackupPolicy,
 		Path:           handlers.ParseBackupTypePath(backup.Spec.BackupType),
 		Size:           handlers.ParseSnapshotSize(backup.Spec.Size),
@@ -418,9 +423,11 @@ func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
 	}
 
 	var nextBackupTimestamp = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
+	var backupType = handlers.GetBackupType(backup)
 
 	data["id"] = backup.Name
 	data["name"] = backup.Spec.Name
+	data["backupType"] = backupType
 	data["nextBackupTimestamp"] = *nextBackupTimestamp
 	data["location"] = location
 	data["locationConfigName"] = locationConfigName
@@ -440,6 +447,7 @@ func parseResponseBackupOne(backup *sysv1.Backup, snapshot *sysv1.Snapshot) (map
 		return nil, err
 	}
 
+	backupType := handlers.GetBackupType(backup)
 	location := locationConfig["location"]
 	locationConfigName := locationConfig["name"]
 	if location == constant.BackupLocationFileSystem.String() {
@@ -448,6 +456,7 @@ func parseResponseBackupOne(backup *sysv1.Backup, snapshot *sysv1.Snapshot) (map
 
 	result["id"] = backup.Name
 	result["name"] = backup.Spec.Name
+	result["backupType"] = backupType
 	result["nextBackupTimestamp"] = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
 	result["location"] = location
 	result["locationConfigName"] = locationConfigName
@@ -492,12 +501,14 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 
 		location := locationConfig["location"]
 		locationConfigName := locationConfig["name"]
+		backupType := handlers.GetBackupType(&backup)
 		if location == constant.BackupLocationFileSystem.String() {
 			locationConfigName = locationConfig["path"]
 		}
 		var r = &ResponseBackupList{
 			Id:                  backup.Name,
 			Name:                backup.Spec.Name,
+			BackupType:          backupType,
 			SnapshotFrequency:   handlers.ParseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
 			NextBackupTimestamp: handlers.GetNextBackupTime(*backup.Spec.BackupPolicy),
 			CreateAt:            backup.Spec.CreateAt.Unix(),
@@ -610,9 +621,11 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 }
 
 func parseResponseRestoreCreate(restore *sysv1.Restore, backupName, snapshotTime, restorePath string) map[string]interface{} {
+	var backupType, _ = handlers.GetRestoreType(restore)
 	var data = make(map[string]interface{})
 	data["id"] = restore.Name
 	data["name"] = backupName
+	data["backupType"] = backupType
 	data["path"] = restorePath
 	data["createAt"] = restore.Spec.CreateAt.Unix()
 	data["snapshotTime"] = time.Unix(util.ParseToInt64(snapshotTime), 0).Unix()
@@ -696,6 +709,7 @@ func parseResponseRestoreList(data *sysv1.RestoreList, totalPage int64) map[stri
 		var r = &ResponseRestoreList{
 			Id:           restore.Name,
 			BackupName:   d.BackupName,
+			BackupType:   backupType,
 			Path:         d.Path,
 			CreateAt:     restore.Spec.CreateAt.Unix(),
 			SnapshotTime: snapshotTime.Unix(),
@@ -732,7 +746,7 @@ func (s *SyncBackup) FormData() (map[string]string, error) {
 	formdata["uid"] = toString(s.UID)
 	formdata["size"] = toString(s.Size)
 	// formdata["s3Config"] = string(s3config)
-	formdata["terminusVersion"] = toString(s.TerminusVersion)
+	formdata["olaresVersion"] = toString(s.OlaresVersion)
 	formdata["owner"] = toString(s.Owner)
 	formdata["backupType"] = toString(s.BackupType)
 	formdata["s3Repository"] = toString(s.S3Repository)

@@ -22,9 +22,9 @@ import (
 	sync "sync"
 	time "time"
 
-	versioned "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned"
-	internalinterfaces "bytetrade.io/web3os/backup-server/pkg/generated/informers/externalversions/internalinterfaces"
-	sysbytetradeio "bytetrade.io/web3os/backup-server/pkg/generated/informers/externalversions/sys.bytetrade.io"
+	versioned "olares.com/backup-server/pkg/generated/clientset/versioned"
+	internalinterfaces "olares.com/backup-server/pkg/generated/informers/externalversions/internalinterfaces"
+	sysbytetradeio "olares.com/backup-server/pkg/generated/informers/externalversions/sys.bytetrade.io"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"

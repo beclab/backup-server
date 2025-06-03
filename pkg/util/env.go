@@ -21,7 +21,7 @@ func EnvOrDefault(name, def string) string {
 	return v
 }
 
-func GenTerminusNonce(randomKey string) (string, error) {
+func GetBackendToken(randomKey string) (string, error) {
 	if randomKey == "" {
 		randomKey = os.Getenv("APP_RANDOM_KEY")
 	}
@@ -31,8 +31,8 @@ func GenTerminusNonce(randomKey string) (string, error) {
 		return "", err
 	}
 	b64CipherText := base64.StdEncoding.EncodeToString(cipherText)
-	terminusNonce := "appservice:" + b64CipherText
-	return terminusNonce, nil
+	backendTokenNonce := "appservice:" + b64CipherText
+	return backendTokenNonce, nil
 }
 
 func getTimestamp() string {

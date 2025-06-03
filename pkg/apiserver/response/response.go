@@ -3,8 +3,8 @@ package response
 import (
 	"net/http"
 
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/emicklei/go-restful/v3"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 var SuccessMsg = "success"

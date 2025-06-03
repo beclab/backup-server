@@ -7,15 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/spf13/pflag"
+	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/util/pointer"
 )
 
 var (
@@ -23,7 +23,7 @@ var (
 	region    = "minio"
 	ak        = "minioadmin"
 	sk        = "RAzvq6LXRjw39zcp"
-	bucket    = "terminus"
+	bucket    = "olares"
 	prefix    = "system-backups"
 	delimiter = "/"
 

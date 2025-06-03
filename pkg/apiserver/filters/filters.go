@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"time"
 
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/emicklei/go-restful/v3"
+	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 func LogStackOnRecover(panicReason interface{}, w http.ResponseWriter) {

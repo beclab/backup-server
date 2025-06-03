@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"strings"
 
-	"bytetrade.io/web3os/backup-server/pkg/apiserver/response"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/apiserver/response"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/util"
 )
 
 type SnapshotNotifyState struct {
@@ -40,7 +40,7 @@ type RestoreBackupUrlDetail struct {
 	RegionId       string `json:"regionId"`
 	Bucket         string `json:"bucket"`
 	Prefix         string `json:"prefix"`
-	TerminusSuffix string `json:"suffix"` // only used for space, prev backup did-suffix
+	OlaresSuffix   string `json:"suffix"` // only used for space, prev backup did-suffix
 	FilesystemPath string `json:"fsPath"` // only used for filesystem
 }
 
@@ -107,17 +107,17 @@ type BackupUrlType struct {
 	Region         string     `json:"region"`
 	Bucket         string     `json:"bucket"`
 	Prefix         string     `json:"prefix"`
-	TerminusSuffix string     `json:"suffix"`
+	OlaresSuffix   string     `json:"suffix"`
 	FilesystemPath string     `json:"fs_path"`
 }
 
 func (u *BackupUrlType) GetStorage() (*RestoreBackupUrlDetail, error) {
 	var detail = &RestoreBackupUrlDetail{
-		CloudName:      u.CloudName,
-		RegionId:       u.Region,
-		Bucket:         u.Bucket,
-		Prefix:         u.Prefix,
-		TerminusSuffix: u.TerminusSuffix,
+		CloudName:    u.CloudName,
+		RegionId:     u.Region,
+		Bucket:       u.Bucket,
+		Prefix:       u.Prefix,
+		OlaresSuffix: u.OlaresSuffix,
 	}
 
 	if u.Location == constant.BackupLocationFileSystem.String() {

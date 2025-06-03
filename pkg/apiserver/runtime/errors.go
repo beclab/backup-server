@@ -3,7 +3,7 @@ package runtime
 import (
 	"os"
 
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 func Must(err error) {
