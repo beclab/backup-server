@@ -293,10 +293,10 @@ func (s *StorageBackup) checkDiskSize() error {
 
 		}
 
-		requiredSpace := uint64(float64(backupSize) * 1.1)
+		requiredSpace := uint64(float64(backupSize) * 1.05)
 		if targetFreeSpace < requiredSpace {
 			log.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s", util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
-			return fmt.Errorf("not enough free space on target disk")
+			return fmt.Errorf("Insufficient space on the target disk.")
 		}
 	}
 
@@ -479,7 +479,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 	for {
 		spaceToken, err = integration.IntegrationManager().GetIntegrationSpaceToken(s.Ctx, s.Backup.Spec.Owner, olaresId) // backupToSpace
 		if err != nil {
-			err = fmt.Errorf("get space token error: %v", err)
+			log.Errorf("Backup %s,%s, get space token error: %v", backupName, s.Snapshot.Name, err)
 			break
 		}
 
@@ -517,9 +517,13 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			}
 
 			log.Infof("Backup %s,%s, usage: %s", backupName, s.SnapshotId, util.ToJSON(usage))
+			if usage.Data.PlanLevel == 1 {
+				err = errors.New("You are not currently subscribed to Olares Space.")
+				break
+			}
 
 			if !usage.Data.CanBackup || (s.BackupSize > (usage.Data.ToTalSize - usage.Data.UsageSize)) {
-				err = fmt.Errorf("the backup task cannot be executed. please check the subscription status or whether there is enough storage space")
+				err = errors.New("Insufficient storage in Olares Space.")
 				break
 			}
 
@@ -532,7 +536,7 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 			if strings.Contains(err.Error(), "refresh-token error") {
 				continue
 			} else {
-				err = fmt.Errorf("space backup error: %v", err)
+				// err = fmt.Errorf("space backup error: %v", err)
 				break
 			}
 		}
@@ -807,7 +811,7 @@ func (s *StorageBackup) readyForBackupApp() error {
 		return nil
 	}
 
-	var ctx, cancel = context.WithTimeout(s.Ctx, 30*time.Second)
+	var ctx, cancel = context.WithTimeout(s.Ctx, 15*time.Second)
 	defer cancel()
 
 	var err error
@@ -823,13 +827,13 @@ func (s *StorageBackup) readyForBackupApp() error {
 
 	log.Infof("Backup %s,%s,%s, waiting for check app backup status", s.Backup.Spec.Name, s.Snapshot.Name, appName)
 
-	var ticker = time.NewTicker(10 * time.Second)
+	var ticker = time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			result, e := appHandler.GetAppBackupStatus(ctx, s.Backup.Name, s.Snapshot.Name)
+			result, e := appHandler.GetAppBackupStatus(s.Ctx, s.Backup.Name, s.Snapshot.Name)
 			if e != nil {
 				log.Errorf("Backup %s,%s,%s, get app backup status error: %v", s.Backup.Spec.Name, s.Snapshot.Name, appName, e)
 				err = fmt.Errorf("get app backup status error: %v", e)
