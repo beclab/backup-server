@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	integration "bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/handlers"
+	integration "olares.com/backup-server/pkg/integration"
+	"olares.com/backup-server/pkg/util/log"
 
-	backupssdk "bytetrade.io/web3os/backups-sdk"
-	backupssdkoptions "bytetrade.io/web3os/backups-sdk/pkg/options"
-	backupssdkstorage "bytetrade.io/web3os/backups-sdk/pkg/storage"
+	backupssdk "olares.com/backups-sdk"
+	backupssdkoptions "olares.com/backups-sdk/pkg/options"
+	backupssdkstorage "olares.com/backups-sdk/pkg/storage"
 )
 
 type StorageRegion struct {

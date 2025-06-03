@@ -18,9 +18,9 @@ limitations under the License.
 package fake
 
 import (
-	clientset "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned"
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned/typed/sys.bytetrade.io/v1"
-	fakesysv1 "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned/typed/sys.bytetrade.io/v1/fake"
+	clientset "olares.com/backup-server/pkg/generated/clientset/versioned"
+	sysv1 "olares.com/backup-server/pkg/generated/clientset/versioned/typed/sys.bytetrade.io/v1"
+	fakesysv1 "olares.com/backup-server/pkg/generated/clientset/versioned/typed/sys.bytetrade.io/v1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"

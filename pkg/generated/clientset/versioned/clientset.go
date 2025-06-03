@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"net/http"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned/typed/sys.bytetrade.io/v1"
+	sysv1 "olares.com/backup-server/pkg/generated/clientset/versioned/typed/sys.bytetrade.io/v1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"

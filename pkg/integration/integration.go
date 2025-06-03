@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/util/repo"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"olares.com/backup-server/pkg/client"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/util/repo"
 )
 
 var IntegrationService *Integration
@@ -284,7 +284,7 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 	client := resty.New().SetTimeout(10 * time.Second)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
-		SetHeader("Terminus-Nonce", headerNonce).
+		SetHeader(constant.BackendTokenHeader, headerNonce).
 		SetResult(&accountsResponse{}).
 		Get(settingsUrl)
 
@@ -334,7 +334,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader("Terminus-Nonce", headerNonce).
+		SetHeader(constant.BackendTokenHeader, headerNonce).
 		SetBody(data).
 		SetResult(&accountResponse{}).
 		Post(settingsUrl)

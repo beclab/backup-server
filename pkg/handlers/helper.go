@@ -13,13 +13,6 @@ import (
 	"strings"
 	"time"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/util/repo"
-	utilstring "bytetrade.io/web3os/backup-server/pkg/util/string"
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
@@ -28,6 +21,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
+	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"olares.com/backup-server/pkg/client"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/util/repo"
+	utilstring "olares.com/backup-server/pkg/util/string"
 )
 
 func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, error) {
@@ -74,7 +74,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 		Data:     backupName,
 	}
 
-	terminusNonce, err := util.GenTerminusNonce("")
+	backendTokenNonce, err := util.GetBackendToken("")
 	if err != nil {
 		log.Error("generate nonce error, ", err)
 		return "", errors.New("generate backup query nounce error")
@@ -83,7 +83,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 	log.Info("fetch password from settings, ", settingsUrl)
 	resp, err := client.R().SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader("Terminus-Nonce", terminusNonce).
+		SetHeader(constant.BackendTokenHeader, backendTokenNonce).
 		SetBody(req).
 		SetResult(&passwordResponse{}).
 		Post(settingsUrl)
@@ -144,7 +144,7 @@ func GetClusterId() (string, error) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		unstructuredUser, err := dynamicClient.Resource(constant.TerminusGVR).Get(ctx, "terminus", metav1.GetOptions{})
+		unstructuredUser, err := dynamicClient.Resource(constant.OlaresGVR).Get(ctx, constant.OlaresName, metav1.GetOptions{})
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -606,11 +606,11 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 		BackupName: backupName,
 		PvcPath:    userspacePath,
 
-		CloudName:      cloudName,
-		Region:         repoInfo.Region,
-		Bucket:         repoInfo.Bucket,
-		Prefix:         repoInfo.Prefix,
-		TerminusSuffix: repoInfo.Suffix,
+		CloudName:    cloudName,
+		Region:       repoInfo.Region,
+		Bucket:       repoInfo.Bucket,
+		Prefix:       repoInfo.Prefix,
+		OlaresSuffix: repoInfo.Suffix,
 	}
 
 	if location == constant.BackupLocationFileSystem.String() {

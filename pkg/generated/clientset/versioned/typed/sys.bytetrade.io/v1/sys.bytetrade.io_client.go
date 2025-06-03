@@ -20,8 +20,8 @@ package v1
 import (
 	"net/http"
 
-	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned/scheme"
+	v1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"olares.com/backup-server/pkg/generated/clientset/versioned/scheme"
 	rest "k8s.io/client-go/rest"
 )
 

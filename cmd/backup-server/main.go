@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"bytetrade.io/web3os/backup-server/cmd/backup-server/apiserver"
-	"bytetrade.io/web3os/backup-server/cmd/backup-server/controller"
 	"github.com/spf13/cobra"
+	"olares.com/backup-server/cmd/backup-server/apiserver"
+	"olares.com/backup-server/cmd/backup-server/controller"
 )
 
 var rootCommand = cobra.Command{

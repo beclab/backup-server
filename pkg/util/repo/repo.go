@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"bytetrade.io/web3os/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util"
 )
 
 type RepositoryInfo struct {

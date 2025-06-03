@@ -18,8 +18,8 @@ limitations under the License.
 package sys
 
 import (
-	internalinterfaces "bytetrade.io/web3os/backup-server/pkg/generated/informers/externalversions/internalinterfaces"
-	v1 "bytetrade.io/web3os/backup-server/pkg/generated/informers/externalversions/sys.bytetrade.io/v1"
+	internalinterfaces "olares.com/backup-server/pkg/generated/informers/externalversions/internalinterfaces"
+	v1 "olares.com/backup-server/pkg/generated/informers/externalversions/sys.bytetrade.io/v1"
 )
 
 // Interface provides access to each of this group's versions.

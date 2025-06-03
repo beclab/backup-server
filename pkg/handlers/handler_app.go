@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
 	"github.com/go-resty/resty/v2"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/util/log"
 )
 
 const (

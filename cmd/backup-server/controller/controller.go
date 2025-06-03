@@ -3,16 +3,6 @@ package controller
 import (
 	"context"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/controllers"
-	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/watchers"
-	"bytetrade.io/web3os/backup-server/pkg/worker"
 	"github.com/lithammer/dedent"
 	pkgerrors "github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -20,6 +10,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"olares.com/backup-server/pkg/client"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/controllers"
+	"olares.com/backup-server/pkg/handlers"
+	"olares.com/backup-server/pkg/integration"
+	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/worker"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -72,7 +72,7 @@ func addFlags(fs *pflag.FlagSet) {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 
-	// fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.xyz", "cloud API mirror")
+	// fs.StringVarP(&constant.DefaultCloudApiMirror, "cloud-api-mirror", "", "https://cloud-dev-api.olares.com", "cloud API mirror")
 	fs.StringVarP(&logLevel, "log-level", "l", "debug", "log level")
 	fs.StringVarP(&constant.SyncServerURL, "cloud-api-mirror", "", util.EnvOrDefault("OLARES_SPACE_URL", constant.DefaultSyncServerURL), "cloud api mirror")
 

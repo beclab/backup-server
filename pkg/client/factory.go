@@ -9,8 +9,8 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	// velerov2alpha1api "bytetrade.io/web3os/backup-server/pkg/apis/velero/v2alpha1"
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/generated/clientset/versioned"
+	// velerov2alpha1api "olares.com/backup-server/pkg/apis/velero/v2alpha1"
+	sysv1 "olares.com/backup-server/pkg/generated/clientset/versioned"
 )
 
 type Factory interface {

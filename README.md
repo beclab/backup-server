@@ -24,7 +24,7 @@ kubectl apply -f ./config/crds/backup/v1/
 ```bash
 backup-server apiserver --velero-namespace os-system \
   --velero-service-account os-internal \
-  --backup-bucket terminus-us-west-1 \
+  --backup-bucket olares-us-west-1 \
   --backup-key-prefix <userid>
 ```
 
@@ -32,7 +32,7 @@ backup-server apiserver --velero-namespace os-system \
 ```bash
 backup-server controller --velero-namespace os-system \
   --velero-service-account os-internal \
-  --backup-bucket terminus-us-west-1 \
+  --backup-bucket olares-us-west-1 \
   --backup-key-prefix <userid> \
   --backup-retain-days "30"
 ```
@@ -53,11 +53,11 @@ backup-sync --log-level debug --sync-interval "10"
 5. Install Velero
 ```bash
 # create velero backup-location
-velero backup-location create terminus-cloud \
-  --provider terminus \
+velero backup-location create olares-cloud \
+  --provider olares \
   --namespace os-system \
   --prefix "" \
-  --bucket terminus-cloud
+  --bucket olares-cloud
 
 
 # install velero plugin
@@ -73,4 +73,4 @@ velero install \
 
 6. Create Backup-Plan
 
-Create a backup task on the Backup page of the Terminus system Settings.
+Create a backup task on the Backup page of the olares system Settings.

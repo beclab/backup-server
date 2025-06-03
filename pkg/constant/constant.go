@@ -1,8 +1,8 @@
 package constant
 
 import (
-	scheme "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	scheme "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 )
 
 var (
@@ -11,7 +11,7 @@ var (
 
 const (
 	EnvSpaceUrl          string = "OLARES_SPACE_URL"
-	DefaultSyncServerURL string = "https://cloud-api.olares.xyz"
+	DefaultSyncServerURL string = "https://cloud-api.olares.com"
 
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
@@ -107,6 +107,9 @@ const (
 )
 
 var (
+	BackendTokenHeader = "Terminus-Nonce"
+	OlaresName         = "terminus"
+
 	BackupGVR = schema.GroupVersionResource{
 		Group:    scheme.SchemeGroupVersion.Group,
 		Version:  scheme.SchemeGroupVersion.Version,
@@ -125,10 +128,10 @@ var (
 		Resource: "restores",
 	}
 
-	TerminusGVR = schema.GroupVersionResource{
+	OlaresGVR = schema.GroupVersionResource{
 		Group:    "sys.bytetrade.io",
 		Version:  "v1alpha1",
-		Resource: "terminus",
+		Resource: OlaresName,
 	}
 
 	UsersGVR = schema.GroupVersionResource{
@@ -157,4 +160,9 @@ const (
 const (
 	MaxConcurrency = 1
 	NonBlocking    = true
+)
+
+const (
+	FreeUser    = 1
+	MemeberUser = 2
 )

@@ -6,26 +6,20 @@ import (
 	"strings"
 	"time"
 
-	sysv1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
-	"bytetrade.io/web3os/backup-server/pkg/client"
-	"bytetrade.io/web3os/backup-server/pkg/constant"
-	"bytetrade.io/web3os/backup-server/pkg/handlers"
-	"bytetrade.io/web3os/backup-server/pkg/integration"
-	"bytetrade.io/web3os/backup-server/pkg/notify"
-	"bytetrade.io/web3os/backup-server/pkg/util"
-	"bytetrade.io/web3os/backup-server/pkg/util/log"
-	"bytetrade.io/web3os/backup-server/pkg/util/pointer"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
-)
-
-const (
-	TerminusCloud = "terminus-cloud"
-
-	S3 = "s3"
+	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	"olares.com/backup-server/pkg/client"
+	"olares.com/backup-server/pkg/constant"
+	"olares.com/backup-server/pkg/handlers"
+	"olares.com/backup-server/pkg/integration"
+	"olares.com/backup-server/pkg/notify"
+	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/util/pointer"
 )
 
 type BackupPlan struct {
@@ -172,32 +166,6 @@ func (o *BackupPlan) apply(ctx context.Context) (*sysv1.Backup, error) {
 	return backup, nil
 }
 
-// func (o *BackupPlan) createFullySysBackup(ctx context.Context, config, name, owner string) error {
-// 	if _, err := o.hasInProgressBackup(ctx); err != nil {
-// 		return err
-// 	}
-
-// 	sc, err := o.factory.Sysv1Client()
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	var sb *sysv1.Backup
-// 	sb, err = sc.SysV1().Backups(o.manager.Namespace()).Get(ctx, name, metav1.GetOptions{})
-// 	if err != nil && apierrors.IsNotFound(err) {
-// 		sb, err = o.manager.CreateBackup(ctx, config, name, owner, velero.DefaultBackupTTL)
-// 		if err != nil {
-// 			return errors.WithStack(err)
-// 		}
-// 		log.Debugf("created fully backup %q", sb.Name)
-// 	}
-// 	return nil
-// }
-
-func (o *BackupPlan) Del(ctx context.Context, name string) error {
-	return errors.New("to be implement")
-}
-
 func (o *BackupPlan) validLocation() error {
 	log.Infof("new backup %s location %s", o.c.Name, util.ToJSON(o.c.LocationConfig))
 
@@ -287,7 +255,7 @@ func (o *BackupPlan) verifyUsage() error {
 		return err
 	}
 
-	if spaceUsage.Data.PlanLevel == 1 {
+	if spaceUsage.Data.PlanLevel == constant.FreeUser {
 		return errors.New("You are not currently subscribed to Olares Space.")
 	}
 
@@ -370,7 +338,7 @@ func (o *BackupPlan) getClusterId(ctx context.Context) (string, error) {
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		unstructuredUser, err := dynamicClient.Resource(constant.TerminusGVR).Get(ctx, "terminus", metav1.GetOptions{})
+		unstructuredUser, err := dynamicClient.Resource(constant.OlaresGVR).Get(ctx, constant.OlaresName, metav1.GetOptions{})
 		if err != nil {
 			return errors.WithStack(err)
 		}

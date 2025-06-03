@@ -20,7 +20,7 @@ package externalversions
 import (
 	"fmt"
 
-	v1 "bytetrade.io/web3os/backup-server/pkg/apis/sys.bytetrade.io/v1"
+	v1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )

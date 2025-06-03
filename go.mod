@@ -1,11 +1,10 @@
-module bytetrade.io/web3os/backup-server
+module olares.com/backup-server
 
 go 1.23.0
 
 toolchain go1.23.7
 
 replace (
-	bytetrade.io/web3os/backups-sdk => github.com/Above-Os/backups-sdk v0.1.26
 	k8s.io/api => k8s.io/api v0.25.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.25.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.25.6
@@ -17,6 +16,7 @@ replace (
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20220627174259-011e075b9cb8
 	k8s.io/kubectl => k8s.io/kubectl v0.24.2
 	k8s.io/utils => k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
+	olares.com/backups-sdk => github.com/Above-Os/backups-sdk v0.1.27
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.12.2
 	sigs.k8s.io/json => sigs.k8s.io/json v0.0.0-20211208200746-9f7c6b3444d2
 	sigs.k8s.io/kustomize/api => sigs.k8s.io/kustomize/api v0.11.4
@@ -26,7 +26,6 @@ replace (
 )
 
 require (
-	bytetrade.io/web3os/backups-sdk v0.0.0-20250416000000-8290325e5376
 	github.com/alitto/pond/v2 v2.3.2
 	github.com/aws/aws-sdk-go-v2 v1.32.3
 	github.com/aws/aws-sdk-go-v2/config v1.18.28
@@ -51,6 +50,7 @@ require (
 	k8s.io/client-go v0.32.1
 	k8s.io/code-generator v0.26.1
 	k8s.io/klog/v2 v2.130.1
+	olares.com/backups-sdk v0.0.0-20250416000000-8290325e5376
 	sigs.k8s.io/controller-runtime v0.12.2
 )
 
