@@ -18,6 +18,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+func TrimLineBreak(s string) string {
+	return strings.TrimRight(s, "\r\n")
+}
+
 func IsExist(path string) bool {
 	_, err := os.Stat(path)
 	if err != nil {

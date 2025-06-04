@@ -36,7 +36,7 @@ type BackupCreate struct {
 
 type BackupCreateType struct {
 	Type string `json:"type"` // app
-	Name string `json:"name"` // app name
+	Name string `json:"name"` // app name, like wise etc
 }
 
 func (b *BackupCreate) verify() error {
@@ -113,13 +113,11 @@ type CreateSnapshot struct {
 }
 
 type RestoreCreate struct {
-	BackupUrl     string `json:"backupUrl"`
-	BackupAppName string `json:"backupAppName"`
-	BackupType    string `json:"backupType"`
-	Password      string `json:"password"`
-	SnapshotId    string `json:"snapshotId"`
-	Path          string `json:"path"`
-	SubPath       string `json:"dir"`
+	BackupUrl  string `json:"backupUrl"`
+	Password   string `json:"password"`
+	SnapshotId string `json:"snapshotId"`
+	Path       string `json:"path"`
+	SubPath    string `json:"dir"`
 }
 
 type RestoreCheckBackupUrl struct {
@@ -130,26 +128,9 @@ type RestoreCheckBackupUrl struct {
 }
 
 func (r *RestoreCreate) verify() error {
-	var path = strings.TrimSpace(r.Path)
-	var subPath = strings.TrimSpace(r.SubPath)
 	var backupUrl = strings.TrimSpace(r.BackupUrl)
 	var snapshotId = strings.TrimSpace(r.SnapshotId)
 	var password = strings.TrimSpace(r.Password)
-	var backupType = strings.TrimSpace(r.BackupType)
-
-	if backupType == "" {
-		backupType = constant.BackupTypeFile
-	}
-
-	if backupType != constant.BackupTypeApp && backupType != constant.BackupTypeFile {
-		return fmt.Errorf("backup type invalid")
-	}
-
-	if backupType == constant.BackupTypeFile {
-		if path == "" || subPath == "" {
-			return fmt.Errorf("the restore target location must be specified")
-		}
-	}
 
 	if (backupUrl == "") == (snapshotId == "") {
 		return fmt.Errorf("snapshotId is required")
@@ -170,6 +151,7 @@ type ResponseBackupList struct {
 	Id                  string `json:"id"`
 	Name                string `json:"name"`
 	BackupType          string `json:"backupType"`
+	BackupAppTypeName   string `json:"backupAppTypeName,omitempty"`
 	SnapshotFrequency   string `json:"snapshotFrequency"`
 	Location            string `json:"location"`           // space, awss3, tencentcloud ...
 	LocationConfigName  string `json:"locationConfigName"` // olaresDid / cloudAccessKey
@@ -182,12 +164,13 @@ type ResponseBackupList struct {
 }
 
 type ResponseBackupDetail struct {
-	Id             string              `json:"id"`
-	Name           string              `json:"name"`
-	BackupType     string              `json:"backupType"`
-	Path           string              `json:"path"`
-	BackupPolicies *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
-	Size           string              `json:"size"`
+	Id                string              `json:"id"`
+	Name              string              `json:"name"`
+	BackupType        string              `json:"backupType"`
+	BackupAppTypeName string              `json:"backupAppTypeName,omitempty"`
+	Path              string              `json:"path"`
+	BackupPolicies    *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
+	Size              string              `json:"size"`
 }
 
 type ResponseSnapshotList struct {
@@ -208,26 +191,28 @@ type ResponseSnapshotDetail struct {
 }
 
 type ResponseRestoreDetail struct {
-	BackupName   string `json:"name"`
-	BackupPath   string `json:"backupPath"`
-	SnapshotTime int64  `json:"snapshotTime"`
-	RestorePath  string `json:"restorePath"`
-	Progress     int    `json:"progress,omitempty"`
-	Status       string `json:"status"`
-	EndAt        int64  `json:"endAt,omitempty"`
-	Message      string `json:"message"`
+	BackupName        string `json:"name"`
+	BackupPath        string `json:"backupPath"`
+	BackupAppTypeName string `json:"backupAppTypeName,omitempty"`
+	SnapshotTime      int64  `json:"snapshotTime"`
+	RestorePath       string `json:"restorePath"`
+	Progress          int    `json:"progress,omitempty"`
+	Status            string `json:"status"`
+	EndAt             int64  `json:"endAt,omitempty"`
+	Message           string `json:"message"`
 }
 
 type ResponseRestoreList struct {
-	Id           string  `json:"id"`
-	BackupName   string  `json:"name"`
-	BackupType   string  `json:"backupType"`
-	Path         string  `json:"path"`
-	CreateAt     int64   `json:"createAt"`     // restore createAt
-	SnapshotTime int64   `json:"snapshotTime"` // snapshotTime createAt
-	EndAt        int64   `json:"endAt"`
-	Status       string  `json:"status"`
-	Progress     float64 `json:"progress,omitempty"`
+	Id                string  `json:"id"`
+	BackupName        string  `json:"name"`
+	BackupType        string  `json:"backupType"`
+	BackupAppTypeName string  `json:"backupAppTypeName,omitempty"`
+	Path              string  `json:"path"`
+	CreateAt          int64   `json:"createAt"`     // restore createAt
+	SnapshotTime      int64   `json:"snapshotTime"` // snapshotTime createAt
+	EndAt             int64   `json:"endAt"`
+	Status            string  `json:"status"`
+	Progress          float64 `json:"progress,omitempty"`
 }
 
 type SnapshotDetails struct {
@@ -398,13 +383,18 @@ func parseResponseSnapshotDetail(snapshot *sysv1.Snapshot) *ResponseSnapshotDeta
 
 func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 	var backupType = handlers.GetBackupType(backup)
+	var backupAppTypeName string
+	if backupType == constant.BackupTypeApp {
+		backupAppTypeName = handlers.GetBackupAppName(backup)
+	}
 	return &ResponseBackupDetail{
-		Id:             backup.Name,
-		Name:           backup.Spec.Name,
-		BackupType:     backupType,
-		BackupPolicies: backup.Spec.BackupPolicy,
-		Path:           handlers.ParseBackupTypePath(backup.Spec.BackupType),
-		Size:           handlers.ParseSnapshotSize(backup.Spec.Size),
+		Id:                backup.Name,
+		Name:              backup.Spec.Name,
+		BackupType:        backupType,
+		BackupAppTypeName: backupAppTypeName,
+		BackupPolicies:    backup.Spec.BackupPolicy,
+		Path:              handlers.ParseBackupTypePath(backup.Spec.BackupType),
+		Size:              handlers.ParseSnapshotSize(backup.Spec.Size),
 	}
 }
 
@@ -424,6 +414,10 @@ func parseResponseBackupCreate(backup *sysv1.Backup) map[string]interface{} {
 
 	var nextBackupTimestamp = handlers.GetNextBackupTime(*backup.Spec.BackupPolicy)
 	var backupType = handlers.GetBackupType(backup)
+	if backupType == constant.BackupTypeApp {
+		var backupAppName = handlers.GetBackupAppName(backup)
+		data["backupAppTypeName"] = backupAppName
+	}
 
 	data["id"] = backup.Name
 	data["name"] = backup.Spec.Name
@@ -448,6 +442,11 @@ func parseResponseBackupOne(backup *sysv1.Backup, snapshot *sysv1.Snapshot) (map
 	}
 
 	backupType := handlers.GetBackupType(backup)
+	var backupAppTypeName string
+	if backupType == constant.BackupTypeApp {
+		backupAppTypeName = handlers.GetBackupAppName(backup)
+		result["backupAppTypeName"] = backupAppTypeName
+	}
 	location := locationConfig["location"]
 	locationConfigName := locationConfig["name"]
 	if location == constant.BackupLocationFileSystem.String() {
@@ -505,10 +504,15 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 		if location == constant.BackupLocationFileSystem.String() {
 			locationConfigName = locationConfig["path"]
 		}
+		var backupAppTypeName string
+		if backupType == constant.BackupTypeApp {
+			backupAppTypeName = handlers.GetBackupAppName(&backup)
+		}
 		var r = &ResponseBackupList{
 			Id:                  backup.Name,
 			Name:                backup.Spec.Name,
 			BackupType:          backupType,
+			BackupAppTypeName:   backupAppTypeName,
 			SnapshotFrequency:   handlers.ParseBackupSnapshotFrequency(backup.Spec.BackupPolicy.SnapshotFrequency),
 			NextBackupTimestamp: handlers.GetNextBackupTime(*backup.Spec.BackupPolicy),
 			CreateAt:            backup.Spec.CreateAt.Unix(),
@@ -554,15 +558,19 @@ func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
 
 func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseRestoreDetail, error) {
 	var result = &ResponseRestoreDetail{}
+	var backupType, _ = handlers.GetRestoreType(restore)
 
-	var restoreType = restore.Spec.RestoreType[constant.BackupTypeFile]
+	var restoreType = restore.Spec.RestoreType[backupType]
 
 	var typeMap map[string]interface{}
 	if err := json.Unmarshal([]byte(restoreType), &typeMap); err != nil {
 		return result, err
 	}
 
-	var backupName, backupPath, snapshotTime, restorePath string
+	var backupName, backupPath, snapshotTime, restorePath, backupAppTypeName string
+	if backupType == constant.BackupTypeApp {
+		backupAppTypeName = handlers.GetRestoreAppName(restore)
+	}
 
 	_, ok := typeMap["backupName"]
 	if ok {
@@ -585,12 +593,13 @@ func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseR
 	}
 
 	result = &ResponseRestoreDetail{
-		BackupName:   backupName,
-		BackupPath:   backupPath,
-		SnapshotTime: util.ParseToInt64(snapshotTime),
-		RestorePath:  restorePath,
-		Progress:     restore.Spec.Progress,
-		Status:       *restore.Spec.Phase,
+		BackupName:        backupName,
+		BackupPath:        backupPath,
+		BackupAppTypeName: backupAppTypeName,
+		SnapshotTime:      util.ParseToInt64(snapshotTime),
+		RestorePath:       restorePath,
+		Progress:          restore.Spec.Progress,
+		Status:            *restore.Spec.Phase,
 	}
 
 	if restore.Spec.EndAt != nil {
@@ -621,8 +630,14 @@ func parseResponseRestoreDetail(backup *sysv1.Backup, snapshot *sysv1.Snapshot, 
 }
 
 func parseResponseRestoreCreate(restore *sysv1.Restore, backupName, snapshotTime, restorePath string) map[string]interface{} {
-	var backupType, _ = handlers.GetRestoreType(restore)
 	var data = make(map[string]interface{})
+	var backupType, _ = handlers.GetRestoreType(restore)
+	var backupAppTypeName string
+	if backupType == constant.BackupTypeApp {
+		backupAppTypeName = handlers.GetRestoreAppName(restore)
+		data["backupAppTypeName"] = backupAppTypeName
+	}
+
 	data["id"] = restore.Name
 	data["name"] = backupName
 	data["backupType"] = backupType
@@ -636,7 +651,7 @@ func parseResponseRestoreCreate(restore *sysv1.Restore, backupName, snapshotTime
 	return data
 }
 
-func parseResponseRestoreOne(restore *sysv1.Restore, backupName string, snapshotTime string, restorePath string) map[string]interface{} {
+func parseResponseRestoreOne(restore *sysv1.Restore, backupAppTypeName string, backupName string, snapshotTime string, restorePath string) map[string]interface{} {
 	var res = make(map[string]interface{})
 
 	res["id"] = restore.Name
@@ -650,11 +665,14 @@ func parseResponseRestoreOne(restore *sysv1.Restore, backupName string, snapshot
 	if restore.Spec.EndAt != nil {
 		res["endAt"] = restore.Spec.EndAt.Unix()
 	}
+	if backupAppTypeName != "" {
+		res["backupAppTypeName"] = backupAppTypeName
+	}
 
 	return res
 }
 
-func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, backupTypeTag, location, userspacePath string, totalCount int64, totalPage int64) map[string]interface{} {
+func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, backupTypeTag, backupTypeAppName, location, userspacePath string, totalCount int64, totalPage int64) map[string]interface{} {
 	var result = make(map[string]interface{})
 	result["totalCount"] = totalCount
 	result["totalPage"] = totalPage
@@ -682,6 +700,10 @@ func parseCheckBackupUrl(snapshots *sysv1.SnapshotList, backupName, backupTypeTa
 	result["backupPath"] = backupPath
 	result["snapshots"] = items
 
+	if backupTypeTag == constant.BackupTypeApp {
+		result["backupTypeAppName"] = backupTypeAppName
+	}
+
 	return result
 }
 
@@ -700,6 +722,10 @@ func parseResponseRestoreList(data *sysv1.RestoreList, totalPage int64) map[stri
 		if err != nil {
 			continue
 		}
+		var backupAppTypeName string
+		if backupType == constant.BackupTypeApp {
+			backupAppTypeName = handlers.GetRestoreAppName(&restore)
+		}
 		d, err := handlers.ParseRestoreType(backupType, &restore)
 		if err != nil {
 			continue
@@ -707,13 +733,14 @@ func parseResponseRestoreList(data *sysv1.RestoreList, totalPage int64) map[stri
 
 		snapshotTime := time.Unix(util.ParseToInt64(d.SnapshotTime), 0)
 		var r = &ResponseRestoreList{
-			Id:           restore.Name,
-			BackupName:   d.BackupName,
-			BackupType:   backupType,
-			Path:         d.Path,
-			CreateAt:     restore.Spec.CreateAt.Unix(),
-			SnapshotTime: snapshotTime.Unix(),
-			Status:       *restore.Spec.Phase,
+			Id:                restore.Name,
+			BackupName:        d.BackupName,
+			BackupType:        backupType,
+			BackupAppTypeName: backupAppTypeName,
+			Path:              d.Path,
+			CreateAt:          restore.Spec.CreateAt.Unix(),
+			SnapshotTime:      snapshotTime.Unix(),
+			Status:            *restore.Spec.Phase,
 		}
 
 		if restore.Spec.EndAt != nil {

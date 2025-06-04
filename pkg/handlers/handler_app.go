@@ -25,6 +25,10 @@ const (
 	RestoreAppStatusPath = "{app}/backup/restore_status"
 )
 
+var appNameMap = map[string]string{
+	"wise": "knowledge",
+}
+
 type AppHandler struct {
 	name  string
 	owner string
@@ -40,7 +44,7 @@ func NewAppHandler(appName, owner string) *AppHandler {
 func (app *AppHandler) StartAppBackup(parentCtx context.Context, backupId, snapshotId string) error {
 	var ctx, cancel = context.WithTimeout(parentCtx, 15*time.Second)
 	defer cancel()
-	var appUrl = strings.ReplaceAll(BackupAppStartPath, "{app}", app.name)
+	var appUrl = strings.ReplaceAll(BackupAppStartPath, "{app}", getAppUrlName(app.name))
 	var url = fmt.Sprintf("http://%s/%s", BackupAppHost, appUrl)
 	var headers = map[string]string{
 		"X-BFL-USER": app.owner,
@@ -84,7 +88,7 @@ func (app *AppHandler) GetAppBackupStatus(parentCtx context.Context, backupId, s
 	defer cancel()
 
 	var result *BackupAppStatus
-	var appUrl = strings.ReplaceAll(BackupAppStatusPath, "{app}", app.name)
+	var appUrl = strings.ReplaceAll(BackupAppStatusPath, "{app}", getAppUrlName(app.name))
 	var url = fmt.Sprintf("http://%s/%s?backup_id=%s&snapshot_id=%s", BackupAppHost, appUrl, backupId, snapshotId)
 	var headers = map[string]string{
 		"X-BFL-USER": app.owner,
@@ -126,7 +130,7 @@ func (app *AppHandler) SendBackupResult(parentCtx context.Context, backupId, sna
 		status = constant.Failed.String()
 	}
 
-	var appUrl = strings.ReplaceAll(BackupAppResultPath, "{app}", app.name)
+	var appUrl = strings.ReplaceAll(BackupAppResultPath, "{app}", getAppUrlName(app.name))
 	var url = fmt.Sprintf("http://%s/%s", BackupAppHost, appUrl)
 	var headers = map[string]string{
 		"X-BFL-USER": app.owner,
@@ -160,7 +164,7 @@ func (app *AppHandler) StartAppRestore(parentCtx context.Context, restoreId stri
 
 	var ctx, cancel = context.WithTimeout(parentCtx, 15*time.Second)
 	defer cancel()
-	var appUrl = strings.ReplaceAll(RestoreAppStartPath, "{app}", app.name)
+	var appUrl = strings.ReplaceAll(RestoreAppStartPath, "{app}", getAppUrlName(app.name))
 	var url = fmt.Sprintf("http://%s/%s", BackupAppHost, appUrl)
 	var headers = map[string]string{
 		"X-BFL-USER": app.owner,
@@ -209,7 +213,7 @@ func (app *AppHandler) GetAppRestoreStatus(parentCtx context.Context, restoreId 
 	defer cancel()
 
 	var result *RestoreAppStatusData
-	var appUrl = strings.ReplaceAll(RestoreAppStatusPath, "{app}", app.name)
+	var appUrl = strings.ReplaceAll(RestoreAppStatusPath, "{app}", getAppUrlName(app.name))
 	var url = fmt.Sprintf("http://%s/%s?restore_id=%s", BackupAppHost, appUrl, restoreId)
 	var headers = map[string]string{
 		"X-BFL-USER": app.owner,
@@ -245,4 +249,8 @@ func (app *AppHandler) GetAppRestoreStatus(parentCtx context.Context, restoreId 
 	log.Infof("get app %s restore status, restoreId: %s, msg: %s", app.name, restoreId, string(resp.Body()))
 
 	return result, nil
+}
+
+func getAppUrlName(appName string) string {
+	return appNameMap[appName]
 }

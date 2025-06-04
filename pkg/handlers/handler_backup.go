@@ -173,7 +173,7 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 	return &backups.Items[0], nil
 }
 
-func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupType string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
+func (o *BackupHandler) Create(ctx context.Context, owner string, backupName string, backupPath string, backupType string, backupAppTypeName string, backupSpec *sysv1.BackupSpec) (*sysv1.Backup, error) {
 	backupName = strings.TrimSpace(backupName)
 	var backupId = uuid.NewUUID()
 RETRY:
@@ -186,6 +186,8 @@ RETRY:
 
 	if backupType == constant.BackupTypeFile {
 		labels["path"] = util.MD5(backupPath)
+	} else {
+		labels["appTypeName"] = backupAppTypeName
 	}
 
 	var backup = &sysv1.Backup{

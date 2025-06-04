@@ -56,6 +56,7 @@ type StorageBackup struct {
 	LastProgressTime    time.Time
 
 	BackupType           string
+	BackupAppTypeName    string
 	BackupAppStatus      *handlers.BackupAppStatus
 	BackupAppFiles       []string
 	BackupAppFilesPrefix string
@@ -67,6 +68,7 @@ type StorageBackup struct {
 type BackupParameters struct {
 	Password             string
 	Path                 string
+	SourcePath           string // file backup
 	Location             map[string]string
 	LocationInFileSystem string
 	SnapshotType         string
@@ -162,6 +164,9 @@ func (s *StorageBackup) checkBackupExists() error {
 	s.Backup = backup
 	s.Snapshot = snapshot
 	s.BackupType = handlers.GetBackupType(s.Backup)
+	if s.BackupType == constant.BackupTypeApp {
+		s.BackupAppTypeName = handlers.GetBackupAppName(s.Backup)
+	}
 
 	return nil
 }
@@ -206,6 +211,7 @@ func (s *StorageBackup) checkSnapshotType() error {
 
 func (s *StorageBackup) prepareBackupParams() error {
 	var external bool
+	var backupSourcePath string
 	var locationInFileSystem string
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
@@ -214,6 +220,8 @@ func (s *StorageBackup) prepareBackupParams() error {
 		log.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
 		return err
 	}
+
+	backupSourcePath = handlers.ParseBackupTypePath(s.Backup.Spec.BackupType)
 
 	location, err := handlers.GetBackupLocationConfig(s.Backup)
 	if err != nil {
@@ -251,6 +259,7 @@ func (s *StorageBackup) prepareBackupParams() error {
 
 	s.Params = &BackupParameters{
 		Path:                 backupPath,
+		SourcePath:           backupSourcePath,
 		Password:             password,
 		Location:             location,
 		LocationInFileSystem: locationInFileSystem,
@@ -367,6 +376,7 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 	var snapshotId = s.Snapshot.Name
 	var location = s.Params.Location["location"]
 	var backupType = s.BackupType
+	var backupAppTypeName = s.BackupAppTypeName
 
 	log.Infof("Backup %s,%s, location: %s, backupType: %s, prepare", backupName, snapshotId, location, backupType)
 
@@ -396,12 +406,14 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			LimitUploadRate: util.EnvOrDefault(constant.EnvLimitUploadRate, ""),
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password:   s.Params.Password,
-			Operator:   constant.StorageOperatorApp,
-			BackupType: backupType,
-			Ctx:        s.Ctx,
-			Logger:     logger,
-			Aws:        options.(*backupssdkoptions.AwsBackupOption),
+			Password:                 s.Params.Password,
+			Operator:                 constant.StorageOperatorApp,
+			BackupType:               backupType,
+			BackupAppTypeName:        backupAppTypeName,
+			BackupFileTypeSourcePath: s.Params.SourcePath,
+			Ctx:                      s.Ctx,
+			Logger:                   logger,
+			Aws:                      options.(*backupssdkoptions.AwsBackupOption),
 		})
 	case constant.BackupLocationTencentCloud.String():
 		token, err := s.getIntegrationCloud() // cos backup
@@ -422,12 +434,14 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			LimitUploadRate: util.EnvOrDefault(constant.EnvLimitUploadRate, ""),
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password:     s.Params.Password,
-			Operator:     constant.StorageOperatorApp,
-			BackupType:   backupType,
-			Ctx:          s.Ctx,
-			Logger:       logger,
-			TencentCloud: options.(*backupssdkoptions.TencentCloudBackupOption),
+			Password:                 s.Params.Password,
+			Operator:                 constant.StorageOperatorApp,
+			BackupType:               backupType,
+			BackupAppTypeName:        backupAppTypeName,
+			BackupFileTypeSourcePath: s.Params.SourcePath,
+			Ctx:                      s.Ctx,
+			Logger:                   logger,
+			TencentCloud:             options.(*backupssdkoptions.TencentCloudBackupOption),
 		})
 	case constant.BackupLocationFileSystem.String():
 		options = &backupssdkoptions.FilesystemBackupOption{
@@ -440,12 +454,14 @@ func (s *StorageBackup) execute() (backupOutput *backupssdkrestic.SummaryOutput,
 			Metadata:        s.BackupAppMetadata,
 		}
 		backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password:   s.Params.Password,
-			Operator:   constant.StorageOperatorApp,
-			BackupType: backupType,
-			Ctx:        s.Ctx,
-			Logger:     logger,
-			Filesystem: options.(*backupssdkoptions.FilesystemBackupOption),
+			Password:                 s.Params.Password,
+			Operator:                 constant.StorageOperatorApp,
+			BackupType:               backupType,
+			BackupAppTypeName:        backupAppTypeName,
+			BackupFileTypeSourcePath: s.Params.SourcePath,
+			Ctx:                      s.Ctx,
+			Logger:                   logger,
+			Filesystem:               options.(*backupssdkoptions.FilesystemBackupOption),
 		})
 	}
 
@@ -500,12 +516,14 @@ func (s *StorageBackup) backupToSpace() (backupOutput *backupssdkrestic.SummaryO
 		}
 
 		var backupService = backupssdk.NewBackupService(&backupssdkstorage.BackupOption{
-			Password:   s.Params.Password,
-			Operator:   constant.StorageOperatorApp,
-			BackupType: s.BackupType,
-			Ctx:        s.Ctx,
-			Logger:     log.GetLogger(),
-			Space:      spaceBackupOption.(*backupssdkoptions.SpaceBackupOption),
+			Password:                 s.Params.Password,
+			Operator:                 constant.StorageOperatorApp,
+			BackupType:               s.BackupType,
+			BackupAppTypeName:        s.BackupAppTypeName,
+			BackupFileTypeSourcePath: s.Params.SourcePath,
+			Ctx:                      s.Ctx,
+			Logger:                   log.GetLogger(),
+			Space:                    spaceBackupOption.(*backupssdkoptions.SpaceBackupOption),
 		})
 
 		// todo need to enhance
