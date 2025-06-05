@@ -454,7 +454,7 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String(), "backup canceled"); err != nil {
+	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String(), constant.MessageTaskCanceled); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "update snapshot %s Canceled error", snapshotId))
 		return
 	}

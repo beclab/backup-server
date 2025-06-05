@@ -239,7 +239,7 @@ func (w *WorkerPool) ExistsTask(owner string, backupId, snapshotId string) error
 	})
 
 	if snapshotExists {
-		return fmt.Errorf("the current snapshot task is still running or queued. the system will pause adding new tasks and automatically resume scheduling once the task is completed.")
+		return fmt.Errorf(constant.MessageTaskExists)
 	}
 
 	return nil

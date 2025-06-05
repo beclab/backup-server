@@ -67,7 +67,9 @@ const (
 )
 
 const (
-	MessageBackupServerRestart = "Backup service restarted, backup task terminated"
+	MessageBackupServerRestart = "Backup task terminated due to service restart."
+	MessageTaskCanceled        = "Task canceled."
+	MessageTaskExists          = "A snapshot task is currently running or queued."
 )
 
 type BackupLocation string

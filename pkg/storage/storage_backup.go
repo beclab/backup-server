@@ -829,15 +829,12 @@ func (s *StorageBackup) readyForBackupApp() error {
 		return nil
 	}
 
-	var ctx, cancel = context.WithTimeout(s.Ctx, 15*time.Second)
-	defer cancel()
-
 	var err error
 
 	var appName = handlers.GetBackupAppName(s.Backup)
 	var appHandler = handlers.NewAppHandler(appName, s.Backup.Spec.Owner)
 
-	err = appHandler.StartAppBackup(ctx, s.Backup.Name, s.Snapshot.Name)
+	err = appHandler.StartAppBackup(s.Ctx, s.Backup.Name, s.Snapshot.Name)
 	if err != nil {
 		log.Errorf("Backup %s,%s,%s, start app backup error: %v", s.Backup.Spec.Name, s.Snapshot.Name, appName, err)
 		return err
@@ -876,9 +873,8 @@ func (s *StorageBackup) readyForBackupApp() error {
 				s.BackupAppStatus = result
 				return nil
 			}
-
-		case <-ctx.Done():
-			if e := ctx.Err(); e != nil {
+		case <-s.Ctx.Done():
+			if e := s.Ctx.Err(); e != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
 					log.Errorf("Backup %s,%s,%s, start app backup timeout", s.Backup.Spec.Name, s.Snapshot.Name, appName)
 					return fmt.Errorf("app backup status timeout")

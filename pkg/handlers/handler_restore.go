@@ -239,9 +239,9 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 
 		switch phase {
 		case constant.Canceled:
-			r.Spec.Message = pointer.String("restore canceled")
+			r.Spec.Message = pointer.String(constant.MessageTaskCanceled)
 		case constant.Failed:
-			r.Spec.Message = pointer.String("backup service restarted, restoration task terminated")
+			r.Spec.Message = pointer.String(constant.MessageBackupServerRestart)
 		}
 
 		_, err = c.SysV1().Restores(constant.DefaultOsSystemNamespace).
