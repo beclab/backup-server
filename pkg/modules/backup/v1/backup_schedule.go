@@ -153,10 +153,14 @@ func (o *BackupPlan) apply(ctx context.Context) (*sysv1.Backup, error) {
 	}
 
 	backupType := getBackupType(o.c)
+	backupAppTypeName := ""
+	if o.c.BackupCreateType != nil {
+		backupAppTypeName = o.c.BackupCreateType.Name
+	}
 
 	log.Infof("merged backup spec: %s", util.ToJSON(backupSpec))
 
-	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupType, backupSpec)
+	backup, err := o.handler.GetBackupHandler().Create(ctx, o.owner, o.c.Name, o.c.Path, backupType, backupAppTypeName, backupSpec)
 	if err != nil {
 		return nil, err
 	}

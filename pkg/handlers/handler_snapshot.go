@@ -344,9 +344,10 @@ RETRY:
 	return nil
 }
 
-func (o *SnapshotHandler) SortSnapshotList(snapshots *restic.SnapshotList) (*sysv1.SnapshotList, string) {
+func (o *SnapshotHandler) SortSnapshotList(snapshots *restic.SnapshotList) (*sysv1.SnapshotList, string, string) {
 	var first = snapshots.First()
 	var backupTypeTag = GetBackupTypeFromTags(first.Tags)
+	var backupTypeAppName = GetBackupTypeAppName(first.Tags)
 
 	var result = &sysv1.SnapshotList{
 		TypeMeta: metav1.TypeMeta{
@@ -381,7 +382,7 @@ func (o *SnapshotHandler) SortSnapshotList(snapshots *restic.SnapshotList) (*sys
 		result.Items = append(result.Items, item)
 	}
 
-	return result, backupTypeTag
+	return result, backupTypeTag, backupTypeAppName
 }
 
 // --

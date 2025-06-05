@@ -17,6 +17,7 @@ import (
 	"olares.com/backup-server/pkg/storage"
 	"olares.com/backup-server/pkg/util"
 	"olares.com/backup-server/pkg/util/log"
+	backupssdkrestic "olares.com/backups-sdk/pkg/restic"
 )
 
 type Handler struct {
@@ -453,7 +454,7 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String(), "backup canceled"); err != nil {
+	if err := h.handler.GetSnapshotHandler().UpdatePhase(ctx, snapshotId, constant.Canceled.String(), constant.MessageTaskCanceled); err != nil {
 		response.HandleError(resp, errors.WithMessagef(err, "update snapshot %s Canceled error", snapshotId))
 		return
 	}
@@ -548,11 +549,11 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	items, backupTypeTag := h.handler.GetSnapshotHandler().SortSnapshotList(snapshots)
+	items, backupTypeTag, backupTypeAppName := h.handler.GetSnapshotHandler().SortSnapshotList(snapshots)
 
 	result, totalCount, totalPage := handlers.GenericPager(b.Limit, b.Offset, items)
 
-	response.Success(resp, parseCheckBackupUrl(result, urlInfo.BackupName, backupTypeTag, urlInfo.Location, urlInfo.PvcPath, totalCount, totalPage))
+	response.Success(resp, parseCheckBackupUrl(result, urlInfo.BackupName, backupTypeTag, backupTypeAppName, urlInfo.Location, urlInfo.PvcPath, totalCount, totalPage))
 }
 
 func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
@@ -578,10 +579,19 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	var backupType = GetBackupType(b.BackupType)
+	clusterId, err := handlers.GetClusterId()
+	if err != nil {
+		response.HandleError(resp, errors.Errorf("get clusterId error: %v", err))
+		return
+	}
+
 	var restoreTypeName = constant.RestoreTypeUrl
 	var backupId, backupName, snapshotId, resticSnapshotId, snapshotTime, backupPath, location string
 	var backupStorageInfo *handlers.RestoreBackupUrlDetail
+	var urlInfo *handlers.BackupUrlType
+	var getSnapshot *backupssdkrestic.Snapshot
+
+	var backupType, backupAppName string
 
 	if b.SnapshotId != "" {
 		snapshotId = b.SnapshotId
@@ -628,18 +638,50 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 			return
 		}
 
-		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, backupPath, location, err = handlers.ParseRestoreBackupUrlDetail(backupType, owner, string(u))
+		var urlDecode = util.TrimLineBreak(string(u))
+
+		urlInfo, err = handlers.ParseBackupUrl(owner, urlDecode)
 		if err != nil {
-			log.Errorf("parse BackupURL error: %v, url: %s", err, b.BackupUrl)
+			log.Errorf("parse BackupURL endpoint error: %v, url: %s", err, urlDecode)
+			response.HandleError(resp, errors.Errorf("parse backup url error: %v", err))
+			return
+		}
+		log.Infof("urlInfo: %s", util.ToJSON(urlInfo))
+
+		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, location, err = handlers.ParseRestoreBackupUrlDetail(owner, urlDecode)
+		if err != nil {
+			log.Errorf("parse BackupURL detail error: %v, url: %s", err, urlDecode)
 			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
 			return
 		}
+
+		log.Infof("storageInfo: %s", util.ToJSON(backupStorageInfo))
+
+		var storageSnapshots = &storage.StorageSnapshots{
+			Handlers: h.handler,
+		}
+
+		// check snapshot exists
+		getSnapshot, err = storageSnapshots.GetSnapshot(ctx, b.Password, owner, urlInfo.Location, urlInfo.Endpoint, urlInfo.BackupName, urlInfo.BackupId, resticSnapshotId, backupStorageInfo.CloudName, backupStorageInfo.RegionId, clusterId)
+		if err != nil {
+			log.Errorf("get snapshot error: %v", err)
+			response.HandleError(resp, err)
+			return
+		}
+
+		backupType = handlers.GetBackupTypeFromTags(getSnapshot.Tags)
+		if backupType == constant.BackupTypeApp {
+			backupAppName = handlers.GetBackupTypeAppName(getSnapshot.Tags)
+		} else {
+			backupPath = handlers.GetBackupTypeFilePath(getSnapshot.Tags)
+		}
 	}
 
-	clusterId, err := handlers.GetClusterId()
-	if err != nil {
-		response.HandleError(resp, errors.Errorf("get cluster id error: %v", err))
-		return
+	if backupType == constant.BackupTypeFile {
+		if b.Path == "" || b.SubPath == "" {
+			response.HandleError(resp, fmt.Errorf("path or subPath is empty"))
+			return
+		}
 	}
 
 	var restoreType = &handlers.RestoreType{
@@ -657,7 +699,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	if backupType == constant.BackupTypeApp {
-		restoreType.Name = b.BackupAppName
+		restoreType.Name = backupAppName
 	} else {
 		restoreType.Path = b.Path
 		restoreType.SubPath = strings.TrimSpace(b.SubPath)
@@ -721,13 +763,18 @@ func (h *Handler) getRestoreOne(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
+	var backupAppTypeName string
+	if backupType == constant.BackupTypeApp {
+		backupAppTypeName = handlers.GetRestoreAppName(restore)
+	}
+
 	restoreType, err := handlers.ParseRestoreType(backupType, restore)
 	if err != nil {
 		response.HandleError(resp, fmt.Errorf("parse %s restore type error: %v", restoreId, err))
 		return
 	}
 
-	response.Success(resp, parseResponseRestoreOne(restore, restoreType.BackupName, restoreType.SnapshotTime, restoreType.Path))
+	response.Success(resp, parseResponseRestoreOne(restore, backupAppTypeName, restoreType.BackupName, restoreType.SnapshotTime, restoreType.Path))
 }
 
 func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {

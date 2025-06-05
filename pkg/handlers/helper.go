@@ -474,7 +474,7 @@ func ParseBackupNameFromRestore(restore *sysv1.Restore) string {
 	return r.BackupName
 }
 
-func ParseRestoreBackupUrlDetail(backupType, owner, u string) (storage *RestoreBackupUrlDetail, backupName, backupId string, resticSnapshotId string, snapshotTime string, backupPath string, location string, err error) {
+func ParseRestoreBackupUrlDetail(owner, u string) (storage *RestoreBackupUrlDetail, backupName, backupId string, resticSnapshotId string, snapshotTime string, location string, err error) {
 	if u == "" {
 		err = fmt.Errorf("backupUrl is empty")
 		return
@@ -508,16 +508,6 @@ func ParseRestoreBackupUrlDetail(backupType, owner, u string) (storage *RestoreB
 	if snapshotTime = backupUrlType.Values.Get("snapshotTime"); snapshotTime == "" {
 		err = errors.WithStack(fmt.Errorf("snapshotTime is empty, backupUrl: %s", u))
 		return
-	}
-
-	if backupType == constant.BackupTypeFile {
-		if backupPath = backupUrlType.Values.Get("backupPath"); backupPath == "" {
-			err = errors.WithStack(fmt.Errorf("backupPath is empty, backupUrl: %s", u))
-			return
-		} else {
-			backupPathBytes, _ := util.Base64decode(backupPath)
-			backupPath = string(backupPathBytes)
-		}
 	}
 
 	location = backupUrlType.Location
@@ -598,7 +588,7 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 	var res = &BackupUrlType{
 		Schema:     u.Scheme,
 		Host:       u.Host,
-		Path:       u.Path,
+		Path:       strings.TrimRight(u.Path, "/"),
 		Values:     u.Query(),
 		Location:   location,
 		Endpoint:   repoInfo.Endpoint,
@@ -810,6 +800,57 @@ func GetBackupTypeFromTags(tags []string) (backupType string) {
 				break
 			}
 		}
+	}
+
+	return
+}
+
+func GetBackupTypeAppName(tags []string) (backupTypeAppName string) {
+	if tags == nil || len(tags) == 0 {
+		return
+	}
+	for _, tag := range tags {
+		e := strings.Index(tag, "=")
+		if e >= 0 {
+			if tag[:e] == "backup-app-type-name" {
+				backupTypeAppName = tag[e+1:]
+				break
+			}
+		}
+	}
+
+	if backupTypeAppName != "" {
+		tmp, err := util.Base64decode(backupTypeAppName)
+		if err != nil {
+			return ""
+		}
+		backupTypeAppName = string(tmp)
+	}
+
+	return
+}
+
+func GetBackupTypeFilePath(tags []string) (backupPath string) {
+	if tags == nil || len(tags) == 0 {
+		return
+	}
+
+	for _, tag := range tags {
+		e := strings.Index(tag, "=")
+		if e >= 0 {
+			if tag[:e] == "backup-path=" {
+				backupPath = tag[e+1:]
+				break
+			}
+		}
+	}
+
+	if backupPath != "" {
+		tmp, err := util.Base64decode(backupPath)
+		if err != nil {
+			return ""
+		}
+		backupPath = string(tmp)
 	}
 
 	return
