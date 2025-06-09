@@ -192,10 +192,11 @@ type ResponseSnapshotDetail struct {
 
 type ResponseRestoreDetail struct {
 	BackupName        string `json:"name"`
-	BackupPath        string `json:"backupPath"`
+	BackupPath        string `json:"backupPath,omitempty"`
+	BackupType        string `json:"backupType"`
 	BackupAppTypeName string `json:"backupAppTypeName,omitempty"`
 	SnapshotTime      int64  `json:"snapshotTime"`
-	RestorePath       string `json:"restorePath"`
+	RestorePath       string `json:"restorePath,omitempty"`
 	Progress          int    `json:"progress,omitempty"`
 	Status            string `json:"status"`
 	EndAt             int64  `json:"endAt,omitempty"`
@@ -595,6 +596,7 @@ func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseR
 	result = &ResponseRestoreDetail{
 		BackupName:        backupName,
 		BackupPath:        backupPath,
+		BackupType:        backupType,
 		BackupAppTypeName: backupAppTypeName,
 		SnapshotTime:      util.ParseToInt64(snapshotTime),
 		RestorePath:       restorePath,

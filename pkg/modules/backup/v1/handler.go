@@ -523,7 +523,7 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 	urlInfo, err := handlers.ParseBackupUrl(owner, b.BackupUrl)
 	if err != nil {
 		log.Errorf("parse backup url error: %v", err)
-		response.HandleError(resp, errors.Errorf("parse backup url error: %v", err))
+		response.HandleError(resp, errors.New(constant.MessageBackupUrlIncorrect))
 		return
 	}
 
@@ -545,7 +545,7 @@ func (h *Handler) checkBackupUrl(req *restful.Request, resp *restful.Response) {
 	}
 
 	if snapshots == nil || len(*snapshots) == 0 {
-		response.HandleError(resp, fmt.Errorf("snapshots not found"))
+		response.HandleError(resp, errors.New(constant.MessageBackupUrlIncorrect))
 		return
 	}
 
@@ -635,6 +635,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		u, err := util.Base64decode(b.BackupUrl)
 		if err != nil || string(u) == "" {
 			log.Errorf("parse BackupURL invalid, url: %s", b.BackupUrl)
+			response.HandleError(resp, errors.New(constant.MessageBackupUrlIncorrect))
 			return
 		}
 
@@ -643,7 +644,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		urlInfo, err = handlers.ParseBackupUrl(owner, urlDecode)
 		if err != nil {
 			log.Errorf("parse BackupURL endpoint error: %v, url: %s", err, urlDecode)
-			response.HandleError(resp, errors.Errorf("parse backup url error: %v", err))
+			response.HandleError(resp, errors.New(constant.MessageBackupUrlIncorrect))
 			return
 		}
 		log.Infof("urlInfo: %s", util.ToJSON(urlInfo))
@@ -651,7 +652,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		backupStorageInfo, backupName, backupId, resticSnapshotId, snapshotTime, location, err = handlers.ParseRestoreBackupUrlDetail(owner, urlDecode)
 		if err != nil {
 			log.Errorf("parse BackupURL detail error: %v, url: %s", err, urlDecode)
-			response.HandleError(resp, errors.Errorf("parse backupURL error: %v", err))
+			response.HandleError(resp, errors.New(constant.MessageBackupUrlIncorrect))
 			return
 		}
 

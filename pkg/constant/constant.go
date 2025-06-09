@@ -67,9 +67,13 @@ const (
 )
 
 const (
-	MessageBackupServerRestart = "Backup task terminated due to service restart."
-	MessageTaskCanceled        = "Task canceled."
-	MessageTaskExists          = "A snapshot task is currently running or queued."
+	MessageBackupServerRestart           = "Backup task terminated due to service restart."
+	MessageTaskCanceled                  = "Task canceled."
+	MessageTaskExists                    = "A snapshot task is currently running or queued."
+	MessageTokenExpired                  = "Access token expired. Please re-connect to your Olares Space in LarePass."
+	MessagePlanLevelFreeUser             = "Your current plan on Olares Space doesn't include the backup service. Upgrade now to enable it. Alternatively, you can connect and back up to your own AWS S3, Tencent COS, or a local disk."
+	MessagePlanLevelBackupSpaceForbidden = "Insufficient storage in Olares Space."
+	MessageBackupUrlIncorrect            = "Unable to locate the configuration file. Please provide the correct storage path."
 )
 
 type BackupLocation string
