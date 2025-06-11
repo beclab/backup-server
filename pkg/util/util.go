@@ -18,6 +18,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	DateFormat = "2006-01-02 15:04:05"
+)
+
 func TrimLineBreak(s string) string {
 	return strings.TrimRight(s, "\r\n")
 }
@@ -213,13 +217,12 @@ func ParseToCron(frequency, timesOfDay string, dayOfWeek int, dateOfMonth int) (
 }
 
 func ParseTimestampToLocal(value string) (string, error) {
-	var utcLocation, _ = time.LoadLocation("")
 	var v, err = strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		return "", err
 	}
 
-	var t = time.UnixMilli(v).In(utcLocation)
+	var t = time.UnixMilli(v)
 
 	var _, localoffset = time.Now().Zone()
 	var utcTime = t.Add(time.Duration(localoffset) * time.Second)
@@ -258,7 +261,7 @@ func IsTimestampNearingExpiration(targetTimestamp int64) bool {
 
 func ParseUnixMilliToDate(targetTimestamp int64) string {
 	t := time.UnixMilli(targetTimestamp)
-	return t.Format("2006-01-02 15:04:05")
+	return t.Format(DateFormat)
 }
 
 func ParseTimeText(timeStr string) int64 {
