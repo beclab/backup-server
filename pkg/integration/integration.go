@@ -182,6 +182,9 @@ func (i *Integration) ValidIntegrationNameByLocationName(ctx context.Context, ow
 }
 
 func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, location, bucket, region, prefix string) (string, error) {
+	if location == constant.BackupLocationFileSystem.String() {
+		return "", nil
+	}
 
 	accounts, err := i.queryIntegrationAccounts(ctx, owner)
 	if err != nil {

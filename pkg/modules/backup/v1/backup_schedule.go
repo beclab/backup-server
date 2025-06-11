@@ -251,7 +251,7 @@ func (o *BackupPlan) verifyUsage() error {
 
 	spaceToken, err := integration.IntegrationManager().GetIntegrationSpaceToken(context.Background(), o.owner, accountName)
 	if err != nil {
-		return errors.New("Access token expired. Please re-connect to your Olares Space in LarePass.")
+		return errors.New(constant.MessageTokenExpired)
 	}
 
 	spaceUsage, err := notify.CheckCloudStorageQuotaAndPermission(context.Background(), constant.SyncServerURL, spaceToken.OlaresDid, spaceToken.AccessToken)
@@ -260,11 +260,11 @@ func (o *BackupPlan) verifyUsage() error {
 	}
 
 	if spaceUsage.Data.PlanLevel == constant.FreeUser {
-		return errors.New("You are not currently subscribed to Olares Space.")
+		return errors.New(constant.MessagePlanLevelFreeUser)
 	}
 
 	if !spaceUsage.Data.CanBackup {
-		return errors.New("Insufficient storage in Olares Space.")
+		return errors.New(constant.MessagePlanLevelBackupSpaceForbidden)
 	}
 
 	return nil

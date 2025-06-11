@@ -84,8 +84,6 @@ func (app *AppHandler) StartAppBackup(parentCtx context.Context, backupId, snaps
 }
 
 func (app *AppHandler) GetAppBackupStatus(parentCtx context.Context, backupId, snapshotId string) (*BackupAppStatus, error) {
-	var ctx, cancel = context.WithTimeout(parentCtx, 15*time.Second)
-	defer cancel()
 
 	var result *BackupAppStatus
 	var appUrl = strings.ReplaceAll(BackupAppStatusPath, "{app}", getAppUrlName(app.name))
@@ -97,7 +95,7 @@ func (app *AppHandler) GetAppBackupStatus(parentCtx context.Context, backupId, s
 	client := resty.New().SetTimeout(15 * time.Second).SetDebug(true)
 
 	resp, err := client.R().
-		SetContext(ctx).
+		SetContext(parentCtx).
 		SetHeaders(headers).
 		SetResult(&result).
 		Get(url)
@@ -125,9 +123,11 @@ func (app *AppHandler) SendBackupResult(parentCtx context.Context, backupId, sna
 
 	var result *BackupAppResponse
 	var status = constant.Completed.String()
+	var msg string
 
 	if errorMessage != nil {
 		status = constant.Failed.String()
+		msg = errorMessage.Error()
 	}
 
 	var appUrl = strings.ReplaceAll(BackupAppResultPath, "{app}", getAppUrlName(app.name))
@@ -139,7 +139,7 @@ func (app *AppHandler) SendBackupResult(parentCtx context.Context, backupId, sna
 		"backup_id":   backupId,
 		"snapshot_id": snapshotId,
 		"status":      status,
-		"message":     errorMessage.Error(),
+		"message":     msg,
 	}
 
 	client := resty.New().SetTimeout(15 * time.Second).SetDebug(true)

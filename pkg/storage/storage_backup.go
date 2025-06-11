@@ -30,11 +30,6 @@ import (
 	"olares.com/backups-sdk/pkg/utils"
 )
 
-const (
-	ERR_SPACE_BACKUP_SUBSCRIPTION_INVALID = "You are not currently subscribed to the Backup To Space service; to use it, please subscribe first, or choose to back up to your own S3, Tencent COS storage service, or local disk"
-	ERR_SPACE_BACKUP_SPACE_INVALID        = "Your storage space is full and backups cannot continue. Please purchase additional storage to ensure backup tasks proceed normally"
-)
-
 type StorageBackup struct {
 	Handlers   handlers.Interface
 	SnapshotId string
@@ -212,6 +207,7 @@ func (s *StorageBackup) checkSnapshotType() error {
 func (s *StorageBackup) prepareBackupParams() error {
 	var external bool
 	var backupSourcePath string
+	var backupSourceRealPath string
 	var locationInFileSystem string
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
@@ -221,7 +217,15 @@ func (s *StorageBackup) prepareBackupParams() error {
 		return err
 	}
 
-	backupSourcePath = handlers.ParseBackupTypePath(s.Backup.Spec.BackupType)
+	if s.BackupType == constant.BackupTypeFile {
+		backupSourcePath = handlers.ParseBackupTypePath(s.Backup.Spec.BackupType)
+		_, backupSourceRealPath = handlers.TrimPathPrefix(backupSourcePath)
+		var filesPrefix []string = []string{
+			filepath.Join(s.UserspacePvcPath, backupSourceRealPath),
+		}
+		filesPrefixBytes, _ := json.Marshal(filesPrefix)
+		s.BackupAppFilesPrefix = string(filesPrefixBytes)
+	}
 
 	location, err := handlers.GetBackupLocationConfig(s.Backup)
 	if err != nil {
@@ -931,47 +935,67 @@ func (s *StorageBackup) formatAppBackupFiles() error {
 }
 
 func (s *StorageBackup) replaceFilePaths(fp string, replacedFilePathPrefix string, appendPrefix bool) error {
-	f, err := os.Open(fp)
+	tempFilePath := fp + ".tmp"
+
+	srcFile, err := os.Open(fp)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
+		return fmt.Errorf("failed to open source file: %v", err)
 	}
-	defer f.Close()
+	defer srcFile.Close()
 
-	var lines []string
+	dstFile, err := os.Create(tempFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file: %v", err)
+	}
 
-	scanner := bufio.NewScanner(f)
+	var maxScanTokenSize = 512 * 1024
+
+	writer := bufio.NewWriter(dstFile)
+
+	scanner := bufio.NewScanner(srcFile)
+
+	buf := make([]byte, maxScanTokenSize)
+	scanner.Buffer(buf, maxScanTokenSize)
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		var newLine string
+
 		if appendPrefix {
 			newLine = filepath.Join(replacedFilePathPrefix, line)
 		} else {
 			newLine = strings.ReplaceAll(line, replacedFilePathPrefix, "")
 		}
-		lines = append(lines, newLine)
-	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("failed to scan file: %v", err)
-	}
-
-	outFile, err := os.Create(fp)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %v", err)
-	}
-	defer outFile.Close()
-
-	writer := bufio.NewWriter(outFile)
-	for _, line := range lines {
-		_, err := writer.WriteString(line + "\n")
-		if err != nil {
+		if _, err := writer.WriteString(newLine + "\n"); err != nil {
+			writer.Flush()
+			dstFile.Close()
+			os.Remove(tempFilePath)
 			return fmt.Errorf("failed to write to file: %v", err)
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		writer.Flush()
+		dstFile.Close()
+		os.Remove(tempFilePath)
+		return fmt.Errorf("failed to scan file: %v", err)
+	}
+
 	if err := writer.Flush(); err != nil {
+		dstFile.Close()
+		os.Remove(tempFilePath)
 		return fmt.Errorf("failed to flush writer: %v", err)
+	}
+
+	if err := dstFile.Close(); err != nil {
+		os.Remove(tempFilePath)
+		return fmt.Errorf("failed to close destination file: %v", err)
+	}
+
+	if err := os.Rename(tempFilePath, fp); err != nil {
+		os.Remove(tempFilePath)
+		return fmt.Errorf("failed to replace original file: %v", err)
 	}
 
 	return nil
