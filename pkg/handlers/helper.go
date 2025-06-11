@@ -350,7 +350,8 @@ func GetNextBackupTime(bp sysv1.BackupPolicy) *int64 {
 }
 
 func getNextBackupTimeByDaily(hours, minutes int) time.Time {
-	var n = time.Now()
+	var utcLocation, _ = time.LoadLocation("")
+	var n = time.Now().In(utcLocation)
 
 	today := time.Date(n.Year(), n.Month(), n.Day(), hours, minutes, 0, 0, n.Location())
 
@@ -362,43 +363,51 @@ func getNextBackupTimeByDaily(hours, minutes int) time.Time {
 }
 
 func getNextBackupTimeByMonthly(hours, minutes int, day int) time.Time {
+	var fmtDate = "%d-%.2d-%.2d %.2d:%.2d:00"
+	var utcLocation, _ = time.LoadLocation("")
+	var n = time.Now().In(utcLocation)
 
-	var n = time.Now()
-	firstDayOfMonth := time.Date(n.Year(), n.Month(), 1, 0, 0, 0, 0, n.Location())
+	var year = n.Year()
+	var month = int(n.Month())
 
-	backupDay := firstDayOfMonth.AddDate(0, 0, day-1)
+	fDate, err := time.ParseInLocation(util.DateFormat, fmt.Sprintf(fmtDate, year, month, day, hours, minutes), utcLocation)
 
-	backupTime := time.Date(backupDay.Year(), backupDay.Month(), backupDay.Day(),
-		hours, minutes, 0, 0, n.Location())
-
-	if backupTime.Before(n) {
-		backupTime = backupTime.AddDate(0, 1, 0)
-	}
-
-	if backupTime.Day() != day {
-		nextMonth := backupTime.AddDate(0, 1, 0)
-		firstDayOfNextMonth := time.Date(nextMonth.Year(), nextMonth.Month(), 1, 0, 0, 0, 0, n.Location())
-		backupTime = firstDayOfNextMonth.AddDate(0, 0, day-1)
-
-		for backupTime.Day() != day {
-			nextMonth = backupTime.AddDate(0, 1, 0)
-			firstDayOfNextMonth = time.Date(nextMonth.Year(), nextMonth.Month(), 1, 0, 0, 0, 0, n.Location())
-			backupTime = firstDayOfNextMonth.AddDate(0, 0, day-1)
+	if fDate.Before(n) {
+		for {
+			month++
+			if month > 12 {
+				month = 1
+				year++
+			}
+			fDate, err = time.ParseInLocation(util.DateFormat, fmt.Sprintf(fmtDate, year, month, day, hours, minutes), utcLocation)
+			if err != nil {
+				continue
+			}
+			break
 		}
 	}
 
-	return backupTime
+	if hours >= 16 {
+		fDate = fDate.AddDate(0, 0, -1)
+	}
+
+	return fDate
 }
 
 func getNextBackupTimeByWeekly(hours, minutes int, weekly int) time.Time {
+	var utcLocation, _ = time.LoadLocation("")
 	weekly = weekly - 1
-	var n = time.Now()
+	var n = time.Now().In(utcLocation)
 	firstDayOfWeek := util.GetFirstDayOfWeek(n)
 
 	backupDay := firstDayOfWeek.AddDate(0, 0, weekly)
 
 	backupTime := time.Date(backupDay.Year(), backupDay.Month(), backupDay.Day(),
 		hours, minutes, 0, 0, n.Location())
+
+	if hours >= 16 {
+		backupTime = backupTime.AddDate(0, 0, -1)
+	}
 
 	if backupTime.Before(n) {
 		backupTime = backupTime.AddDate(0, 0, 7)
