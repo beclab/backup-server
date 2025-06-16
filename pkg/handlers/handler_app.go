@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	BackupAppHost = "rss-svc.os-system:3010"
+	BackupAppHost = "rss-svc.os-framework:3010"
 )
 
 const (

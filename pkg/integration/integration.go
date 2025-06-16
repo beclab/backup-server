@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -277,10 +278,7 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v", err))
 	}
 
-	headerNonce, err := i.getAppKey(ctx)
-	if err != nil {
-		return nil, errors.WithStack(fmt.Errorf("get header nonce error: %v", err))
-	}
+	headerNonce, _ := i.getAppKey()
 
 	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/all", ip)
 
@@ -324,10 +322,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v, location: %s, name: %s", err, integrationLocation, integrationName))
 	}
 
-	headerNonce, err := i.getAppKey(ctx)
-	if err != nil {
-		return nil, errors.WithStack(fmt.Errorf("get header nonce error: %v", err))
-	}
+	headerNonce, _ := i.getAppKey()
 
 	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/retrieve", ip)
 
@@ -419,29 +414,9 @@ func (i *Integration) getSettingsIP(ctx context.Context, onwer string) (ip strin
 	return podIp, nil
 }
 
-func (i *Integration) getAppKey(ctx context.Context) (string, error) {
-	kubeClient, err := i.Factory.KubeClient()
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-
-	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	secret, err := kubeClient.CoreV1().Secrets("os-system").Get(getCtx, "app-key", metav1.GetOptions{})
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-	if secret == nil || secret.Data == nil || len(secret.Data) == 0 {
-		return "", fmt.Errorf("secret not found")
-	}
-
-	key, ok := secret.Data["random-key"]
-	if !ok {
-		return "", fmt.Errorf("app key not found")
-	}
-
-	return string(key), nil
+func (i *Integration) getAppKey() (string, error) {
+	randomKey := os.Getenv("APP_RANDOM_KEY")
+	return randomKey, nil
 }
 
 func (i *Integration) formatUrl(location, name string) string {

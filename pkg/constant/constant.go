@@ -16,7 +16,7 @@ const (
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
 
-	DefaultOsSystemNamespace = "os-system"
+	DefaultOsSystemNamespace = "os-framework"
 
 	FullyBackup         string = "fully"
 	IncrementalBackup   string = "incremental"
