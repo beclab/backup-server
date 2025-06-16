@@ -22,7 +22,7 @@ kubectl apply -f ./config/crds/backup/v1/
 
 1. API Server
 ```bash
-backup-server apiserver --velero-namespace os-system \
+backup-server apiserver --velero-namespace os-platform \
   --velero-service-account os-internal \
   --backup-bucket olares-us-west-1 \
   --backup-key-prefix <userid>
@@ -30,7 +30,7 @@ backup-server apiserver --velero-namespace os-system \
 
 2. Controller
 ```bash
-backup-server controller --velero-namespace os-system \
+backup-server controller --velero-namespace os-platform \
   --velero-service-account os-internal \
   --backup-bucket olares-us-west-1 \
   --backup-key-prefix <userid> \
@@ -39,7 +39,7 @@ backup-server controller --velero-namespace os-system \
 
 3. VController
 ```bash
-backup-server vcontroller --velero-namespace os-system \
+backup-server vcontroller --velero-namespace os-platform \
   --velero-service-account os-internal
 ```
 
@@ -55,7 +55,7 @@ backup-sync --log-level debug --sync-interval "10"
 # create velero backup-location
 velero backup-location create olares-cloud \
   --provider olares \
-  --namespace os-system \
+  --namespace os-platform \
   --prefix "" \
   --bucket olares-cloud
 
@@ -63,7 +63,7 @@ velero backup-location create olares-cloud \
 # install velero plugin
 velero install \
   --no-default-backup-location \
-  --namespace os-system \
+  --namespace os-platform \
   --image beclab/velero:v1.11.1 \
   --use-volume-snapshots=false \
   --no-secret \

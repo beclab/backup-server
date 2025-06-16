@@ -63,54 +63,69 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 		return "1234", nil
 	}
 
-	settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
-	client := resty.New().SetTimeout(5 * time.Second).SetDebug(true)
-
-	req := &proxyRequest{
-		Op:       "getAccount",
-		DataType: "backupPassword",
-		Version:  "v1",
-		Group:    "service.settings",
-		Data:     backupName,
+	var pwdResp *passwordResponse
+	var backoff = wait.Backoff{
+		Duration: 2 * time.Second,
+		Factor:   2,
+		Jitter:   0.1,
+		Steps:    3,
 	}
 
-	backendTokenNonce, err := util.GetBackendToken("")
-	if err != nil {
-		log.Error("generate nonce error, ", err)
-		return "", errors.New("generate backup query nounce error")
-	}
+	if err := retry.OnError(backoff, func(err error) bool {
+		return true
+	}, func() error {
+		settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
+		client := resty.New().SetTimeout(15 * time.Second).SetDebug(true)
 
-	log.Info("fetch password from settings, ", settingsUrl)
-	resp, err := client.R().SetContext(ctx).
-		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader(constant.BackendTokenHeader, backendTokenNonce).
-		SetBody(req).
-		SetResult(&passwordResponse{}).
-		Post(settingsUrl)
-
-	if err != nil {
-		log.Error("request settings password api error, ", err)
-		return "", errors.New("get backup password error")
-	}
-
-	if resp.StatusCode() != http.StatusOK {
-		log.Error("request settings password api response not ok, ", resp.StatusCode())
-		return "", fmt.Errorf("get backup password failed, http status code: %d", resp.StatusCode())
-	}
-
-	pwdResp := resp.Result().(*passwordResponse)
-	log.Infof("settings password api response, %+v", pwdResp)
-	if pwdResp.Code != 0 {
-		log.Error("request settings password api response error, ", pwdResp.Code, ", ", pwdResp.Message)
-		if strings.Contains(pwdResp.Header.Message, "Secret not found") {
-			return "", fmt.Errorf("get backup password failed, code: %d, message: password not found", pwdResp.Header.Code)
+		req := &proxyRequest{
+			Op:       "getAccount",
+			DataType: "backupPassword",
+			Version:  "v1",
+			Group:    "service.settings",
+			Data:     backupName,
 		}
-		return "", fmt.Errorf("get backup password failed, code: %d, message: %s", pwdResp.Header.Code, pwdResp.Header.Message)
-	}
 
-	if pwdResp.Data == nil {
-		log.Error("request settings password api response data is nil, ", pwdResp.Code, ", ", pwdResp.Message)
-		return "", fmt.Errorf("get backup password, not exists")
+		backendTokenNonce, err := util.GetBackendToken("")
+		if err != nil {
+			log.Error("generate nonce error, ", err)
+			return errors.New("generate backup query nounce error")
+		}
+
+		log.Info("fetch password from settings, ", settingsUrl)
+		resp, err := client.R().SetContext(ctx).
+			SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
+			SetHeader(constant.BackendTokenHeader, backendTokenNonce).
+			SetBody(req).
+			SetResult(&passwordResponse{}).
+			Post(settingsUrl)
+
+		if err != nil {
+			log.Error("request settings password api error, ", err)
+			return errors.New("get backup password error")
+		}
+
+		if resp.StatusCode() != http.StatusOK {
+			log.Error("request settings password api response not ok, ", resp.StatusCode())
+			return fmt.Errorf("get backup password failed, http status code: %d", resp.StatusCode())
+		}
+
+		pwdResp = resp.Result().(*passwordResponse)
+		log.Infof("settings password api response, %+v", pwdResp)
+		if pwdResp.Code != 0 {
+			log.Error("request settings password api response error, ", pwdResp.Code, ", ", pwdResp.Message)
+			if strings.Contains(pwdResp.Header.Message, "Secret not found") {
+				return fmt.Errorf("get backup password failed, code: %d, message: password not found", pwdResp.Header.Code)
+			}
+			return fmt.Errorf("get backup password failed, code: %d, message: %s", pwdResp.Header.Code, pwdResp.Header.Message)
+		}
+
+		if pwdResp.Data == nil {
+			log.Error("request settings password api response data is nil, ", pwdResp.Code, ", ", pwdResp.Message)
+			return fmt.Errorf("get backup password, not exists")
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
 
 	return pwdResp.Data.Value, nil
