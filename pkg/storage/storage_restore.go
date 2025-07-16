@@ -19,6 +19,7 @@ import (
 	"olares.com/backup-server/pkg/util"
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/util/pointer"
+	"olares.com/backup-server/pkg/watchers"
 	backupssdk "olares.com/backups-sdk"
 
 	backupssdkoptions "olares.com/backups-sdk/pkg/options"
@@ -251,12 +252,14 @@ func (s *StorageRestore) prepareRestoreParams() error {
 }
 
 func (s *StorageRestore) prepareForRun() error {
-	s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
+	var data = map[string]interface{}{
 		"id":       s.Restore.Name,
+		"type":     constant.MessageTypeRestore,
 		"progress": 0,
 		"status":   constant.Running.String(),
 		"message":  "",
-	})
+	}
+	watchers.DataSender.Send(s.RestoreType.Owner, data)
 
 	return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
 }
@@ -277,12 +280,14 @@ func (s *StorageRestore) progressCallback(percentDone float64) {
 
 		s.Handlers.GetRestoreHandler().UpdateProgress(s.Ctx, s.RestoreId, percent)
 
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
+		var data = map[string]interface{}{
 			"id":       s.RestoreId,
+			"type":     constant.MessageTypeRestore,
 			"progress": percent,
 			"status":   constant.Running.String(),
 			"message":  "",
-		})
+		}
+		watchers.DataSender.Send(s.RestoreType.Owner, data)
 	}
 }
 
@@ -492,13 +497,16 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput map[string]*backupssd
 			restore.Spec.Extra = extra
 			restore.Spec.EndAt = pointer.Time()
 
-			s.Handlers.GetNotification().Send(s.Ctx, constant.EventRestore, s.RestoreType.Owner, "restore running", map[string]interface{}{
+			var data = map[string]interface{}{
 				"id":       s.Restore.Name,
+				"type":     constant.MessageTypeRestore,
 				"progress": notifyProgress,
 				"endat":    restore.Spec.EndAt.Unix(),
 				"status":   phase,
 				"message":  msg,
-			})
+			}
+
+			watchers.DataSender.Send(s.RestoreType.Owner, data)
 
 			if err = s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec); err != nil {
 				return false, err

@@ -22,6 +22,7 @@ import (
 	"olares.com/backup-server/pkg/util"
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/util/pointer"
+	"olares.com/backup-server/pkg/watchers"
 	backupssdk "olares.com/backups-sdk"
 	backupssdkoptions "olares.com/backups-sdk/pkg/options"
 	backupssdkrestic "olares.com/backups-sdk/pkg/restic"
@@ -317,15 +318,16 @@ func (s *StorageBackup) checkDiskSize() error {
 }
 
 func (s *StorageBackup) prepareForRun() error {
-
-	s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+	var data = map[string]interface{}{
 		"id":       s.Snapshot.Name,
+		"type":     constant.MessageTypeBackup,
 		"backupId": s.Backup.Name,
 		"progress": 0,
 		"size":     "0",
 		"status":   constant.Running.String(),
 		"message":  "",
-	})
+	}
+	watchers.DataSender.Send(s.Backup.Spec.Owner, data)
 
 	return s.Handlers.GetSnapshotHandler().UpdatePhase(s.Ctx, s.Snapshot.Name, constant.Running.String(), "Backup start running")
 }
@@ -344,13 +346,15 @@ func (s *StorageBackup) progressCallback(percentDone float64) {
 		percent = progressDone - 1
 		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
 
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+		var data = map[string]interface{}{
 			"id":       s.Snapshot.Name,
+			"type":     constant.MessageTypeBackup,
 			"backupId": s.Backup.Name,
 			"progress": percent,
 			"status":   constant.Running.String(),
 			"message":  "",
-		})
+		}
+		watchers.DataSender.Send(s.Backup.Spec.Owner, data)
 
 		return
 	}
@@ -361,13 +365,15 @@ func (s *StorageBackup) progressCallback(percentDone float64) {
 
 		s.Handlers.GetSnapshotHandler().UpdateProgress(s.Ctx, s.SnapshotId, percent)
 
-		s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", map[string]interface{}{
+		var data = map[string]interface{}{
 			"id":       s.Snapshot.Name,
+			"type":     constant.MessageTypeBackup,
 			"backupId": s.Backup.Name,
 			"progress": percent,
 			"status":   constant.Running.String(),
 			"message":  "",
-		})
+		}
+		watchers.DataSender.Send(s.Backup.Spec.Owner, data)
 	}
 }
 
@@ -672,6 +678,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 
 			var eventData = make(map[string]interface{})
 			eventData["id"] = s.Snapshot.Name
+			eventData["type"] = constant.MessageTypeBackup
 			eventData["backupId"] = s.Backup.Name
 			eventData["endat"] = endAt.Unix()
 
@@ -732,7 +739,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 				}
 			}
 
-			s.Handlers.GetNotification().Send(s.Ctx, constant.EventBackup, s.Backup.Spec.Owner, "backup running", eventData)
+			watchers.DataSender.Send(s.Backup.Spec.Owner, eventData)
 
 			err = s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
 			if err != nil {

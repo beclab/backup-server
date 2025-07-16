@@ -12,6 +12,7 @@ import (
 	"olares.com/backup-server/pkg/handlers"
 	"olares.com/backup-server/pkg/storage"
 	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/watchers"
 )
 
 var workerPool *WorkerPool
@@ -355,20 +356,24 @@ func (w *WorkerPool) CancelRestore(owner, restoreId string) {
 }
 
 func (w *WorkerPool) sendBackupCanceledEvent(owner string, backupId string, snapshotId string) {
-	w.handlers.GetNotification().Send(w.ctx, constant.EventBackup, owner, "backup canceled", map[string]interface{}{
+	var data = map[string]interface{}{
 		"id":       snapshotId,
+		"type":     constant.MessageTypeBackup,
 		"backupId": backupId,
 		"endat":    time.Now().Unix(),
 		"status":   constant.Canceled.String(),
 		"message":  "",
-	})
+	}
+	watchers.DataSender.Send(owner, data)
 }
 
 func (w *WorkerPool) sendRestoreCanceledEvent(owner string, restoreId string) {
-	w.handlers.GetNotification().Send(w.ctx, constant.EventRestore, owner, "restore canceled", map[string]interface{}{
+	var data = map[string]interface{}{
 		"id":      restoreId,
+		"type":    constant.MessageTypeRestore,
 		"endat":   time.Now().Unix(),
 		"status":  constant.Canceled.String(),
 		"message": "",
-	})
+	}
+	watchers.DataSender.Send(owner, data)
 }
