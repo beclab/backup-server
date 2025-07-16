@@ -203,7 +203,7 @@ func ParseToCron(frequency, timesOfDay string, dayOfWeek int, dateOfMonth int) (
 	case "@daily":
 		cron = minuteHour + " * * *"
 	case "@weekly":
-		cron = minuteHour + " * * " + strconv.Itoa(dayOfWeek)
+		cron = minuteHour + " * * " + strconv.Itoa(dayOfWeek-1)
 	case "@monthly":
 		cron = minuteHour + fmt.Sprintf(" %s * *", strconv.Itoa(dateOfMonth))
 	case "@yearly":

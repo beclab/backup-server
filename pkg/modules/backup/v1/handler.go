@@ -697,6 +697,7 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 		ResticSnapshotId: resticSnapshotId,
 		ClusterId:        clusterId, // backupUrl is nil
 		Location:         location,
+		Endpoint:         urlInfo.Endpoint,
 	}
 
 	if backupType == constant.BackupTypeApp {

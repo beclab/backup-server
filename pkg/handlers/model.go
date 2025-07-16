@@ -32,6 +32,7 @@ type RestoreType struct {
 	ResticSnapshotId string                  `json:"resticSnapshotId"`
 	ClusterId        string                  `json:"clusterId"`
 	Location         string                  `json:"location"`
+	Endpoint         string                  `json:"endpoint"`
 	BackupUrl        *RestoreBackupUrlDetail `json:"backupUrl"`
 }
 

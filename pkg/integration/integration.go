@@ -220,7 +220,7 @@ func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, l
 				if err != nil {
 					return "", err
 				}
-				if tokenInfo.Bucket == bucket && tokenInfo.Region == region && tokenInfo.Prefix == prefix {
+				if tokenInfo.Bucket == bucket && tokenInfo.Region == region { // && tokenInfo.Prefix == prefix
 					name = account.Name
 					break
 				}
@@ -233,7 +233,7 @@ func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, l
 				if err != nil {
 					return "", err
 				}
-				if tokenInfo.Bucket == bucket && tokenInfo.Region == region && tokenInfo.Prefix == strings.TrimRight(prefix, "/") {
+				if tokenInfo.Bucket == bucket && tokenInfo.Region == region { // && tokenInfo.Prefix == strings.TrimRight(prefix, "/")
 					name = account.Name
 					break
 				}

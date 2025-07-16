@@ -197,7 +197,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		}
 	} else {
 		// ~ backupUrl
-		log.Infof("restore from backupUrl, ready to get integration token, owner: %s, location: %s", s.RestoreType.Owner, s.RestoreType.Location)
+		log.Infof("restore from backupUrl, ready to get integration token, owner: %s, location: %s, prefix: %s", s.RestoreType.Owner, s.RestoreType.Location, s.RestoreType.BackupUrl.Prefix)
 		integrationName, err := integration.IntegrationManager().GetIntegrationNameByLocation(s.Ctx,
 			s.RestoreType.Owner,
 			s.RestoreType.Location,
@@ -317,8 +317,8 @@ func (s *StorageRestore) execute() (restoreOutput map[string]*backupssdkrestic.R
 				RepoId:            backupId,
 				RepoName:          backupName,
 				SnapshotId:        resticSnapshotId,
-				Path:              s.Params.Path, // restore to
-				Endpoint:          token.Endpoint,
+				Path:              s.Params.Path,
+				Endpoint:          s.RestoreType.Endpoint,
 				AccessKey:         token.AccessKey,
 				SecretAccessKey:   token.SecretKey,
 				LimitDownloadRate: util.EnvOrDefault(constant.EnvLimitDownloadRate, ""),
@@ -340,7 +340,7 @@ func (s *StorageRestore) execute() (restoreOutput map[string]*backupssdkrestic.R
 				RepoName:          backupName,
 				SnapshotId:        resticSnapshotId,
 				Path:              s.Params.Path,
-				Endpoint:          token.Endpoint,
+				Endpoint:          s.RestoreType.Endpoint,
 				AccessKey:         token.AccessKey,
 				SecretAccessKey:   token.SecretKey,
 				LimitDownloadRate: util.EnvOrDefault(constant.EnvLimitDownloadRate, ""),

@@ -16,7 +16,7 @@ replace (
 	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20220627174259-011e075b9cb8
 	k8s.io/kubectl => k8s.io/kubectl v0.24.2
 	k8s.io/utils => k8s.io/utils v0.0.0-20220210201930-3a6ce19ff2f9
-	olares.com/backups-sdk => github.com/Above-Os/backups-sdk v0.1.31
+	olares.com/backups-sdk => github.com/Above-Os/backups-sdk v0.1.32
 	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.12.2
 	sigs.k8s.io/json => sigs.k8s.io/json v0.0.0-20211208200746-9f7c6b3444d2
 	sigs.k8s.io/kustomize/api => sigs.k8s.io/kustomize/api v0.11.4
@@ -36,6 +36,7 @@ require (
 	github.com/emicklei/go-restful-openapi/v2 v2.9.1
 	github.com/emicklei/go-restful/v3 v3.12.1
 	github.com/go-openapi/spec v0.20.7
+	github.com/go-playground/assert/v2 v2.2.0
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
 	github.com/lithammer/dedent v1.1.0

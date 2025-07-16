@@ -74,23 +74,42 @@ func FormatCosByRawUrl(rawurl string) (*RepositoryInfo, error) {
 	var path = u.Path
 
 	var hosts = strings.Split(host, ".")
-	if len(hosts) != 4 {
+	if len(hosts) != 4 && len(hosts) != 5 {
 		return nil, fmt.Errorf("invalid cos host: %s", host)
 	}
-	if hosts[0] != "cos" {
-		return nil, fmt.Errorf("invalid cos host: %s", host)
-	}
-	region = hosts[1]
+
+	// if hosts[0] != "cos" {
+	// 	return nil, fmt.Errorf("invalid cos host: %s", host)
+	// }
+
+	// region = hosts[1]
 
 	var p = strings.TrimPrefix(path, "/")
 	var pt = strings.Split(p, "/")
 	if pt == nil || len(pt) == 0 {
 		return nil, fmt.Errorf("invalid cos path: %s", path)
 	}
-	bucket = pt[0]
-	if len(pt) > 1 {
+
+	if len(hosts) == 4 {
+		bucket = pt[0]
+		region = hosts[1]
+		// if len(pt) > 1 {
 		prefix = strings.Join(pt[1:], "/")
+		// }
+	} else {
+		bucket = hosts[0]
+		region = hosts[2]
+		// if len(pt) > 0 {
+		prefix = strings.Join(pt[0:], "/")
+		// }
 	}
+
+	// bucket = pt[0]
+	// if len(hosts) == 4 {
+
+	// } else {
+
+	// }
 
 	if prefix != "" {
 		endpoint = fmt.Sprintf("%s://cos.%s.myqcloud.com/%s/%s", schema, region, bucket, strings.TrimRight(prefix, "/"))
@@ -111,22 +130,36 @@ func FormatCos(schema, host, path string) (*RepositoryInfo, error) {
 	var region, bucket, prefix, endpoint string
 
 	var hosts = strings.Split(host, ".")
-	if len(hosts) != 4 {
+	if len(hosts) != 4 && len(hosts) != 5 {
 		return nil, fmt.Errorf("invalid cos host: %s", host)
 	}
-	if hosts[0] != "cos" {
-		return nil, fmt.Errorf("invalid cos host: %s", host)
-	}
-	region = hosts[1]
+
+	// if hosts[0] != "cos" {
+	// 	return nil, fmt.Errorf("invalid cos host: %s", host)
+	// }
 
 	var p = strings.TrimPrefix(path, "/")
 	var pt = strings.Split(p, "/")
 	if pt == nil || len(pt) == 0 {
 		return nil, fmt.Errorf("invalid cos path: %s", path)
 	}
-	bucket = pt[0]
-	if len(pt) > 1 {
-		prefix = strings.Join(pt[1:], "/")
+
+	if len(hosts) == 4 {
+		if len(pt) > 1 {
+			prefix = strings.Join(pt[1:], "/")
+		}
+	} else {
+		if len(pt) > 0 {
+			prefix = strings.Join(pt[0:], "/")
+		}
+	}
+
+	if len(hosts) == 4 {
+		bucket = pt[0]
+		region = hosts[1]
+	} else {
+		bucket = hosts[0]
+		region = hosts[2]
 	}
 
 	if prefix != "" {
