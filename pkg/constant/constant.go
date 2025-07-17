@@ -39,6 +39,7 @@ const (
 	BackupPause  string = "pause"
 	BackupResume string = "resume"
 	BackupCancel string = "cancel"
+	BackupDelete string = "delete"
 
 	BackupAppStatusPreparing string = "preparing"
 	BackupAppStatusRunning   string = "running"
@@ -161,6 +162,7 @@ const (
 	Completed Phase = "Completed"
 	Canceled  Phase = "Canceled"
 	Rejected  Phase = "Rejected"
+	Deleted   Phase = "Deleted"
 )
 
 const (

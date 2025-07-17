@@ -784,7 +784,7 @@ func (h *Handler) getRestoreOne(req *restful.Request, resp *restful.Response) {
 func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 	var (
 		err error
-		b   RestoreCancel
+		b   RestoreCancel // support cancel, delete
 	)
 
 	if err = req.ReadEntity(&b); err != nil {
@@ -792,14 +792,13 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	if b.Event != constant.BackupCancel {
+	if b.Event != constant.BackupCancel && b.Event != constant.BackupDelete {
 		response.HandleError(resp, errors.WithMessagef(err, "restore event invalid, event: %s", b.Event))
 		return
 	}
 
 	ctx := req.Request.Context()
 	restoreId := req.PathParameter("id")
-	_ = ctx
 
 	log.Debugf("restore: %s, event: %s", restoreId, b.Event)
 
@@ -816,16 +815,18 @@ func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
 
 	var phase = *restore.Spec.Phase
 	if util.ListContains([]string{
-		constant.Failed.String(), constant.Completed.String()}, phase) {
-		log.Infof("restore %s phase %s no need to Cancel", restoreId, phase)
-		response.SuccessNoData(resp)
-		return
+		constant.Pending.String(), constant.Running.String()}, phase) {
+		if err := h.handler.GetRestoreHandler().UpdatePhase(ctx, restoreId, constant.Canceled.String()); err != nil {
+			response.HandleError(resp, errors.WithMessagef(err, "cancel restore %s error", restoreId))
+			return
+		}
 	}
 
-	// TODO
-	if err := h.handler.GetRestoreHandler().UpdatePhase(ctx, restoreId, constant.Canceled.String()); err != nil {
-		response.HandleError(resp, errors.WithMessagef(err, "update restore %s Canceled error", restoreId))
-		return
+	if b.Event == constant.BackupDelete {
+		if err := h.handler.GetRestoreHandler().UpdatePhase(ctx, restoreId, constant.Deleted.String()); err != nil {
+			response.HandleError(resp, errors.WithMessagef(err, "delete restore %s error", restoreId))
+			return
+		}
 	}
 
 	response.SuccessNoData(resp)
