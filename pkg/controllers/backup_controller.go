@@ -144,7 +144,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				if flag {
 					return true
 				}
-				return false
+				return r.isPolicyUpdated(bc1, bc2)
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit backup delete event")
@@ -186,6 +186,10 @@ func (r *BackupReconciler) isSizeUpdated(oldBackupSpec, newBackupSpec *sysv1.Bac
 	}
 
 	return false, nil
+}
+
+func (r *BackupReconciler) isPolicyUpdated(oldBackupSpec, newBackupSpec *sysv1.Backup) bool {
+	return reflect.DeepEqual(oldBackupSpec.Spec.BackupPolicy, newBackupSpec.Spec.BackupPolicy)
 }
 
 func (r *BackupReconciler) reconcileBackupPolicies(backup *sysv1.Backup) error {
