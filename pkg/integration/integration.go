@@ -317,10 +317,7 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 }
 
 func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
-	ip, err := i.getSettingsIP(ctx, owner)
-	if err != nil {
-		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v, location: %s, name: %s", err, integrationLocation, integrationName))
-	}
+	ip := "system-server.user-system-" + owner
 
 	headerNonce, _ := i.getAppKey()
 
