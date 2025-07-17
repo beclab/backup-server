@@ -862,7 +862,7 @@ func GetBackupTypeFilePath(tags []string) (backupPath string) {
 	for _, tag := range tags {
 		e := strings.Index(tag, "=")
 		if e >= 0 {
-			if tag[:e] == "backup-path=" {
+			if tag[:e] == "backup-path" {
 				backupPath = tag[e+1:]
 				break
 			}
