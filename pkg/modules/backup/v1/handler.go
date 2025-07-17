@@ -670,6 +670,8 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 			return
 		}
 
+		log.Infof("add restore, get snapshot data: %s", util.ToJSON(getSnapshot))
+
 		backupType = handlers.GetBackupTypeFromTags(getSnapshot.Tags)
 		if backupType == constant.BackupTypeApp {
 			backupAppName = handlers.GetBackupTypeAppName(getSnapshot.Tags)
