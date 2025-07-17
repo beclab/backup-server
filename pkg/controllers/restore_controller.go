@@ -133,6 +133,10 @@ func (r *RestoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					worker.GetWorkerPool().CancelRestore(newRestore.Spec.Owner, newRestore.Name)
 				}
 
+				if *newRestore.Spec.Phase == constant.Deleted.String() {
+					r.handler.GetRestoreHandler().DeleteRestore(newRestore.Name)
+				}
+
 				return false
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {

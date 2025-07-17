@@ -64,6 +64,10 @@ func (o *RestoreHandler) UpdatePhase(ctx context.Context, restoreId string, phas
 	return o.Update(ctx, restoreId, &restore.Spec)
 }
 
+func (o *RestoreHandler) DeleteRestore(restoreId string) error {
+	return o.Delete(context.Background(), restoreId)
+}
+
 func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, offset int64, limit int64) (*sysv1.RestoreList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
@@ -161,6 +165,30 @@ RETRY:
 		goto RETRY
 	} else if err != nil {
 		return errors.WithStack(fmt.Errorf("update restore error: %v", err))
+	}
+
+	return nil
+}
+
+func (o *RestoreHandler) Delete(ctx context.Context, restoreId string) error {
+	sc, err := o.factory.Sysv1Client()
+	if err != nil {
+		return err
+	}
+
+	_, err = o.GetRestore(ctx, restoreId)
+	if err != nil {
+		return err
+	}
+
+RETRY:
+	err = sc.SysV1().Restores(constant.DefaultOsSystemNamespace).Delete(ctx, restoreId, metav1.DeleteOptions{})
+
+	if err != nil && apierrors.IsConflict(err) {
+		log.Warnf("delete restore %s spec retry", restoreId)
+		goto RETRY
+	} else if err != nil {
+		return errors.WithStack(fmt.Errorf("delete restore error: %v", err))
 	}
 
 	return nil
