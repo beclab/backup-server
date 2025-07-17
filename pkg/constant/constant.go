@@ -65,6 +65,9 @@ const (
 	EnvLimitDownloadRate = "LIMIT_DOWNLOAD_RATE"
 
 	FreeSpaceStorage uint64 = 2 * 1024 * 1024 * 1024
+
+	MessageTypeBackup  = "backup"
+	MessageTypeRestore = "restore"
 )
 
 const (

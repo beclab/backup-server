@@ -22,6 +22,7 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	//ws.Consumes(restful.MIME_JSON)
 	ws.Produces(restful.MIME_JSON)
 	var factory = client.ClientFactory()
+	watchers.NewSender()
 
 	notification := &watchers.Notification{
 		Factory: factory,

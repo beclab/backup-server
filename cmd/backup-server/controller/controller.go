@@ -126,6 +126,7 @@ func run(factory client.Factory) error {
 	}
 
 	integration.NewIntegrationManager(factory)
+	watchers.NewSender()
 
 	notification := &watchers.Notification{
 		Factory: factory,
