@@ -769,8 +769,9 @@ func GetUserspacePvc(owner string) (string, string, error) {
 }
 
 func TrimPathPrefix(p string) (bool, string) {
-	if strings.HasPrefix(p, "/Files/External") {
-		return true, strings.TrimPrefix(p, "/Files/External")
+	var external = fmt.Sprintf("/Files/External/%s/", constant.NodeName)
+	if strings.HasPrefix(p, external) {
+		return true, strings.TrimPrefix(p, external)
 	} else if strings.HasPrefix(p, "/Files") {
 		return false, strings.TrimPrefix(p, "/Files")
 	} else {

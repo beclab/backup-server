@@ -2,6 +2,7 @@ package v1
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -460,6 +461,12 @@ func (h *Handler) cancelSnapshot(req *restful.Request, resp *restful.Response) {
 	}
 
 	response.SuccessNoData(resp)
+}
+
+func (h *Handler) getNode(req *restful.Request, resp *restful.Response) {
+	var node = os.Getenv("NODE_NAME")
+
+	response.Success(resp, node)
 }
 
 func (h *Handler) getSpaceRegions(req *restful.Request, resp *restful.Response) {

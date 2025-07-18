@@ -220,10 +220,16 @@ func (s *StorageBackup) prepareBackupParams() error {
 
 	if s.BackupType == constant.BackupTypeFile {
 		backupSourcePath = handlers.ParseBackupTypePath(s.Backup.Spec.BackupType)
-		_, backupSourceRealPath = handlers.TrimPathPrefix(backupSourcePath)
-		var filesPrefix []string = []string{
-			filepath.Join(s.UserspacePvcPath, backupSourceRealPath),
+		external, backupSourceRealPath = handlers.TrimPathPrefix(backupSourcePath)
+		var filesPrefix []string
+		if external {
+			filesPrefix = append(filesPrefix, filepath.Join(constant.ExternalPath, backupSourceRealPath))
+		} else {
+			filesPrefix = append(filesPrefix, filepath.Join(s.UserspacePvcPath, backupSourceRealPath))
 		}
+		// var filesPrefix []string = []string{
+		// 	filepath.Join(s.UserspacePvcPath, backupSourceRealPath),
+		// }
 		filesPrefixBytes, _ := json.Marshal(filesPrefix)
 		s.BackupAppFilesPrefix = string(filesPrefixBytes)
 	}
