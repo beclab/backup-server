@@ -144,7 +144,7 @@ func (r *BackupReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				if flag {
 					return true
 				}
-				return r.isPolicyUpdated(bc1, bc2)
+				return !r.isPolicyUpdated(bc1, bc2)
 			},
 			DeleteFunc: func(e event.DeleteEvent) bool {
 				log.Info("hit backup delete event")
