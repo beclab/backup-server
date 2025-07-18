@@ -1,12 +1,15 @@
 package constant
 
 import (
+	"os"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	scheme "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 )
 
 var (
 	SyncServerURL string
+	NodeName      string = os.Getenv("NODE_NAME")
 )
 
 const (
