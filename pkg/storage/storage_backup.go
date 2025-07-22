@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/shirou/gopsutil/v4/disk"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -300,22 +301,28 @@ func (s *StorageBackup) checkDiskSize() error {
 	if location == constant.BackupLocationFileSystem.String() {
 		var target = s.Params.Location["path"]
 
+		usage, err := disk.Usage(target)
+		if err != nil {
+			log.Errorf("Backup %s,%s, check disk free space error: %v, path: %s", backupName, snapshotId, err, target)
+			return err
+		}
+
+		log.Infof("Backup %s,%s, check disk free space: %s, path: %s", backupName, snapshotId, usage.String(), target)
+
+		if usage.UsedPercent > FreeLimit {
+			log.Errorf("Backup %s,%s, disk usage has reached %.2f%%", backupName, snapshotId, FreeLimit)
+			return fmt.Errorf("Disk usage has reached %.2f%%. Please clean up disk space first.", FreeLimit)
+		}
+
 		backupSize, err := util.DirSize(s.Params.Path)
 		if err != nil {
 			log.Errorf("Backup %s,%s, get backup disk size error: %v, path: %s", backupName, snapshotId, err, s.Params.Path)
 			return fmt.Errorf("get backup disk size error: %v, path: %s", err, s.Params.Path)
 		}
 
-		targetFreeSpace, err := util.GetDiskFreeSpace(target)
-		if err != nil {
-			log.Errorf("Backup %s,%s, get target free space error: %v, path: %s", backupName, snapshotId, err, target)
-			return fmt.Errorf("get target free space error: %v, path: %s", err, target)
-
-		}
-
 		requiredSpace := uint64(float64(backupSize) * 1.05)
-		if targetFreeSpace < requiredSpace {
-			log.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s", util.FormatBytes(requiredSpace), util.FormatBytes(targetFreeSpace), s.Params.LocationInFileSystem)
+		if usage.Free < requiredSpace {
+			log.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s", util.FormatBytes(requiredSpace), util.FormatBytes(usage.Free), s.Params.LocationInFileSystem)
 			return fmt.Errorf("Insufficient space on the target disk.")
 		}
 	}

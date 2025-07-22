@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -568,7 +569,7 @@ func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseR
 		return result, err
 	}
 
-	var backupName, backupPath, snapshotTime, restorePath, backupAppTypeName string
+	var backupName, backupPath, snapshotTime, restorePath, subPath, backupAppTypeName string
 	if backupType == constant.BackupTypeApp {
 		backupAppTypeName = handlers.GetRestoreAppName(restore)
 	}
@@ -593,13 +594,18 @@ func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseR
 		restorePath = typeMap["path"].(string)
 	}
 
+	_, ok = typeMap["subPath"]
+	if ok {
+		subPath = typeMap["subPath"].(string)
+	}
+
 	result = &ResponseRestoreDetail{
 		BackupName:        backupName,
 		BackupPath:        backupPath,
 		BackupType:        backupType,
 		BackupAppTypeName: backupAppTypeName,
 		SnapshotTime:      util.ParseToInt64(snapshotTime),
-		RestorePath:       restorePath,
+		RestorePath:       filepath.Join(restorePath, subPath),
 		Progress:          restore.Spec.Progress,
 		Status:            *restore.Spec.Phase,
 	}
@@ -653,12 +659,12 @@ func parseResponseRestoreCreate(restore *sysv1.Restore, backupName, snapshotTime
 	return data
 }
 
-func parseResponseRestoreOne(restore *sysv1.Restore, backupAppTypeName string, backupName string, snapshotTime string, restorePath string) map[string]interface{} {
+func parseResponseRestoreOne(restore *sysv1.Restore, backupAppTypeName string, backupName string, snapshotTime string, restorePath, subPath string) map[string]interface{} {
 	var res = make(map[string]interface{})
 
 	res["id"] = restore.Name
 	res["name"] = backupName
-	res["path"] = restorePath
+	res["path"] = filepath.Join(restorePath, subPath)
 	res["createAt"] = restore.Spec.CreateAt.Unix()
 	res["snapshotTime"] = time.Unix(util.ParseToInt64(snapshotTime), 0)
 	res["progress"] = restore.Spec.Progress
@@ -739,7 +745,7 @@ func parseResponseRestoreList(data *sysv1.RestoreList, totalPage int64) map[stri
 			BackupName:        d.BackupName,
 			BackupType:        backupType,
 			BackupAppTypeName: backupAppTypeName,
-			Path:              d.Path,
+			Path:              filepath.Join(d.Path, d.SubPath),
 			CreateAt:          restore.Spec.CreateAt.Unix(),
 			SnapshotTime:      snapshotTime.Unix(),
 			Status:            *restore.Spec.Phase,

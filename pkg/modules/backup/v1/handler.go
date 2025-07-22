@@ -695,18 +695,19 @@ func (h *Handler) addRestore(req *restful.Request, resp *restful.Response) {
 	}
 
 	var restoreType = &handlers.RestoreType{
-		Owner:            owner,
-		Type:             restoreTypeName,
-		BackupId:         backupId,
-		BackupName:       backupName,
-		BackupUrl:        backupStorageInfo, // if snapshot,it will be nil
-		Password:         util.Base64encode([]byte(strings.TrimSpace(b.Password))),
-		SnapshotId:       snapshotId, // backupUrl is nil
-		SnapshotTime:     snapshotTime,
-		ResticSnapshotId: resticSnapshotId,
-		ClusterId:        clusterId, // backupUrl is nil
-		Location:         location,
-		Endpoint:         urlInfo.Endpoint,
+		Owner:               owner,
+		Type:                restoreTypeName,
+		BackupId:            backupId,
+		BackupName:          backupName,
+		BackupUrl:           backupStorageInfo, // if snapshot,it will be nil
+		Password:            util.Base64encode([]byte(strings.TrimSpace(b.Password))),
+		SnapshotId:          snapshotId, // backupUrl is nil
+		SnapshotTime:        snapshotTime,
+		ResticSnapshotId:    resticSnapshotId,
+		ClusterId:           clusterId, // backupUrl is nil
+		Location:            location,
+		Endpoint:            urlInfo.Endpoint,
+		TotalBytesProcessed: getSnapshot.Summary.TotalBytesProcessed,
 	}
 
 	if backupType == constant.BackupTypeApp {
@@ -785,7 +786,7 @@ func (h *Handler) getRestoreOne(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	response.Success(resp, parseResponseRestoreOne(restore, backupAppTypeName, restoreType.BackupName, restoreType.SnapshotTime, restoreType.Path))
+	response.Success(resp, parseResponseRestoreOne(restore, backupAppTypeName, restoreType.BackupName, restoreType.SnapshotTime, restoreType.Path, restoreType.SubPath))
 }
 
 func (h *Handler) cancelRestore(req *restful.Request, resp *restful.Response) {
