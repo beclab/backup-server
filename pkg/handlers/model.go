@@ -17,23 +17,24 @@ type SnapshotNotifyState struct {
 }
 
 type RestoreType struct {
-	Name             string                  `json:"name"` // only for app backup
-	Owner            string                  `json:"owner"`
-	Type             string                  `json:"type"` // snapshot or url
-	Path             string                  `json:"path"` // restore target path
-	SubPath          string                  `json:"subPath"`
-	SubPathTimestamp int64                   `json:"subPathTimestamp"`
-	BackupId         string                  `json:"backupId"`
-	BackupName       string                  `json:"backupName"`
-	BackupPath       string                  `json:"backupPath"` // from backupUrl
-	Password         string                  `json:"p"`
-	SnapshotId       string                  `json:"snapshotId"`
-	SnapshotTime     string                  `json:"snapshotTime"` // from backupUrl
-	ResticSnapshotId string                  `json:"resticSnapshotId"`
-	ClusterId        string                  `json:"clusterId"`
-	Location         string                  `json:"location"`
-	Endpoint         string                  `json:"endpoint"`
-	BackupUrl        *RestoreBackupUrlDetail `json:"backupUrl"`
+	Name                string                  `json:"name"` // only for app backup
+	Owner               string                  `json:"owner"`
+	Type                string                  `json:"type"` // snapshot or url
+	Path                string                  `json:"path"` // restore target path
+	SubPath             string                  `json:"subPath"`
+	SubPathTimestamp    int64                   `json:"subPathTimestamp"`
+	BackupId            string                  `json:"backupId"`
+	BackupName          string                  `json:"backupName"`
+	BackupPath          string                  `json:"backupPath"` // from backupUrl
+	Password            string                  `json:"p"`
+	SnapshotId          string                  `json:"snapshotId"`
+	SnapshotTime        string                  `json:"snapshotTime"` // from backupUrl
+	ResticSnapshotId    string                  `json:"resticSnapshotId"`
+	ClusterId           string                  `json:"clusterId"`
+	Location            string                  `json:"location"`
+	Endpoint            string                  `json:"endpoint"`
+	TotalBytesProcessed int64                   `json:"totalBytesProcessed"`
+	BackupUrl           *RestoreBackupUrlDetail `json:"backupUrl"`
 }
 
 type RestoreBackupUrlDetail struct {

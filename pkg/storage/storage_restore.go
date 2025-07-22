@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/shirou/gopsutil/v4/disk"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
@@ -52,6 +53,7 @@ type RestoreParameters struct {
 	BackupId   string
 	BackupName string
 	Password   string
+	RootPath   string
 	Path       string
 	Location   map[string]string
 }
@@ -68,6 +70,10 @@ func (s *StorageRestore) RunRestore() error {
 		}
 
 		if e = s.prepareRestoreParams(); e != nil {
+			return errors.WithStack(e)
+		}
+
+		if e = s.checkDiskSize(); e != nil {
 			return errors.WithStack(e)
 		}
 
@@ -227,25 +233,57 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	}
 
 	var restorePath string
+	var rootRestorePath string
 	if s.BackupType == constant.BackupTypeFile {
 		var dotRestorePath = path.Join(s.RestoreType.Path, fmt.Sprintf("%s.restore-%d", s.RestoreType.SubPath, s.RestoreType.SubPathTimestamp)) + "/"
+		var dotRestoreRootPath = path.Join(s.RestoreType.Path)
 		var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(dotRestorePath)
+		var _, tmpRootRestorePath = handlers.TrimPathPrefix(dotRestoreRootPath)
 		if tmpRestoreExternal {
 			restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
+			rootRestorePath = path.Join(constant.ExternalPath, tmpRootRestorePath)
 		} else {
 			restorePath = path.Join(s.UserspacePvcPath, tmpRestorePath)
+			rootRestorePath = path.Join(s.UserspacePvcPath, tmpRootRestorePath)
 		}
 	} else {
 		restorePath = filepath.Join(s.UserspacePvcPath, "Home") // for app restore
+		rootRestorePath = filepath.Join(s.UserspacePvcPath, "Home")
 	}
 
-	log.Infof("restore: %s, backupType: %s, restoreTargetPath: %s, locationConfig: %v", s.RestoreId, s.BackupType, restorePath, util.ToJSON(locationConfig))
+	log.Infof("restore: %s, backupType: %s, rootRestoreTargetPath: %s, restoreTargetPath: %s, locationConfig: %v", s.RestoreId, s.BackupType, rootRestorePath, restorePath, util.ToJSON(locationConfig))
 	s.Params = &RestoreParameters{
 		BackupId:   backupId,
 		BackupName: backupName,
+		RootPath:   rootRestorePath,
 		Path:       restorePath,
 		Password:   password,
 		Location:   locationConfig,
+	}
+
+	return nil
+}
+
+func (s *StorageRestore) checkDiskSize() error {
+	log.Infof("Restore %s, check disk size, path: %s", s.RestoreId, s.Params.RootPath)
+
+	usage, err := disk.Usage(s.Params.RootPath)
+	if err != nil {
+		log.Errorf("Restore %s check disk free space error: %v, path: %s", s.RestoreId, err, s.Params.RootPath)
+		return err
+	}
+
+	log.Infof("Restore %s, check disk free space: %s, path: %s", s.RestoreId, usage.String(), s.Params.RootPath)
+
+	if usage.UsedPercent > FreeLimit {
+		log.Errorf("Restore %s, disk usage has reached %.2f%%", s.RestoreId, FreeLimit)
+		return fmt.Errorf("Disk usage has reached %.2f%%. Please clean up disk space first.", FreeLimit)
+	}
+
+	requiredSpace := uint64(float64(s.RestoreType.TotalBytesProcessed) * 1.05)
+	if usage.Free < requiredSpace {
+		log.Errorf("not enough free space on target disk, required: %s, available: %s, location: %s", util.FormatBytes(requiredSpace), util.FormatBytes(usage.Free), s.Params.RootPath)
+		return fmt.Errorf("Insufficient space on the target disk.")
 	}
 
 	return nil
