@@ -78,8 +78,8 @@ func NewSender() {
 	)
 
 	if err != nil {
-		log.Errorf("failed to connect to NATS: %w", err)
-		return
+		log.Errorf("failed to connect to NATS: %v, url: %s", err, natsURL)
+		panic(err)
 	}
 
 	log.Infof("Connected to NATS server at %s:%s", config.Host, config.Port)
