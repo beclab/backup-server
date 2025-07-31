@@ -11,6 +11,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"olares.com/backup-server/pkg/client"
 	"olares.com/backup-server/pkg/constant"
@@ -22,6 +23,8 @@ import (
 	"olares.com/backup-server/pkg/util/uuid"
 )
 
+var applicationsResource = schema.GroupVersionResource{Group: "app.bytetrade.io", Version: "v1alpha1", Resource: "applications"}
+
 type BackupHandler struct {
 	factory  client.Factory
 	handlers Interface
@@ -32,6 +35,19 @@ func NewBackupHandler(f client.Factory, handlers Interface) *BackupHandler {
 		factory:  f,
 		handlers: handlers,
 	}
+}
+
+func (o *BackupHandler) CheckAppInstalled(appName string) bool {
+	client, err := o.factory.DynamicClient()
+	if err != nil {
+		return false
+	}
+
+	obj, err := client.Resource(applicationsResource).Get(context.Background(), appName, metav1.GetOptions{})
+	if err != nil || obj == nil {
+		return false
+	}
+	return true
 }
 
 func (o *BackupHandler) DeleteBackup(ctx context.Context, backup *sysv1.Backup) error {
