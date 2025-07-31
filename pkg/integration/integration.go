@@ -273,11 +273,7 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 }
 
 func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string) ([]*accountsResponseData, error) {
-	ip, err := i.getSettingsIP(ctx, owner)
-	if err != nil {
-		return nil, errors.WithStack(fmt.Errorf("get settings service ip error: %v", err))
-	}
-
+	ip := "system-server.user-system-" + owner
 	headerNonce, _ := i.getAppKey()
 
 	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/all", ip)
