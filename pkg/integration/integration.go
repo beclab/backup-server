@@ -273,15 +273,16 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 }
 
 func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string) ([]*accountsResponseData, error) {
-	ip := "system-server.user-system-" + owner
-	headerNonce, _ := i.getAppKey()
-
-	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/all", ip)
+	var settingsUrl = fmt.Sprintf("http://settings.user-system-%s:28080/api/account/all", owner)
+	var authToken, err = constant.GetAuthToken()
+	if err != nil {
+		return nil, err
+	}
 
 	client := resty.New().SetTimeout(10 * time.Second)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
-		SetHeader(constant.BackendTokenHeader, headerNonce).
+		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", string(authToken))).
 		SetResult(&accountsResponse{}).
 		Get(settingsUrl)
 
@@ -313,11 +314,11 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 }
 
 func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
-	ip := "system-server.user-system-" + owner
-
-	headerNonce, _ := i.getAppKey()
-
-	var settingsUrl = fmt.Sprintf("http://%s/legacy/v1alpha1/service.settings/v1/api/account/retrieve", ip)
+	var authToken, err = constant.GetAuthToken()
+	if err != nil {
+		return nil, err
+	}
+	var settingsUrl = fmt.Sprintf("http://settings.user-system-%s:28080/api/account/retrieve", owner)
 
 	client := resty.New().SetTimeout(10 * time.Second)
 	var data = make(map[string]string)
@@ -325,7 +326,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader(constant.BackendTokenHeader, headerNonce).
+		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", string(authToken))).
 		SetBody(data).
 		SetResult(&accountResponse{}).
 		Post(settingsUrl)
