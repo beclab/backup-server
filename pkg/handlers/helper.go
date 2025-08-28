@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"reflect"
 	"strconv"
@@ -58,11 +57,6 @@ func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, err
 }
 
 func GetBackupPassword(ctx context.Context, owner string, backupName string) (string, error) {
-	d := os.Getenv("PASSWORD_DEBUG")
-	if d != "" {
-		return "1234", nil
-	}
-
 	var pwdResp *passwordResponse
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,

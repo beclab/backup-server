@@ -1,6 +1,7 @@
 package constant
 
 import (
+	"fmt"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -120,8 +121,9 @@ const (
 )
 
 var (
-	BackendTokenHeader = "Terminus-Nonce"
-	OlaresName         = "terminus"
+	BackendTokenHeader         = "Terminus-Nonce"
+	BackendAuthorizationHeader = "Authorization"
+	OlaresName                 = "terminus"
 
 	BackupGVR = schema.GroupVersionResource{
 		Group:    scheme.SchemeGroupVersion.Group,
@@ -180,3 +182,18 @@ const (
 	FreeUser    = 1
 	MemeberUser = 2
 )
+
+var authTokenPatn = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+func GetAuthToken() ([]byte, error) {
+	token, err := os.ReadFile(authTokenPatn)
+	if err != nil {
+		return nil, fmt.Errorf("read auth token file error: %v", err)
+	}
+
+	if token == nil || len(token) == 0 {
+		return nil, fmt.Errorf("auth token invalid")
+	}
+
+	return token, nil
+}
