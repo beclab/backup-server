@@ -11,6 +11,7 @@ import (
 	"github.com/emicklei/go-restful/v3"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
+	authv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"olares.com/backup-server/pkg/client"
@@ -27,12 +28,19 @@ type Integration struct {
 	Location     string
 	Name         string
 	OlaresTokens map[string]*SpaceToken
+	authToken    map[string]*authToken
+}
+
+type authToken struct {
+	token  string
+	expire time.Time
 }
 
 func NewIntegrationManager(factory client.Factory) {
 	IntegrationService = &Integration{
 		Factory:      factory,
 		OlaresTokens: make(map[string]*SpaceToken),
+		authToken:    make(map[string]*authToken),
 	}
 }
 
@@ -273,16 +281,17 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 }
 
 func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string) ([]*accountsResponseData, error) {
-	var settingsUrl = fmt.Sprintf("http://settings.user-system-%s:28080/api/account/all", owner)
-	var authToken, err = constant.GetAuthToken()
+	var authToken, err = i.getAuthToken(owner)
 	if err != nil {
 		return nil, err
 	}
 
+	var settingsUrl = fmt.Sprintf("http://settings.user-system-%s:28080/api/account/all", owner)
+
 	client := resty.New().SetTimeout(10 * time.Second)
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
-		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", string(authToken))).
+		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", authToken)).
 		SetResult(&accountsResponse{}).
 		Get(settingsUrl)
 
@@ -314,7 +323,7 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 }
 
 func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
-	var authToken, err = constant.GetAuthToken()
+	var authToken, err = i.getAuthToken(owner)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +335,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	log.Infof("fetch integration from settings: %s", settingsUrl)
 	resp, err := client.R().SetDebug(true).SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", string(authToken))).
+		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", authToken)).
 		SetBody(data).
 		SetResult(&accountResponse{}).
 		Post(settingsUrl)
@@ -424,4 +433,41 @@ func (i *Integration) formatUrl(location, name string) string {
 		l = "tencent"
 	}
 	return fmt.Sprintf("integration-account:%s:%s", l, name)
+}
+
+func (i *Integration) getAuthToken(owner string) (string, error) {
+	at, ok := i.authToken[owner]
+	if ok {
+		if time.Now().Before(at.expire) {
+			return at.token, nil
+		}
+	}
+	var expirationSeconds int64 = 86400
+
+	namespace := fmt.Sprintf("user-system-%s", owner)
+	tr := &authv1.TokenRequest{
+		Spec: authv1.TokenRequestSpec{
+			Audiences:         []string{"https://kubernetes.default.svc.cluster.local"},
+			ExpirationSeconds: &expirationSeconds, // one day
+		},
+	}
+
+	kubeClient, _ := i.Factory.KubeClient()
+
+	token, err := kubeClient.CoreV1().ServiceAccounts(namespace).
+		CreateToken(context.Background(), "user-backend", tr, metav1.CreateOptions{})
+	if err != nil {
+		// klog.Errorf("Failed to create token for user %s in namespace %s: %v", owner, namespace, err)
+		return "", fmt.Errorf("failed to create token for user %s in namespace %s: %v", owner, namespace, err)
+	}
+
+	if !ok {
+		at = &authToken{}
+	}
+	at.token = token.Status.Token
+	at.expire = time.Now().Add(82800 * time.Second)
+
+	i.authToken[owner] = at
+
+	return at.token, nil
 }
