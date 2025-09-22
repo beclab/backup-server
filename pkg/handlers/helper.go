@@ -19,7 +19,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/klog"
 	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"olares.com/backup-server/pkg/client"
 	"olares.com/backup-server/pkg/constant"
@@ -27,6 +29,7 @@ import (
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/util/repo"
 	utilstring "olares.com/backup-server/pkg/util/string"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, error) {
@@ -68,7 +71,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 	if err := retry.OnError(backoff, func(err error) bool {
 		return true
 	}, func() error {
-		settingsUrl := fmt.Sprintf("http://settings-service.user-space-%s/api/backup/password", owner)
+		settingsUrl := fmt.Sprintf("http://settings.user-system-%s:28080/api/backup/password", owner)
 		client := resty.New().SetTimeout(15 * time.Second).SetDebug(true)
 
 		req := &proxyRequest{
@@ -79,7 +82,18 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 			Data:     backupName,
 		}
 
-		backendTokenNonce, err := util.GetBackendToken("")
+		config, err := ctrl.GetConfig()
+		if err != nil {
+			return err
+		}
+
+		kubeClient, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			klog.Errorf("Failed to create kube client: %v", err)
+			panic(err)
+		}
+
+		token, err := util.GetUserServiceAccountToken(ctx, kubeClient, owner)
 		if err != nil {
 			log.Error("generate nonce error, ", err)
 			return errors.New("generate backup query nounce error")
@@ -88,7 +102,7 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 		log.Info("fetch password from settings, ", settingsUrl)
 		resp, err := client.R().SetContext(ctx).
 			SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
-			SetHeader(constant.BackendTokenHeader, backendTokenNonce).
+			SetHeader("Authorization", fmt.Sprintf("Bearer %s", token)).
 			SetBody(req).
 			SetResult(&passwordResponse{}).
 			Post(settingsUrl)
