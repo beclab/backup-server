@@ -2,13 +2,22 @@ package util
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	authv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog"
+	// "k8s.io/klog"
+	// "k8s.io/utils/ptr"
 )
 
 func EnvOrDefault(name, def string) string {
@@ -19,6 +28,24 @@ func EnvOrDefault(name, def string) string {
 	}
 	v = strings.TrimRight(v, "/")
 	return v
+}
+
+func GetUserServiceAccountToken(ctx context.Context, client kubernetes.Interface, user string) (string, error) {
+	namespace := fmt.Sprintf("user-system-%s", user)
+	var exp int64 = 86400
+	tr := &authv1.TokenRequest{
+		Spec: authv1.TokenRequestSpec{
+			Audiences:         []string{"https://kubernetes.default.svc.cluster.local"},
+			ExpirationSeconds: &exp, //ptr.To[int64](86400), // one day
+		},
+	}
+	token, err := client.CoreV1().ServiceAccounts(namespace).
+		CreateToken(ctx, "user-backend", tr, metav1.CreateOptions{})
+	if err != nil {
+		klog.Errorf("Failed to create token for user %s in namespace %s: %v", user, namespace, err)
+		return "", err
+	}
+	return token.Status.Token, nil
 }
 
 func GetBackendToken(randomKey string) (string, error) {
