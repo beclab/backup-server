@@ -48,6 +48,8 @@ type StorageBackup struct {
 
 	UserspacePvcName string
 	UserspacePvcPath string
+	AppcachePvcName  string
+	AppcachePvcPath  string
 
 	LastProgressPercent int
 	LastProgressTime    time.Time
@@ -172,7 +174,7 @@ func (s *StorageBackup) getUserspacePvc() error {
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 
-	userspacePvcPath, userspacePvcName, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
+	userspacePvcPath, userspacePvcName, appcachePvcPath, appcachePvcName, err := handlers.GetUserspacePvc(s.Backup.Spec.Owner)
 	if err != nil {
 		log.Errorf("Backup %s,%s, get userspace pvc error: %v", backupName, snapshotId, err)
 		return fmt.Errorf("get userspace pvc error: %v", err)
@@ -180,6 +182,8 @@ func (s *StorageBackup) getUserspacePvc() error {
 
 	s.UserspacePvcName = userspacePvcName
 	s.UserspacePvcPath = userspacePvcPath
+	s.AppcachePvcName = appcachePvcName
+	s.AppcachePvcPath = appcachePvcPath
 
 	return nil
 }
@@ -207,7 +211,7 @@ func (s *StorageBackup) checkSnapshotType() error {
 }
 
 func (s *StorageBackup) prepareBackupParams() error {
-	var external bool
+	var external, cache bool
 	var backupSourcePath string
 	var backupSourceRealPath string
 	var locationInFileSystem string
@@ -221,10 +225,12 @@ func (s *StorageBackup) prepareBackupParams() error {
 
 	if s.BackupType == constant.BackupTypeFile {
 		backupSourcePath = handlers.ParseBackupTypePath(s.Backup.Spec.BackupType)
-		external, backupSourceRealPath = handlers.TrimPathPrefix(backupSourcePath)
+		external, cache, backupSourceRealPath = handlers.TrimPathPrefix(backupSourcePath)
 		var filesPrefix []string
 		if external {
 			filesPrefix = append(filesPrefix, filepath.Join(constant.ExternalPath, backupSourceRealPath))
+		} else if cache {
+			filesPrefix = append(filesPrefix, filepath.Join(s.AppcachePvcPath, backupSourceRealPath)) //append(filesPrefix, filepath.Join(constant.CachePath, backupSourceRealPath))
 		} else {
 			filesPrefix = append(filesPrefix, filepath.Join(s.UserspacePvcPath, backupSourceRealPath))
 		}
@@ -251,9 +257,11 @@ func (s *StorageBackup) prepareBackupParams() error {
 		locPath := location["path"]
 		locationInFileSystem = locPath
 
-		external, locPath = handlers.TrimPathPrefix(locPath)
+		external, cache, locPath = handlers.TrimPathPrefix(locPath)
 		if external {
 			location["path"] = path.Join(constant.ExternalPath, locPath)
+		} else if cache {
+			location["path"] = path.Join(s.AppcachePvcPath, locPath) //path.Join(constant.CachePath, locPath)
 		} else {
 			location["path"] = path.Join(s.UserspacePvcPath, locPath)
 		}
@@ -261,9 +269,11 @@ func (s *StorageBackup) prepareBackupParams() error {
 
 	var backupPath string
 	if s.BackupType == constant.BackupTypeFile {
-		var tmpBackupExternal, tmpBackupPath = handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup))
+		var tmpBackupExternal, tmpCache, tmpBackupPath = handlers.TrimPathPrefix(handlers.GetBackupPath(s.Backup))
 		if tmpBackupExternal {
 			backupPath = path.Join(constant.ExternalPath, tmpBackupPath)
+		} else if tmpCache {
+			backupPath = path.Join(s.AppcachePvcPath, tmpBackupPath) //path.Join(constant.CachePath, tmpBackupPath)
 		} else {
 			backupPath = path.Join(s.UserspacePvcPath, tmpBackupPath)
 		}

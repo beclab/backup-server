@@ -43,6 +43,8 @@ type StorageRestore struct {
 
 	UserspacePvcName string
 	UserspacePvcPath string
+	AppcachePvcName  string
+	AppcachePvcPath  string
 	Params           *RestoreParameters
 
 	LastProgressPercent int
@@ -114,14 +116,18 @@ func (s *StorageRestore) RunRestore() error {
 }
 
 func (s *StorageRestore) getUserspacePvc() error {
-	userspacePvcPath, userspacePvcName, err := handlers.GetUserspacePvc(s.Restore.Spec.Owner)
+	userspacePvcPath, userspacePvcName, appcachePvcPath, appcachePvcName, err := handlers.GetUserspacePvc(s.Restore.Spec.Owner)
 	if err != nil {
 		log.Errorf("Restore %s, get userspace pvc error: %v", s.RestoreId, err)
 		return fmt.Errorf("get userspace pvc error: %v", err)
 	}
 
+	log.Infof("Restore %s, upvcName: %s, upvcPath: %s, cpvcName: %s, cpvcPath: %s", s.RestoreId, userspacePvcName, userspacePvcPath, appcachePvcName, appcachePvcPath)
+
 	s.UserspacePvcName = userspacePvcName
 	s.UserspacePvcPath = userspacePvcPath
+	s.AppcachePvcName = appcachePvcName
+	s.AppcachePvcPath = appcachePvcPath
 
 	return nil
 }
@@ -174,7 +180,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	var password string
 	var locationConfig = make(map[string]string)
 	var err error
-	var external bool
+	var external, cache bool
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
 		backupId = s.Backup.Name
@@ -195,9 +201,11 @@ func (s *StorageRestore) prepareRestoreParams() error {
 		location := locationConfig["location"]
 		if location == constant.BackupLocationFileSystem.String() {
 			locPath := locationConfig["path"]
-			external, locPath = handlers.TrimPathPrefix(locPath)
+			external, cache, locPath = handlers.TrimPathPrefix(locPath)
 			if external {
 				locationConfig["path"] = path.Join(constant.ExternalPath, locPath)
+			} else if cache {
+				locationConfig["path"] = path.Join(s.AppcachePvcPath, locPath) //path.Join(constant.CachePath, locPath)
 			} else {
 				locationConfig["path"] = path.Join(s.UserspacePvcPath, locPath)
 			}
@@ -237,11 +245,16 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	if s.BackupType == constant.BackupTypeFile {
 		var dotRestorePath = path.Join(s.RestoreType.Path, fmt.Sprintf("%s.restore-%d", s.RestoreType.SubPath, s.RestoreType.SubPathTimestamp)) + "/"
 		var dotRestoreRootPath = path.Join(s.RestoreType.Path)
-		var tmpRestoreExternal, tmpRestorePath = handlers.TrimPathPrefix(dotRestorePath)
-		var _, tmpRootRestorePath = handlers.TrimPathPrefix(dotRestoreRootPath)
+		var tmpRestoreExternal, tmpRestoreCache, tmpRestorePath = handlers.TrimPathPrefix(dotRestorePath)
+		log.Infof("Restore %s, dotRPath: %s, dotRRootPath: %s, tmpRestorePath: %s", s.RestoreId, dotRestorePath, dotRestoreRootPath, tmpRestorePath)
+		log.Infof("Restore %s, cachePvcPath: %s, userPvcPath: %s,", s.RestoreId, s.AppcachePvcPath, s.UserspacePvcPath)
+		var _, _, tmpRootRestorePath = handlers.TrimPathPrefix(dotRestoreRootPath)
 		if tmpRestoreExternal {
 			restorePath = path.Join(constant.ExternalPath, tmpRestorePath)
 			rootRestorePath = path.Join(constant.ExternalPath, tmpRootRestorePath)
+		} else if tmpRestoreCache {
+			restorePath = path.Join(s.AppcachePvcPath, tmpRestorePath)
+			rootRestorePath = path.Join(s.AppcachePvcPath, tmpRootRestorePath)
 		} else {
 			restorePath = path.Join(s.UserspacePvcPath, tmpRestorePath)
 			rootRestorePath = path.Join(s.UserspacePvcPath, tmpRootRestorePath)
