@@ -60,6 +60,7 @@ const (
 
 	TraceId string = "traceId"
 
+	CachePath    string = "/appcache"
 	ExternalPath string = "/shares"
 
 	DefaultStoragePrefix = "olares-backups/"

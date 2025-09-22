@@ -542,7 +542,7 @@ func IsBackupLocationSpace(u string) bool {
 }
 
 func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
-	userspacePath, _, err := GetUserspacePvc(owner)
+	userspacePath, _, appcachePath, _, err := GetUserspacePvc(owner)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -583,7 +583,7 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 		return nil, fmt.Errorf("split path errror: %v, url: %s", err, s)
 	}
 
-	repoInfo, err := FormatEndpoint(location, u.Scheme, u.Host, u.Path, userspacePath)
+	repoInfo, err := FormatEndpoint(location, u.Scheme, u.Host, u.Path, userspacePath, appcachePath)
 	if err != nil {
 		return nil, err
 	}
@@ -736,44 +736,53 @@ func GenericPager[T runtime.Object](limit int64, offset int64, resourceList T) (
 	return resultList.Addr().Interface().(T), currentPage, totalPages
 }
 
-func GetUserspacePvc(owner string) (string, string, error) {
+func GetUserspacePvc(owner string) (string, string, string, string, error) {
 	f, err := client.NewFactory()
 	if err != nil {
-		return "", "", errors.WithStack(err)
+		return "", "", "", "", errors.WithStack(err)
 	}
 
 	c, err := f.KubeClient()
 	if err != nil {
-		return "", "", errors.WithStack(err)
+		return "", "", "", "", errors.WithStack(err)
 	}
 
 	res, err := c.AppsV1().StatefulSets("user-space-"+owner).Get(context.TODO(), "bfl", metav1.GetOptions{})
 	if err != nil {
-		return "", "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owner: %s", owner))
+		return "", "", "", "", errors.Wrap(err, fmt.Sprintf("get bfl failed, owner: %s", owner))
 	}
 
 	userspacePvc, ok := res.Annotations["userspace_pvc"]
 	if !ok {
-		return "", "", fmt.Errorf("bfl userspace_pvc not found, owner: %s", owner)
+		return "", "", "", "", fmt.Errorf("bfl userspace_pvc not found, owner: %s", owner)
+	}
+
+	appcachePvc, ok := res.Annotations["appcache_pvc"]
+	if !ok {
+		return "", "", "", "", fmt.Errorf("bfl appcache_pvc not found, owner: %s", owner)
 	}
 
 	var p = path.Join("/", "rootfs", "userspace", userspacePvc)
+	var cachePath = path.Join("/", "appcache", "Cache", appcachePvc) // /appcache/Cache/xxx
 
-	return p, userspacePvc, nil
+	return p, userspacePvc, cachePath, appcachePvc, nil
 }
 
-func TrimPathPrefix(p string) (bool, string) {
+func TrimPathPrefix(p string) (bool, bool, string) {
 	var external = fmt.Sprintf("/Files/External/%s/", constant.NodeName)
+	var cache = fmt.Sprintf("/Cache/%s/", constant.NodeName)
 	if strings.HasPrefix(p, external) {
-		return true, strings.TrimPrefix(p, external)
+		return true, false, strings.TrimPrefix(p, external)
+	} else if strings.HasPrefix(p, cache) {
+		return false, true, strings.TrimPrefix(p, cache)
 	} else if strings.HasPrefix(p, "/Files") {
-		return false, strings.TrimPrefix(p, "/Files")
+		return false, false, strings.TrimPrefix(p, "/Files")
 	} else {
-		return false, p
+		return false, false, p
 	}
 }
 
-func FormatEndpoint(location, schema, host, urlPath, pvc string) (*repo.RepositoryInfo, error) {
+func FormatEndpoint(location, schema, host, urlPath, pvc, cachepvc string) (*repo.RepositoryInfo, error) {
 	var p = utilstring.TrimSuffix(urlPath, constant.DefaultStoragePrefix)
 
 	switch location {
@@ -790,10 +799,12 @@ func FormatEndpoint(location, schema, host, urlPath, pvc string) (*repo.Reposito
 		result.Endpoint = strings.TrimPrefix(result.Endpoint, "s3:")
 		return result, nil
 	case constant.BackupLocationFileSystem.String():
-		external, relativePath := TrimPathPrefix(p)
+		external, cache, relativePath := TrimPathPrefix(p)
 		var endpoint string
 		if external {
 			endpoint = path.Join(constant.ExternalPath, relativePath)
+		} else if cache {
+			endpoint = path.Join(constant.CachePath, relativePath) //path.Join(constant.CachePath, relativePath)
 		} else {
 			endpoint = path.Join(pvc, relativePath)
 		}
