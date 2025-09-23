@@ -19,9 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/klog"
 	sysv1 "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 	"olares.com/backup-server/pkg/client"
 	"olares.com/backup-server/pkg/constant"
@@ -29,7 +27,6 @@ import (
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/util/repo"
 	utilstring "olares.com/backup-server/pkg/util/string"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, error) {
@@ -59,7 +56,7 @@ func CheckSnapshotNotifyState(snapshot *sysv1.Snapshot, field string) (bool, err
 	return false, fmt.Errorf("field not found")
 }
 
-func GetBackupPassword(ctx context.Context, owner string, backupName string) (string, error) {
+func GetBackupPassword(ctx context.Context, owner string, backupName string, token string) (string, error) {
 	var pwdResp *passwordResponse
 	var backoff = wait.Backoff{
 		Duration: 2 * time.Second,
@@ -80,23 +77,6 @@ func GetBackupPassword(ctx context.Context, owner string, backupName string) (st
 			Version:  "v1",
 			Group:    "service.settings",
 			Data:     backupName,
-		}
-
-		config, err := ctrl.GetConfig()
-		if err != nil {
-			return err
-		}
-
-		kubeClient, err := kubernetes.NewForConfig(config)
-		if err != nil {
-			klog.Errorf("Failed to create kube client: %v", err)
-			panic(err)
-		}
-
-		token, err := util.GetUserServiceAccountToken(ctx, kubeClient, owner)
-		if err != nil {
-			log.Error("generate nonce error, ", err)
-			return errors.New("generate backup query nounce error")
 		}
 
 		log.Info("fetch password from settings, ", settingsUrl)
@@ -566,6 +546,8 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 		return nil, errors.WithStack(err)
 	}
 
+	log.Infof("backup url type: %s", u.Path)
+
 	var location string
 	if u.Scheme == "" && u.Path[:1] == "/" {
 		location = constant.BackupLocationFileSystem.String()
@@ -601,6 +583,8 @@ func ParseBackupUrl(owner, s string) (*BackupUrlType, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	log.Infof("backup url repoInfo.endpoint: %s", repoInfo.Endpoint)
 
 	if location == constant.BackupLocationFileSystem.String() {
 		if !util.IsExist(repoInfo.Endpoint) {
@@ -796,6 +780,7 @@ func TrimPathPrefix(p string) (bool, bool, string) {
 	}
 }
 
+// used for restore
 func FormatEndpoint(location, schema, host, urlPath, pvc, cachepvc string) (*repo.RepositoryInfo, error) {
 	var p = utilstring.TrimSuffix(urlPath, constant.DefaultStoragePrefix)
 
@@ -818,7 +803,7 @@ func FormatEndpoint(location, schema, host, urlPath, pvc, cachepvc string) (*rep
 		if external {
 			endpoint = path.Join(constant.ExternalPath, relativePath)
 		} else if cache {
-			endpoint = path.Join(constant.CachePath, relativePath) //path.Join(constant.CachePath, relativePath)
+			endpoint = path.Join(cachepvc, relativePath)
 		} else {
 			endpoint = path.Join(pvc, relativePath)
 		}

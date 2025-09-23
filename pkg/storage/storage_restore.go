@@ -180,12 +180,18 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	var password string
 	var locationConfig = make(map[string]string)
 	var err error
+	var token string
 	var external, cache bool
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
+		token, err = integration.IntegrationService.GetAuthToken(s.Backup.Spec.Owner)
+		if err != nil {
+			log.Errorf("Restore %s get auth token error: %v", s.RestoreId, err)
+			return err
+		}
 		backupId = s.Backup.Name
 		backupName = s.Backup.Spec.Name
-		password, err = handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
+		password, err = handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name, token)
 		if err != nil {
 			return fmt.Errorf("Restore %s get password error: %v", s.RestoreId, err)
 		}
