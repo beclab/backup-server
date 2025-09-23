@@ -281,7 +281,7 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 }
 
 func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string) ([]*accountsResponseData, error) {
-	var authToken, err = i.getAuthToken(owner)
+	var authToken, err = i.GetAuthToken(owner)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 }
 
 func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
-	var authToken, err = i.getAuthToken(owner)
+	var authToken, err = i.GetAuthToken(owner)
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +435,7 @@ func (i *Integration) formatUrl(location, name string) string {
 	return fmt.Sprintf("integration-account:%s:%s", l, name)
 }
 
-func (i *Integration) getAuthToken(owner string) (string, error) {
+func (i *Integration) GetAuthToken(owner string) (string, error) {
 	at, ok := i.authToken[owner]
 	if ok {
 		if time.Now().Before(at.expire) {

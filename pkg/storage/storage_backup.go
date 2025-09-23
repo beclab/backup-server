@@ -217,7 +217,14 @@ func (s *StorageBackup) prepareBackupParams() error {
 	var locationInFileSystem string
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
-	password, err := handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name)
+
+	var token, err = integration.IntegrationService.GetAuthToken(s.Backup.Spec.Owner)
+	if err != nil {
+		log.Errorf("Backup %s,%s, get auth token error: %v", backupName, snapshotId, err)
+		return err
+	}
+
+	password, err := handlers.GetBackupPassword(s.Ctx, s.Backup.Spec.Owner, s.Backup.Spec.Name, token)
 	if err != nil {
 		log.Errorf("Backup %s,%s, get password error: %v", backupName, snapshotId, err)
 		return err
