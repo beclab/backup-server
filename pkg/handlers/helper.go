@@ -773,8 +773,8 @@ func TrimPathPrefix(p string) (bool, bool, string) {
 		return true, false, strings.TrimPrefix(p, external)
 	} else if strings.HasPrefix(p, cache) {
 		return false, true, strings.TrimPrefix(p, cache)
-	} else if strings.HasPrefix(p, "/Files") {
-		return false, false, strings.TrimPrefix(p, "/Files")
+	} else if strings.HasPrefix(p, "/Files/") {
+		return false, false, strings.TrimPrefix(p, "/Files/")
 	} else {
 		return false, false, p
 	}

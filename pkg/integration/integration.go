@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -415,11 +414,6 @@ func (i *Integration) getSettingsIP(ctx context.Context, onwer string) (ip strin
 	}
 
 	return podIp, nil
-}
-
-func (i *Integration) getAppKey() (string, error) {
-	randomKey := os.Getenv("APP_RANDOM_KEY")
-	return randomKey, nil
 }
 
 func (i *Integration) formatUrl(location, name string) string {
