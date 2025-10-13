@@ -10,7 +10,7 @@ import (
 	"olares.com/backup-server/pkg/client"
 	"olares.com/backup-server/pkg/constant"
 	"olares.com/backup-server/pkg/handlers"
-	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/watchers/notification"
 )
 
 var ModuleVersion = apiruntime.ModuleVersion{Name: "backup", Version: "v1"}
@@ -22,9 +22,9 @@ func AddContainer(cfg *config.Config, container *restful.Container) error {
 	//ws.Consumes(restful.MIME_JSON)
 	ws.Produces(restful.MIME_JSON)
 	var factory = client.ClientFactory()
-	watchers.NewSender()
+	notification.NewSender()
 
-	notification := &watchers.Notification{
+	notification := &notification.Notification{
 		Factory: factory,
 	}
 

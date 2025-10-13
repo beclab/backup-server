@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/lithammer/dedent"
@@ -12,7 +13,9 @@ import (
 	"olares.com/backup-server/pkg/constant"
 	"olares.com/backup-server/pkg/integration"
 	"olares.com/backup-server/pkg/signals"
-	"olares.com/backup-server/pkg/util"
+	"olares.com/backup-server/pkg/util/log"
+	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/watchers/systemenv"
 )
 
 func NewAPIServerCommand() *cobra.Command {
@@ -43,7 +46,6 @@ func NewAPIServerCommand() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVarP(&o.LogLevel, "log-level", "l", "debug", "logging level")
-	cmd.PersistentFlags().StringVarP(&constant.SyncServerURL, "cloud-api-mirror", "", util.EnvOrDefault("OLARES_SPACE_URL", constant.DefaultSyncServerURL), "cloud api mirror")
 	cmd.PersistentFlags().BoolVarP(&o.SkipKubeClient, "skip-kubeclient", "", false, "skip kubernetes client")
 
 	fs := cmd.Flags()
@@ -93,9 +95,25 @@ func run(o *options.ServerRunOptions, ctx context.Context) error {
 	var factory = client.ClientFactory()
 	integration.NewIntegrationManager(factory)
 
+	config, err := factory.ClientConfig()
+	if err != nil {
+		return err
+	}
+
+	w := watchers.NewWatchers(context.Background(), config, 0)
+	sysEnvSubscriber := systemenv.NewSubscriber(w)
+	err = watchers.AddToWatchers[map[string]interface{}](w, systemenv.GVR, sysEnvSubscriber.Handler())
+	if err != nil {
+		return fmt.Errorf("failed to add systemenv watcher: %w", err)
+	}
+
+	go w.Run(1)
+
 	if err := apiserver.PrepareRun(); err != nil {
 		return errors.Errorf("apiserver prepare run: %v", err)
 	}
+
+	log.Infof("remote space url: %s", constant.SyncServerURL)
 
 	err = apiserver.Run(ctx)
 	if err == http.ErrServerClosed {

@@ -1,4 +1,4 @@
-package watchers
+package notification
 
 type PermissionRequire struct {
 	Group    string   `json:"group"`

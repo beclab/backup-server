@@ -1,4 +1,4 @@
-package watchers
+package notification
 
 import (
 	"context"

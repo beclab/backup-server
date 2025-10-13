@@ -20,7 +20,7 @@ import (
 	"olares.com/backup-server/pkg/util"
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/util/pointer"
-	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/watchers/notification"
 	backupssdk "olares.com/backups-sdk"
 
 	backupssdkoptions "olares.com/backups-sdk/pkg/options"
@@ -316,7 +316,7 @@ func (s *StorageRestore) prepareForRun() error {
 		"status":   constant.Running.String(),
 		"message":  "",
 	}
-	watchers.DataSender.Send(s.RestoreType.Owner, data)
+	notification.DataSender.Send(s.RestoreType.Owner, data)
 
 	return s.Handlers.GetRestoreHandler().UpdatePhase(s.Ctx, s.Restore.Name, constant.Running.String())
 }
@@ -344,7 +344,7 @@ func (s *StorageRestore) progressCallback(percentDone float64) {
 			"status":   constant.Running.String(),
 			"message":  "",
 		}
-		watchers.DataSender.Send(s.RestoreType.Owner, data)
+		notification.DataSender.Send(s.RestoreType.Owner, data)
 	}
 }
 
@@ -563,7 +563,7 @@ func (s *StorageRestore) updateRestoreResult(restoreOutput map[string]*backupssd
 				"message":  msg,
 			}
 
-			watchers.DataSender.Send(s.RestoreType.Owner, data)
+			notification.DataSender.Send(s.RestoreType.Owner, data)
 
 			if err = s.Handlers.GetRestoreHandler().Update(s.Ctx, s.RestoreId, &restore.Spec); err != nil {
 				return false, err

@@ -1,4 +1,4 @@
-package watchers
+package notification
 
 import (
 	"encoding/json"

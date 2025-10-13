@@ -1,21 +1,25 @@
 package constant
 
 import (
+	"net/url"
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	scheme "olares.com/backup-server/pkg/apis/sys.bytetrade.io/v1"
 )
 
+const (
+	EnvOlaresSystemRemoteService = "OLARES_SYSTEM_REMOTE_SERVICE"
+	DefaultSyncServerURL         = "https://api.olares.com"
+)
+
 var (
-	SyncServerURL string
-	NodeName      string = os.Getenv("NODE_NAME")
+	SyncServerURL       string
+	OlaresRemoteService string = DefaultSyncServerURL
+	NodeName            string = os.Getenv("NODE_NAME")
 )
 
 const (
-	EnvSpaceUrl          string = "OLARES_SPACE_URL"
-	DefaultSyncServerURL string = "https://cloud-api.olares.com"
-
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
 
@@ -182,3 +186,12 @@ const (
 	FreeUser    = 1
 	MemeberUser = 2
 )
+
+func ReloadEnvDependantVars() error {
+	var err error
+	SyncServerURL, err = url.JoinPath(OlaresRemoteService, "space")
+	if err != nil {
+		return err
+	}
+	return nil
+}
