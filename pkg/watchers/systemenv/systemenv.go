@@ -53,33 +53,33 @@ func (s *Subscriber) Handler() cache.ResourceEventHandler {
 }
 
 func (s *Subscriber) Do(_ context.Context, obj interface{}, action watchers.Action) error {
-	if action == watchers.DELETE {
+	mPtr, ok := obj.(*map[string]interface{})
+	if !ok || mPtr == nil {
+		return fmt.Errorf("invalid object type")
+	}
+	m := *mPtr
+
+	// effective value can be from value or default
+	var newValue string
+	v, ok := m["value"].(string)
+	if ok && v != "" {
+		newValue = v
+	} else if d, ok := m["default"].(string); ok && d != "" {
+		newValue = d
+	}
+	if newValue == "" {
+		return nil
+	}
+
+	if constant.OlaresRemoteService == newValue {
+		return nil
+	}
+
+	klog.Infof("updating OlaresRemoteService from %s to %s", constant.OlaresRemoteService, newValue)
+	constant.OlaresRemoteService = newValue
+
+	if constant.OlaresRemoteService == "" {
 		constant.OlaresRemoteService = constant.DefaultSyncServerURL
-	} else {
-		mPtr, ok := obj.(*map[string]interface{})
-		if !ok || mPtr == nil {
-			return fmt.Errorf("invalid object type")
-		}
-		m := *mPtr
-
-		// effective value can be from value or default
-		var newValue string
-		v, ok := m["value"].(string)
-		if ok && v != "" {
-			newValue = v
-		} else if d, ok := m["default"].(string); ok && d != "" {
-			newValue = d
-		}
-		if newValue == "" {
-			return nil
-		}
-
-		if constant.OlaresRemoteService == newValue {
-			return nil
-		}
-
-		klog.Infof("updating OlaresRemoteService from %s to %s", constant.OlaresRemoteService, newValue)
-		constant.OlaresRemoteService = newValue
 	}
 
 	if err := constant.ReloadEnvDependantVars(); err != nil {
