@@ -12,7 +12,7 @@ import (
 	"olares.com/backup-server/pkg/handlers"
 	"olares.com/backup-server/pkg/storage"
 	"olares.com/backup-server/pkg/util/log"
-	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/watchers/notification"
 )
 
 var workerPool *WorkerPool
@@ -364,7 +364,7 @@ func (w *WorkerPool) sendBackupCanceledEvent(owner string, backupId string, snap
 		"status":   constant.Canceled.String(),
 		"message":  "",
 	}
-	watchers.DataSender.Send(owner, data)
+	notification.DataSender.Send(owner, data)
 }
 
 func (w *WorkerPool) sendRestoreCanceledEvent(owner string, restoreId string) {
@@ -375,5 +375,5 @@ func (w *WorkerPool) sendRestoreCanceledEvent(owner string, restoreId string) {
 		"status":  constant.Canceled.String(),
 		"message": "",
 	}
-	watchers.DataSender.Send(owner, data)
+	notification.DataSender.Send(owner, data)
 }

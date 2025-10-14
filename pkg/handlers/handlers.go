@@ -3,7 +3,7 @@ package handlers
 import (
 	"olares.com/backup-server/pkg/client"
 	"olares.com/backup-server/pkg/interfaces"
-	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/watchers/notification"
 )
 
 var _ Interface = &handlers{}
@@ -13,17 +13,17 @@ type Interface interface {
 	GetBackupHandler() *BackupHandler
 	GetSnapshotHandler() *SnapshotHandler
 	GetRestoreHandler() *RestoreHandler
-	GetNotification() *watchers.Notification
+	GetNotification() *notification.Notification
 }
 
 type handlers struct {
 	BackupHandler   *BackupHandler
 	SnapshotHandler *SnapshotHandler
 	RestoreHandler  *RestoreHandler
-	Notification    *watchers.Notification
+	Notification    *notification.Notification
 }
 
-func NewHandler(factory client.Factory, n *watchers.Notification) Interface {
+func NewHandler(factory client.Factory, n *notification.Notification) Interface {
 	var handlers = &handlers{
 		Notification: n,
 	}
@@ -35,7 +35,7 @@ func NewHandler(factory client.Factory, n *watchers.Notification) Interface {
 	return handlers
 }
 
-func (h *handlers) GetNotification() *watchers.Notification {
+func (h *handlers) GetNotification() *notification.Notification {
 	return h.Notification
 }
 

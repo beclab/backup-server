@@ -23,7 +23,7 @@ import (
 	"olares.com/backup-server/pkg/util"
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/util/pointer"
-	"olares.com/backup-server/pkg/watchers"
+	"olares.com/backup-server/pkg/watchers/notification"
 	backupssdk "olares.com/backups-sdk"
 	backupssdkoptions "olares.com/backups-sdk/pkg/options"
 	backupssdkrestic "olares.com/backups-sdk/pkg/restic"
@@ -357,7 +357,7 @@ func (s *StorageBackup) prepareForRun() error {
 		"status":   constant.Running.String(),
 		"message":  "",
 	}
-	watchers.DataSender.Send(s.Backup.Spec.Owner, data)
+	notification.DataSender.Send(s.Backup.Spec.Owner, data)
 
 	return s.Handlers.GetSnapshotHandler().UpdatePhase(s.Ctx, s.Snapshot.Name, constant.Running.String(), "Backup start running")
 }
@@ -384,7 +384,7 @@ func (s *StorageBackup) progressCallback(percentDone float64) {
 			"status":   constant.Running.String(),
 			"message":  "",
 		}
-		watchers.DataSender.Send(s.Backup.Spec.Owner, data)
+		notification.DataSender.Send(s.Backup.Spec.Owner, data)
 
 		return
 	}
@@ -403,7 +403,7 @@ func (s *StorageBackup) progressCallback(percentDone float64) {
 			"status":   constant.Running.String(),
 			"message":  "",
 		}
-		watchers.DataSender.Send(s.Backup.Spec.Owner, data)
+		notification.DataSender.Send(s.Backup.Spec.Owner, data)
 	}
 }
 
@@ -769,7 +769,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 				}
 			}
 
-			watchers.DataSender.Send(s.Backup.Spec.Owner, eventData)
+			notification.DataSender.Send(s.Backup.Spec.Owner, eventData)
 
 			err = s.Handlers.GetSnapshotHandler().UpdateBackupResult(s.Ctx, snapshot)
 			if err != nil {

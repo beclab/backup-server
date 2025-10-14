@@ -53,7 +53,6 @@ require (
 	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.1
 	k8s.io/code-generator v0.26.1
-	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.130.1
 	olares.com/backups-sdk v0.0.0-20250416000000-8290325e5376
 	sigs.k8s.io/controller-runtime v0.12.2
