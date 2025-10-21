@@ -74,7 +74,7 @@ func (o *RestoreHandler) ListRestores(ctx context.Context, owner string, offset 
 		return nil, err
 	}
 
-	restores, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
+	restores, err := c.SysV1().Restores(constant.DefaultNamespaceOsFramework).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("owner=%s", owner),
 	})
 
@@ -109,7 +109,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      uuid.NewUUID(),
-			Namespace: constant.DefaultOsSystemNamespace,
+			Namespace: constant.DefaultNamespaceOsFramework,
 			Labels: map[string]string{
 				"owner": restoreType.Owner,
 				"type":  restoreTypeName,
@@ -127,7 +127,7 @@ func (o *RestoreHandler) CreateRestore(ctx context.Context, restoreTypeName stri
 		},
 	}
 
-	created, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Create(ctx, restore, metav1.CreateOptions{FieldManager: constant.RestoreController})
+	created, err := c.SysV1().Restores(constant.DefaultNamespaceOsFramework).Create(ctx, restore, metav1.CreateOptions{FieldManager: constant.RestoreController})
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func (o *RestoreHandler) Update(ctx context.Context, restoreId string, restoreSp
 	r.Spec = *restoreSpec
 
 RETRY:
-	_, err = sc.SysV1().Restores(constant.DefaultOsSystemNamespace).Update(ctx, r, metav1.UpdateOptions{
+	_, err = sc.SysV1().Restores(constant.DefaultNamespaceOsFramework).Update(ctx, r, metav1.UpdateOptions{
 		FieldManager: constant.RestoreController,
 	})
 
@@ -182,7 +182,7 @@ func (o *RestoreHandler) Delete(ctx context.Context, restoreId string) error {
 	}
 
 RETRY:
-	err = sc.SysV1().Restores(constant.DefaultOsSystemNamespace).Delete(ctx, restoreId, metav1.DeleteOptions{})
+	err = sc.SysV1().Restores(constant.DefaultNamespaceOsFramework).Delete(ctx, restoreId, metav1.DeleteOptions{})
 
 	if err != nil && apierrors.IsConflict(err) {
 		log.Warnf("delete restore %s spec retry", restoreId)
@@ -203,7 +203,7 @@ func (o *RestoreHandler) GetById(ctx context.Context, id string) (*sysv1.Restore
 		return nil, err
 	}
 
-	restore, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Get(ctxTimeout, id, metav1.GetOptions{})
+	restore, err := c.SysV1().Restores(constant.DefaultNamespaceOsFramework).Get(ctxTimeout, id, metav1.GetOptions{})
 
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func (o *RestoreHandler) GetRestore(ctx context.Context, restoreId string) (*sys
 		return nil, err
 	}
 
-	restore, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Get(ctxTimeout, restoreId, metav1.GetOptions{})
+	restore, err := c.SysV1().Restores(constant.DefaultNamespaceOsFramework).Get(ctxTimeout, restoreId, metav1.GetOptions{})
 
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 		var ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		r, err := c.SysV1().Restores(constant.DefaultOsSystemNamespace).Get(ctx, restoreId, metav1.GetOptions{})
+		r, err := c.SysV1().Restores(constant.DefaultNamespaceOsFramework).Get(ctx, restoreId, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("retry")
 		}
@@ -272,7 +272,7 @@ func (o *RestoreHandler) SetRestorePhase(restoreId string, phase constant.Phase)
 			r.Spec.Message = pointer.String(constant.MessageBackupServerRestart)
 		}
 
-		_, err = c.SysV1().Restores(constant.DefaultOsSystemNamespace).
+		_, err = c.SysV1().Restores(constant.DefaultNamespaceOsFramework).
 			Update(ctx, r, metav1.UpdateOptions{})
 		if err != nil && apierrors.IsConflict(err) {
 			return fmt.Errorf("retry")
@@ -297,7 +297,7 @@ func (o *RestoreHandler) update(ctx context.Context, restore *sysv1.Restore) err
 	defer cancel()
 
 RETRY:
-	_, err = sc.SysV1().Restores(constant.DefaultOsSystemNamespace).Update(getCtx, restore, metav1.UpdateOptions{
+	_, err = sc.SysV1().Restores(constant.DefaultNamespaceOsFramework).Update(getCtx, restore, metav1.UpdateOptions{
 		FieldManager: constant.RestoreController,
 	})
 

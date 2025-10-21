@@ -6,7 +6,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
 	"olares.com/backup-server/pkg/constant"
 	"olares.com/backup-server/pkg/util/log"
 	"olares.com/backup-server/pkg/watchers"
@@ -34,7 +33,7 @@ func (s *Subscriber) Handler() cache.ResourceEventHandler {
 		FilterFunc: func(obj interface{}) bool {
 			mPtr, ok := obj.(*map[string]interface{})
 			if !ok || mPtr == nil {
-				klog.Error("not systemenv resource, invalid obj")
+				log.Error("not systemenv resource, invalid obj")
 				return false
 			}
 			m := *mPtr
@@ -75,7 +74,7 @@ func (s *Subscriber) Do(_ context.Context, obj interface{}, action watchers.Acti
 		return nil
 	}
 
-	klog.Infof("updating OlaresRemoteService from %s to %s", constant.OlaresRemoteService, newValue)
+	log.Infof("updating OlaresRemoteService from %s to %s", constant.OlaresRemoteService, newValue)
 	constant.OlaresRemoteService = newValue
 
 	if constant.OlaresRemoteService == "" {
