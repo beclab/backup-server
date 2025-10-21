@@ -125,7 +125,7 @@ func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset, l
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(ctx, metav1.ListOptions{
+	backups, err := c.SysV1().Backups(constant.DefaultNamespaceOsFramework).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("owner=%s", owner),
 	})
 
@@ -163,7 +163,7 @@ func (o *BackupHandler) GetById(ctx context.Context, id string) (*sysv1.Backup, 
 		return nil, err
 	}
 
-	return c.SysV1().Backups(constant.DefaultOsSystemNamespace).Get(ctx, id, metav1.GetOptions{})
+	return c.SysV1().Backups(constant.DefaultNamespaceOsFramework).Get(ctx, id, metav1.GetOptions{})
 }
 
 func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Backup, error) {
@@ -174,7 +174,7 @@ func (o *BackupHandler) GetByLabel(ctx context.Context, label string) (*sysv1.Ba
 	if err != nil {
 		return nil, err
 	}
-	backups, err := c.SysV1().Backups(constant.DefaultOsSystemNamespace).List(getCtx, metav1.ListOptions{
+	backups, err := c.SysV1().Backups(constant.DefaultNamespaceOsFramework).List(getCtx, metav1.ListOptions{
 		LabelSelector: label,
 	})
 
@@ -209,7 +209,7 @@ RETRY:
 	var backup = &sysv1.Backup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      backupId,
-			Namespace: constant.DefaultOsSystemNamespace,
+			Namespace: constant.DefaultNamespaceOsFramework,
 			Labels:    labels,
 		},
 		TypeMeta: metav1.TypeMeta{
@@ -232,7 +232,7 @@ RETRY:
 		return nil, err
 	}
 
-	_, err = dynamicClient.Resource(constant.BackupGVR).Namespace(constant.DefaultOsSystemNamespace).
+	_, err = dynamicClient.Resource(constant.BackupGVR).Namespace(constant.DefaultNamespaceOsFramework).
 		Apply(ctx, res.GetName(), &res, metav1.ApplyOptions{Force: true, FieldManager: constant.BackupController})
 
 	if err != nil && apierrors.IsConflict(err) {
@@ -263,7 +263,7 @@ func (o *BackupHandler) update(ctx context.Context, backup *sysv1.Backup) error 
 	defer cancel()
 
 RETRY:
-	_, err = sc.SysV1().Backups(constant.DefaultOsSystemNamespace).Update(getCtx, backup, metav1.UpdateOptions{
+	_, err = sc.SysV1().Backups(constant.DefaultNamespaceOsFramework).Update(getCtx, backup, metav1.UpdateOptions{
 		FieldManager: constant.BackupController,
 	})
 
@@ -287,7 +287,7 @@ func (o *BackupHandler) delete(ctx context.Context, backup *sysv1.Backup) error 
 	defer cancel()
 
 RETRY:
-	err = sc.SysV1().Backups(constant.DefaultOsSystemNamespace).Delete(getCtx, backup.Name, metav1.DeleteOptions{})
+	err = sc.SysV1().Backups(constant.DefaultNamespaceOsFramework).Delete(getCtx, backup.Name, metav1.DeleteOptions{})
 
 	if err != nil && apierrors.IsConflict(err) {
 		log.Warnf("delete backup %s spec retry", backup.Spec.Name)

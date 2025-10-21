@@ -218,7 +218,7 @@ func (s *StorageBackup) prepareBackupParams() error {
 	var backupName = s.Backup.Spec.Name
 	var snapshotId = s.Snapshot.Name
 
-	var token, err = integration.IntegrationService.GetAuthToken(s.Backup.Spec.Owner)
+	var token, err = integration.IntegrationService.GetAuthToken(s.Backup.Spec.Owner, fmt.Sprintf("user-system-%s", s.Backup.Spec.Owner), constant.DefaultServiceAccountSettings)
 	if err != nil {
 		log.Errorf("Backup %s,%s, get auth token error: %v", backupName, snapshotId, err)
 		return err
@@ -237,13 +237,11 @@ func (s *StorageBackup) prepareBackupParams() error {
 		if external {
 			filesPrefix = append(filesPrefix, filepath.Join(constant.ExternalPath, backupSourceRealPath))
 		} else if cache {
-			filesPrefix = append(filesPrefix, filepath.Join(s.AppcachePvcPath, backupSourceRealPath)) //append(filesPrefix, filepath.Join(constant.CachePath, backupSourceRealPath))
+			filesPrefix = append(filesPrefix, filepath.Join(s.AppcachePvcPath, backupSourceRealPath))
 		} else {
 			filesPrefix = append(filesPrefix, filepath.Join(s.UserspacePvcPath, backupSourceRealPath))
 		}
-		// var filesPrefix []string = []string{
-		// 	filepath.Join(s.UserspacePvcPath, backupSourceRealPath),
-		// }
+
 		filesPrefixBytes, _ := json.Marshal(filesPrefix)
 		s.BackupAppFilesPrefix = string(filesPrefixBytes)
 	}
@@ -268,7 +266,7 @@ func (s *StorageBackup) prepareBackupParams() error {
 		if external {
 			location["path"] = path.Join(constant.ExternalPath, locPath)
 		} else if cache {
-			location["path"] = path.Join(s.AppcachePvcPath, locPath) //path.Join(constant.CachePath, locPath)
+			location["path"] = path.Join(s.AppcachePvcPath, locPath)
 		} else {
 			location["path"] = path.Join(s.UserspacePvcPath, locPath)
 		}
@@ -280,7 +278,7 @@ func (s *StorageBackup) prepareBackupParams() error {
 		if tmpBackupExternal {
 			backupPath = path.Join(constant.ExternalPath, tmpBackupPath)
 		} else if tmpCache {
-			backupPath = path.Join(s.AppcachePvcPath, tmpBackupPath) //path.Join(constant.CachePath, tmpBackupPath)
+			backupPath = path.Join(s.AppcachePvcPath, tmpBackupPath)
 		} else {
 			backupPath = path.Join(s.UserspacePvcPath, tmpBackupPath)
 		}

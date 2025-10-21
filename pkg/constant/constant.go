@@ -23,7 +23,9 @@ const (
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
 
-	DefaultOsSystemNamespace = "os-framework"
+	DefaultNamespaceOsFramework   = "os-framework"
+	DefaultServiceAccount         = "os-internal"
+	DefaultServiceAccountSettings = "user-backend"
 
 	FullyBackup         string = "fully"
 	IncrementalBackup   string = "incremental"

@@ -34,21 +34,21 @@ type accountResponse struct {
 }
 
 type accountResponseData struct {
-	Name     string                  `json:"name"`
-	Type     string                  `json:"type"`
-	RawData  *accountResponseRawData `json:"raw_data"`
-	CloudUrl string                  `json:"cloudUrl"`
+	Name    string                  `json:"name"`
+	Type    string                  `json:"type"`
+	RawData *accountResponseRawData `json:"rawData"`
 }
 
 type accountResponseRawData struct {
-	ExpiresAt    int64  `json:"expires_at"`
-	RefreshToken string `json:"refresh_token"`
-	AccessToken  string `json:"access_token"`
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	ExpiresAt    int64  `json:"expiresAt"`
+	CreateAt     int64  `json:"createAt"`
+	Available    bool   `json:"available"`
 	Endpoint     string `json:"endpoint"`
 	Bucket       string `json:"bucket"`
 	UserId       string `json:"userid"`
-	Available    bool   `json:"available"`
-	CreateAt     int64  `json:"create_at"`
+	CloudUrl     string `json:"cloudUrl"`
 }
 
 type accountsResponse struct {
