@@ -23,7 +23,10 @@ const (
 	DefaultSnapshotSizeUnit = "byte"
 	BflUserKey              = "X-BFL-USER"
 
-	DefaultOsSystemNamespace = "os-framework"
+	DefaultIntegrationProviderUrl = "http://integration-provider-svc.os-protected:28080"
+	DefaultNamespaceOsFramework   = "os-framework"
+	DefaultServiceAccount         = "os-internal"
+	DefaultServiceAccountSettings = "user-backend"
 
 	FullyBackup         string = "fully"
 	IncrementalBackup   string = "incremental"
@@ -71,6 +74,7 @@ const (
 
 	EnvLimitUploadRate   = "LIMIT_UPLOAD_RATE"
 	EnvLimitDownloadRate = "LIMIT_DOWNLOAD_RATE"
+	EnvIntegrationDebug  = "BACKUP_INTEGRATION_DEBUG"
 
 	FreeSpaceStorage uint64 = 2 * 1024 * 1024 * 1024
 

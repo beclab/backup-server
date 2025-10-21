@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/pkg/errors"
 	authv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"olares.com/backup-server/pkg/client"
 	"olares.com/backup-server/pkg/constant"
 	"olares.com/backup-server/pkg/util"
@@ -26,6 +26,7 @@ type Integration struct {
 	Factory      client.Factory
 	Location     string
 	Name         string
+	rest         *resty.Client
 	OlaresTokens map[string]*SpaceToken
 	authToken    map[string]*authToken
 }
@@ -36,8 +37,15 @@ type authToken struct {
 }
 
 func NewIntegrationManager(factory client.Factory) {
+	var debug = false
+	d := os.Getenv(constant.EnvIntegrationDebug)
+	if d == "1" {
+		debug = true
+	}
+
 	IntegrationService = &Integration{
 		Factory:      factory,
+		rest:         resty.New().SetTimeout(20 * time.Second).SetDebug(debug),
 		OlaresTokens: make(map[string]*SpaceToken),
 		authToken:    make(map[string]*authToken),
 	}
@@ -135,7 +143,7 @@ func (i *Integration) GetIntegrationCloudAccount(ctx context.Context, owner, loc
 
 func (i *Integration) GetIntegrationAccountsByLocation(ctx context.Context, owner, location string) ([]string, error) {
 
-	accounts, err := i.queryIntegrationAccounts(ctx, owner) // GetIntegrationAccountsByLocation
+	accounts, err := i.queryIntegrationAccounts(ctx, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +235,7 @@ func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, l
 				if err != nil {
 					return "", err
 				}
-				if tokenInfo.Bucket == bucket && tokenInfo.Region == region { // && tokenInfo.Prefix == prefix
+				if tokenInfo.Bucket == bucket && tokenInfo.Region == region {
 					name = account.Name
 					break
 				}
@@ -240,7 +248,7 @@ func (i *Integration) GetIntegrationNameByLocation(ctx context.Context, owner, l
 				if err != nil {
 					return "", err
 				}
-				if tokenInfo.Bucket == bucket && tokenInfo.Region == region { // && tokenInfo.Prefix == strings.TrimRight(prefix, "/")
+				if tokenInfo.Bucket == bucket && tokenInfo.Region == region {
 					name = account.Name
 					break
 				}
@@ -280,19 +288,21 @@ func (i *Integration) withCloudToken(data *accountResponseData) *IntegrationToke
 }
 
 func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string) ([]*accountsResponseData, error) {
-	var authToken, err = i.GetAuthToken(owner)
+	var authToken, err = i.GetAuthToken(owner, constant.DefaultNamespaceOsFramework, constant.DefaultServiceAccount)
 	if err != nil {
 		return nil, err
 	}
 
-	var settingsUrl = fmt.Sprintf("http://settings.user-system-%s:28080/api/account/all", owner)
+	var integrationUrl = fmt.Sprintf("%s/api/account/list", constant.DefaultIntegrationProviderUrl)
+	var data = make(map[string]string)
+	data["user"] = owner
 
-	client := resty.New().SetTimeout(10 * time.Second)
-	log.Infof("fetch integration from settings: %s", settingsUrl)
-	resp, err := client.R().SetDebug(true).SetContext(ctx).
+	log.Infof("fetch integration from settings: %s", integrationUrl)
+	resp, err := i.rest.R().SetContext(ctx).
 		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", authToken)).
+		SetBody(data).
 		SetResult(&accountsResponse{}).
-		Get(settingsUrl)
+		Post(integrationUrl)
 
 	if err != nil {
 		return nil, err
@@ -322,22 +332,23 @@ func (i *Integration) queryIntegrationAccounts(ctx context.Context, owner string
 }
 
 func (i *Integration) query(ctx context.Context, owner, integrationLocation, integrationName string) (*accountResponseData, error) {
-	var authToken, err = i.GetAuthToken(owner)
+	var authToken, err = i.GetAuthToken(owner, constant.DefaultNamespaceOsFramework, constant.DefaultServiceAccount)
 	if err != nil {
 		return nil, err
 	}
-	var settingsUrl = fmt.Sprintf("http://settings.user-system-%s:28080/api/account/retrieve", owner)
+	var integrationUrl = fmt.Sprintf("%s/api/account/retrieve", constant.DefaultIntegrationProviderUrl)
 
-	client := resty.New().SetTimeout(10 * time.Second)
 	var data = make(map[string]string)
-	data["name"] = i.formatUrl(integrationLocation, integrationName)
-	log.Infof("fetch integration from settings: %s", settingsUrl)
-	resp, err := client.R().SetDebug(true).SetContext(ctx).
+	data["name"] = integrationName
+	data["type"] = i.formatUrl(integrationLocation)
+	data["user"] = owner
+	log.Infof("fetch integration from settings: %s", integrationUrl)
+	resp, err := i.rest.R().SetContext(ctx).
 		SetHeader(restful.HEADER_ContentType, restful.MIME_JSON).
 		SetHeader(constant.BackendAuthorizationHeader, fmt.Sprintf("Bearer %s", authToken)).
 		SetBody(data).
 		SetResult(&accountResponse{}).
-		Post(settingsUrl)
+		Post(integrationUrl)
 
 	if err != nil {
 		return nil, err
@@ -366,57 +377,7 @@ func (i *Integration) query(ctx context.Context, owner, integrationLocation, int
 	return accountResp.Data, nil
 }
 
-func (i *Integration) getOlaresId(ctx context.Context, owner string) (string, error) {
-	dynamicClient, err := i.Factory.DynamicClient()
-	if err != nil {
-		return "", errors.WithStack(fmt.Errorf("get dynamic client error: %v", err))
-	}
-
-	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	unstructuredUser, err := dynamicClient.Resource(constant.UsersGVR).Get(getCtx, owner, metav1.GetOptions{})
-	if err != nil {
-		return "", errors.WithStack(fmt.Errorf("get user error: %v", err))
-	}
-	obj := unstructuredUser.UnstructuredContent()
-	olaresId, _, err := unstructured.NestedString(obj, "spec", "email")
-	if err != nil {
-		return "", errors.WithStack(fmt.Errorf("get user nested string error: %v", err))
-	}
-	return olaresId, nil
-}
-
-func (i *Integration) getSettingsIP(ctx context.Context, onwer string) (ip string, err error) {
-	kubeClient, err := i.Factory.KubeClient()
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-
-	getCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	pods, err := kubeClient.CoreV1().Pods(fmt.Sprintf("user-system-%s", onwer)).List(getCtx, metav1.ListOptions{
-		LabelSelector: "app=systemserver",
-	})
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-
-	if pods == nil || pods.Items == nil || len(pods.Items) == 0 {
-		return "", fmt.Errorf("system server pod not found")
-	}
-
-	pod := pods.Items[0]
-	podIp := pod.Status.PodIP
-	if podIp == "" {
-		return "", fmt.Errorf("system server pod ip invalid")
-	}
-
-	return podIp, nil
-}
-
-func (i *Integration) formatUrl(location, name string) string {
+func (i *Integration) formatUrl(location string) string {
 	var l string
 	switch location {
 	case "space":
@@ -426,19 +387,18 @@ func (i *Integration) formatUrl(location, name string) string {
 	case "tencentcloud":
 		l = "tencent"
 	}
-	return fmt.Sprintf("integration-account:%s:%s", l, name)
+	return l
 }
 
-func (i *Integration) GetAuthToken(owner string) (string, error) {
-	at, ok := i.authToken[owner]
+func (i *Integration) GetAuthToken(owner string, namespace string, sa string) (string, error) {
+	var tokenKey = fmt.Sprintf("%s_%s", owner, sa)
+	at, ok := i.authToken[tokenKey]
 	if ok {
 		if time.Now().Before(at.expire) {
 			return at.token, nil
 		}
 	}
 	var expirationSeconds int64 = 86400
-
-	namespace := fmt.Sprintf("user-system-%s", owner)
 	tr := &authv1.TokenRequest{
 		Spec: authv1.TokenRequestSpec{
 			Audiences:         []string{"https://kubernetes.default.svc.cluster.local"},
@@ -449,7 +409,7 @@ func (i *Integration) GetAuthToken(owner string) (string, error) {
 	kubeClient, _ := i.Factory.KubeClient()
 
 	token, err := kubeClient.CoreV1().ServiceAccounts(namespace).
-		CreateToken(context.Background(), "user-backend", tr, metav1.CreateOptions{})
+		CreateToken(context.Background(), sa, tr, metav1.CreateOptions{})
 	if err != nil {
 		// klog.Errorf("Failed to create token for user %s in namespace %s: %v", owner, namespace, err)
 		return "", fmt.Errorf("failed to create token for user %s in namespace %s: %v", owner, namespace, err)
@@ -459,9 +419,9 @@ func (i *Integration) GetAuthToken(owner string) (string, error) {
 		at = &authToken{}
 	}
 	at.token = token.Status.Token
-	at.expire = time.Now().Add(82800 * time.Second)
+	at.expire = time.Now().Add(40000 * time.Second)
 
-	i.authToken[owner] = at
+	i.authToken[tokenKey] = at
 
 	return at.token, nil
 }

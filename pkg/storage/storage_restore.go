@@ -184,7 +184,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 	var external, cache bool
 
 	if s.RestoreType.Type == constant.RestoreTypeSnapshot {
-		token, err = integration.IntegrationService.GetAuthToken(s.Backup.Spec.Owner)
+		token, err = integration.IntegrationService.GetAuthToken(s.Backup.Spec.Owner, fmt.Sprintf("user-system-%s", s.Backup.Spec.Owner), constant.DefaultServiceAccountSettings)
 		if err != nil {
 			log.Errorf("Restore %s get auth token error: %v", s.RestoreId, err)
 			return err
@@ -211,7 +211,7 @@ func (s *StorageRestore) prepareRestoreParams() error {
 			if external {
 				locationConfig["path"] = path.Join(constant.ExternalPath, locPath)
 			} else if cache {
-				locationConfig["path"] = path.Join(s.AppcachePvcPath, locPath) //path.Join(constant.CachePath, locPath)
+				locationConfig["path"] = path.Join(s.AppcachePvcPath, locPath)
 			} else {
 				locationConfig["path"] = path.Join(s.UserspacePvcPath, locPath)
 			}
