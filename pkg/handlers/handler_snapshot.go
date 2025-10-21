@@ -80,7 +80,7 @@ func (o *SnapshotHandler) DeleteSnapshots(ctx context.Context, backupId string) 
 		return err
 	}
 
-	return c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
+	return c.SysV1().Snapshots(constant.DefaultNamespaceOsFramework).DeleteCollection(getCtx, metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 }
@@ -142,7 +142,7 @@ func (o *SnapshotHandler) ListSnapshots(ctx context.Context, offset, limit int64
 		listOptions.FieldSelector = fieldSelector
 	}
 
-	l, err := c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).List(ctx, listOptions)
+	l, err := c.SysV1().Snapshots(constant.DefaultNamespaceOsFramework).List(ctx, listOptions)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -230,7 +230,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: constant.DefaultOsSystemNamespace,
+			Namespace: constant.DefaultNamespaceOsFramework,
 			Labels: map[string]string{
 				"backup-id": backup.Name,
 				"type":      backupType,
@@ -250,7 +250,7 @@ func (o *SnapshotHandler) Create(ctx context.Context, backup *sysv1.Backup, loca
 		},
 	}
 
-	created, err := c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Create(ctx, snapshot, metav1.CreateOptions{FieldManager: constant.SnapshotController})
+	created, err := c.SysV1().Snapshots(constant.DefaultNamespaceOsFramework).Create(ctx, snapshot, metav1.CreateOptions{FieldManager: constant.SnapshotController})
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func (o *SnapshotHandler) GetById(ctx context.Context, snapshotId string) (*sysv
 		return nil, err
 	}
 
-	return c.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Get(getCtx, snapshotId, metav1.GetOptions{})
+	return c.SysV1().Snapshots(constant.DefaultNamespaceOsFramework).Get(getCtx, snapshotId, metav1.GetOptions{})
 }
 
 func (o *SnapshotHandler) GetRunningSnapshot(ctx context.Context, backupId string) (bool, error) {
@@ -330,7 +330,7 @@ func (o *SnapshotHandler) update(ctx context.Context, snapshot *sysv1.Snapshot) 
 	defer cancel()
 
 RETRY:
-	_, err = sc.SysV1().Snapshots(constant.DefaultOsSystemNamespace).Update(getCtx, snapshot, metav1.UpdateOptions{
+	_, err = sc.SysV1().Snapshots(constant.DefaultNamespaceOsFramework).Update(getCtx, snapshot, metav1.UpdateOptions{
 		FieldManager: constant.SnapshotController,
 	})
 

@@ -21,3 +21,4 @@
 go.work
 restic
 Dockerfile.local
+/doc

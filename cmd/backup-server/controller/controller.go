@@ -149,6 +149,8 @@ func run(factory client.Factory) error {
 
 	worker.NewWorkerPool(context.TODO(), handler)
 
+	watchers.InitCrontabs()
+
 	enabledControllers := map[string]struct{}{
 		controllers.BackupController:   {},
 		controllers.SnapshotController: {},
