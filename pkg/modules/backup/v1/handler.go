@@ -49,7 +49,7 @@ func (h *Handler) listBackup(req *restful.Request, resp *restful.Response) {
 	limit := util.ParseToInt64(req.QueryParameter("limit"))
 	offset := util.ParseToInt64(req.QueryParameter("offset"))
 
-	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, offset, limit)
+	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, owner, offset, limit, fmt.Sprintf("owner=%s", owner), "")
 	if err != nil {
 		log.Errorf("get backups error: %v", err)
 		response.Success(resp, parseResponseBackupList(backups, nil, 1))
@@ -215,12 +215,37 @@ func (h *Handler) update(req *restful.Request, resp *restful.Response) {
 		return
 	}
 
-	r := &ResponseDescribeBackup{ // TODO
-		Name:           backupId,
-		BackupPolicies: b.BackupPolicies,
+	log.Infof("received backup update success, id: %s", backupId)
+
+	backups, err := h.handler.GetBackupHandler().ListBackups(ctx, backupId, 0, 0, "", fmt.Sprintf("metadata.name=%s", backupId))
+	if err != nil {
+		response.HandleError(resp, errors.WithMessagef(err, format, backupId))
+		return
 	}
 
-	response.Success(resp, r)
+	result, _, totalPage := handlers.GenericPager(0, 0, backups)
+
+	labelsSelector := h.handler.GetBackupHandler().GetBackupIdForLabels(result)
+	var allSnapshots = new(sysv1.SnapshotList)
+	for _, ls := range labelsSelector {
+		snapshots, err := h.handler.GetSnapshotHandler().ListSnapshots(ctx, 0, 0, ls, "")
+		if err != nil {
+			log.Errorf("get snapshots error: %v", err)
+			continue
+		}
+		if snapshots == nil || len(snapshots.Items) == 0 {
+			continue
+		}
+		allSnapshots.Items = append(allSnapshots.Items, snapshots.Items...)
+	}
+
+	data := parseResponseBackupList(result, allSnapshots, totalPage)
+	var items = data.Backups
+	if len(items) == 0 {
+		response.Success(resp, nil)
+	} else {
+		response.Success(resp, items[0])
+	}
 }
 
 func (h *Handler) deleteBackupPlan(req *restful.Request, resp *restful.Response) {

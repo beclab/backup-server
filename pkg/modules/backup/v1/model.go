@@ -148,6 +148,11 @@ type RestoreCancel struct {
 	Event string `json:"event"`
 }
 
+type ResponseBackupListInfo struct {
+	TotalPage int64                 `json:"totalPage"`
+	Backups   []*ResponseBackupList `json:"backups"`
+}
+
 type ResponseBackupList struct {
 	Id                  string `json:"id"`
 	Name                string `json:"name"`
@@ -473,10 +478,11 @@ func parseResponseBackupOne(backup *sysv1.Backup, snapshot *sysv1.Snapshot) (map
 	return result, nil
 }
 
-func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList, totalPage int64) map[string]interface{} {
-	var result = make(map[string]interface{})
+func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotList, totalPage int64) *ResponseBackupListInfo {
+	var result = new(ResponseBackupListInfo)
 	if data == nil || data.Items == nil || len(data.Items) == 0 {
-		result["backups"] = []struct{}{}
+		result.TotalPage = 0
+		result.Backups = []*ResponseBackupList{}
 		return result
 	}
 
@@ -535,27 +541,10 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 		res = append(res, r)
 	}
 
-	result["totalPage"] = totalPage
-	result["backups"] = res
+	result.TotalPage = totalPage
+	result.Backups = res
 
 	return result
-}
-
-func parseBackupSnapshotDetail(b *SyncBackup) *SnapshotDetails {
-	return &SnapshotDetails{
-		Name:                   b.Name,
-		CreationTimestamp:      b.CreationTimestamp,
-		Size:                   b.Size,
-		Phase:                  b.Phase,
-		FailedMessage:          b.FailedMessage,
-		Owner:                  b.Owner,
-		BackupType:             b.BackupType,
-		SnapshotId:             b.SnapshotId,
-		RepositoryPasswordHash: b.RepositoryPasswordHash,
-		BackupConfigName:       b.BackupConfigName,
-		//RefFullyBackupUid:            b.RefFullyBackupUid,
-		//RefFullyBackupName:           b.RefFullyBackupName,
-	}
 }
 
 func parseResponseRestoreDetailFromBackupUrl(restore *sysv1.Restore) (*ResponseRestoreDetail, error) {
