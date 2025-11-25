@@ -119,15 +119,21 @@ func (o *BackupHandler) UpdateTotalSize(ctx context.Context, backup *sysv1.Backu
 	return o.update(ctx, backup)
 }
 
-func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset, limit int64) (*sysv1.BackupList, error) {
+func (o *BackupHandler) ListBackups(ctx context.Context, owner string, offset, limit int64, labelSelector string, fieldSelector string) (*sysv1.BackupList, error) {
 	c, err := o.factory.Sysv1Client()
 	if err != nil {
 		return nil, err
 	}
 
-	backups, err := c.SysV1().Backups(constant.DefaultNamespaceOsFramework).List(ctx, metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("owner=%s", owner),
-	})
+	var listOpts = metav1.ListOptions{}
+	if labelSelector != "" {
+		listOpts.LabelSelector = labelSelector
+	}
+	if fieldSelector != "" {
+		listOpts.FieldSelector = fieldSelector
+	}
+
+	backups, err := c.SysV1().Backups(constant.DefaultNamespaceOsFramework).List(ctx, listOpts)
 
 	if err != nil {
 		return nil, err
