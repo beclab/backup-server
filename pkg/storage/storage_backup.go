@@ -937,7 +937,7 @@ func (s *StorageBackup) formatAppBackupFiles() error {
 	var pgFiles = s.BackupAppStatus.Data.PgFiles
 	var files []string
 
-	if entryFiles != nil && len(entryFiles) > 0 {
+	if len(entryFiles) > 0 {
 		for _, f := range entryFiles {
 			if err := s.replaceFilePaths(f, filepath.Join(s.UserspacePvcPath, "Home"), true); err != nil {
 				return err
@@ -947,7 +947,7 @@ func (s *StorageBackup) formatAppBackupFiles() error {
 		}
 	}
 
-	if pgFiles != nil && len(pgFiles) > 0 {
+	if len(pgFiles) > 0 {
 		for _, f := range pgFiles {
 			if err := s.replaceFilePaths(f, "/olares", false); err != nil {
 				return err
@@ -999,7 +999,7 @@ func (s *StorageBackup) replaceFilePaths(fp string, replacedFilePathPrefix strin
 		if appendPrefix {
 			newLine = filepath.Join(replacedFilePathPrefix, line)
 		} else {
-			newLine = strings.ReplaceAll(line, replacedFilePathPrefix, "")
+			newLine = strings.TrimPrefix(line, replacedFilePathPrefix)
 		}
 
 		if _, err := writer.WriteString(newLine + "\n"); err != nil {
