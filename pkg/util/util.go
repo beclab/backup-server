@@ -318,13 +318,13 @@ func FormatBytes(bytes uint64) string {
 }
 
 func TrimArrayPrefix(array []string, prefix string) []string {
-	if array == nil || len(array) == 0 {
+	if len(array) == 0 {
 		return []string{}
 	}
 	var result []string
 	for _, v := range array {
 		if strings.HasPrefix(v, prefix) {
-			result = append(result, strings.ReplaceAll(v, prefix, ""))
+			result = append(result, strings.TrimPrefix(v, prefix))
 		}
 	}
 	return result
