@@ -731,6 +731,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 				msg = phase.String()
 				eventData["size"] = fmt.Sprintf("%d", backupOutput.TotalBytesProcessed)
 				eventData["totalSize"] = fmt.Sprintf("%d", backupTotalSize)
+				eventData["restoreSize"] = fmt.Sprintf("%d", backupOutput.RestoreSize)
 				eventData["progress"] = progressDone
 				eventData["status"] = phase.String()
 				eventData["message"] = msg
@@ -762,7 +763,7 @@ func (s *StorageBackup) updateBackupResult(backupOutput *backupssdkrestic.Summar
 
 			if backupOutput != nil {
 				var newLocation, newLocationData = s.buildLocation()
-				if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize, newLocation, newLocationData); err != nil {
+				if err := s.Handlers.GetBackupHandler().UpdateTotalSize(s.Ctx, backup, backupTotalSize, backupOutput.RestoreSize, newLocation, newLocationData); err != nil {
 					log.Errorf("Backup %s,%s, update backup total size error: %v", backup.Spec.Name, s.Snapshot.Name, err)
 				}
 			}

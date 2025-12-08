@@ -166,6 +166,7 @@ type ResponseBackupList struct {
 	CreateAt            int64  `json:"createAt"`
 	Status              string `json:"status"`
 	Size                string `json:"size"`
+	RestoreSize         string `json:"restoreSize"`
 	Path                string `json:"path"`
 }
 
@@ -177,6 +178,7 @@ type ResponseBackupDetail struct {
 	Path              string              `json:"path"`
 	BackupPolicies    *sysv1.BackupPolicy `json:"backupPolicies,omitempty"`
 	Size              string              `json:"size"`
+	RestoreSize       string              `json:"restoreSize"`
 }
 
 type ResponseSnapshotList struct {
@@ -402,6 +404,7 @@ func parseResponseBackupDetail(backup *sysv1.Backup) *ResponseBackupDetail {
 		BackupPolicies:    backup.Spec.BackupPolicy,
 		Path:              handlers.ParseBackupTypePath(backup.Spec.BackupType),
 		Size:              handlers.ParseSnapshotSize(backup.Spec.Size),
+		RestoreSize:       handlers.ParseSnapshotSize(backup.Spec.RestoreSize),
 	}
 }
 
@@ -532,6 +535,7 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 		if s, ok := bs[backup.Name]; ok {
 			r.SnapshotId = s.Name
 			r.Size = handlers.ParseSnapshotSize(s.Spec.Size)
+			r.RestoreSize = handlers.ParseSnapshotSize(backup.Spec.RestoreSize)
 			r.Status = *s.Spec.Phase
 		} else {
 			r.Size = "0"
