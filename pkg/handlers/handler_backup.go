@@ -102,13 +102,14 @@ func (o *BackupHandler) UpdateNotifyState(ctx context.Context, backupId string, 
 
 }
 
-func (o *BackupHandler) UpdateTotalSize(ctx context.Context, backup *sysv1.Backup, totalSize uint64, newLocation, newLocationData string) error {
+func (o *BackupHandler) UpdateTotalSize(ctx context.Context, backup *sysv1.Backup, totalSize, restoreSize uint64, newLocation, newLocationData string) error {
 	extra := backup.Spec.Extra
 	if extra == nil {
 		extra = make(map[string]string)
 	}
 	extra["size_updated"] = fmt.Sprintf("%d", time.Now().Unix())
 	backup.Spec.Size = &totalSize
+	backup.Spec.RestoreSize = &restoreSize
 	backup.Spec.Notified = false
 	backup.Spec.Extra = extra
 

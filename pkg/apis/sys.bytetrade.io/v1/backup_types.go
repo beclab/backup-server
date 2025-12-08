@@ -43,6 +43,7 @@ type BackupSpec struct {
 	BackupPolicy *BackupPolicy     `json:"backupPolicy,omitempty"`
 	BackupType   map[string]string `json:"backupType"`
 	Size         *uint64           `json:"size,omitempty"`
+	RestoreSize  *uint64           `json:"restoreSize,omitempty"`
 	CreateAt     *metav1.Time      `json:"createAt"`
 	Notified     bool              `json:"notified"`
 	Deleted      bool              `json:"deleted"`
