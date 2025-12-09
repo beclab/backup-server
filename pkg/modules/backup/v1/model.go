@@ -530,12 +530,12 @@ func parseResponseBackupList(data *sysv1.BackupList, snapshots *sysv1.SnapshotLi
 			Location:            location,
 			LocationConfigName:  locationConfigName, // filesystem is target
 			Path:                handlers.ParseBackupTypePath(backup.Spec.BackupType),
+			RestoreSize:         handlers.ParseSnapshotSize(backup.Spec.RestoreSize),
 		}
 
 		if s, ok := bs[backup.Name]; ok {
 			r.SnapshotId = s.Name
 			r.Size = handlers.ParseSnapshotSize(s.Spec.Size)
-			r.RestoreSize = handlers.ParseSnapshotSize(backup.Spec.RestoreSize)
 			r.Status = *s.Spec.Phase
 		} else {
 			r.Size = "0"
